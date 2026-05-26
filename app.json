@@ -1,0 +1,93 @@
+{
+  "expo": {
+    "name": "Lokshift",
+    "slug": "locshift-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "locshift",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0064E0"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.lokshift.mobile",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Lokshift verwendet das Mikrofon, um Sprachnachrichten im Team-Chat aufzunehmen.",
+        "NSPhotoLibraryUsageDescription": "Lokshift braucht Zugriff auf Ihre Mediathek, damit Sie Bilder im Chat senden können.",
+        "NSCameraUsageDescription": "Lokshift verwendet die Kamera, um Fotos direkt aus dem Chat aufzunehmen.",
+        "NSFaceIDUsageDescription": "Lokshift schützt Ihr Konto mit Face ID. Sie können die biometrische Sperre in den Sicherheitseinstellungen deaktivieren.",
+        "NSLocationWhenInUseUsageDescription": "Lokshift erfasst Ihren Standort beim Ein-/Ausstempeln und für die Live-Einsatzkarte.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Während einer aktiven Schicht aktualisiert Lokshift Ihren Standort regelmäßig im Hintergrund, damit die Disposition Sie auf der Live-Karte sehen kann.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0064E0"
+      },
+      "package": "app.lokshift.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "NOTIFICATIONS",
+        "RECORD_AUDIO",
+        "READ_MEDIA_IMAGES",
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#0064E0"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Lokshift verwendet das Mikrofon, um Sprachnachrichten im Team-Chat aufzunehmen."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Lokshift braucht Zugriff auf Ihre Mediathek, damit Sie Bilder im Chat senden können.",
+          "cameraPermission": "Lokshift verwendet die Kamera, um Fotos direkt aus dem Chat aufzunehmen."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Lokshift erfasst Ihren Standort beim Ein-/Ausstempeln und für die Live-Einsatzkarte.",
+          "locationAlwaysAndWhenInUsePermission": "Während einer aktiven Schicht aktualisiert Lokshift Ihren Standort regelmäßig im Hintergrund, damit die Disposition Sie auf der Live-Karte sehen kann.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}
