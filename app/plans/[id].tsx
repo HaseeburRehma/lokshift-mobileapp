@@ -23,8 +23,9 @@ import {
   AlertCircle,
   PenSquare,
 } from 'lucide-react-native'
-import { format, parseISO } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
+import { safeFormatDate, safeFormatTime, safeNumber } from '@/lib/safe-format'
+import { safeParseISO } from '@/lib/safe-format'
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
@@ -39,6 +40,7 @@ import { usePlans } from '@/hooks/usePlans'
 import type { Plan } from '@/lib/types'
 import { getSupabase } from '@/lib/supabase/client'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 export default function PlanDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -98,10 +100,13 @@ export default function PlanDetailScreen() {
   const canActOnPlan =
     isEmployee && isMine && (plan.status === 'assigned' || plan.status === 'draft')
 
-  const hours = (
-    (new Date(plan.end_time).getTime() - new Date(plan.start_time).getTime()) /
-    3_600_000
-  ).toFixed(2)
+  // Compute net hours safely — bad/empty timestamps return 0 instead of NaN.
+  const _startD = safeParseISO(plan.start_time)
+  const _endD = safeParseISO(plan.end_time)
+  const hours = safeNumber(
+    _startD && _endD ? (_endD.getTime() - _startD.getTime()) / 3_600_000 : 0,
+    2,
+  )
 
   const confirm = async () => {
     setActing(true)
@@ -111,6 +116,7 @@ export default function PlanDetailScreen() {
       setPlan({ ...plan, status: 'confirmed' })
       fetchPlans()
     } catch (err: any) {
+      captureError(err, { tags: { action: 'plan.confirm' } })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setActing(false)
@@ -134,6 +140,7 @@ export default function PlanDetailScreen() {
       setRejectReason('')
       fetchPlans()
     } catch (err: any) {
+      captureError(err, { tags: { action: 'plan.reject' } })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setActing(false)
@@ -165,8 +172,8 @@ export default function PlanDetailScreen() {
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }}>
         <View className="mb-4 flex-row items-start justify-between">
           <View className="flex-1 mr-3">
-            <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-1">
-              {format(parseISO(plan.start_time), 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
+            <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-1" numberOfLines={1}>
+              {safeFormatDate(plan.start_time, 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
             </Text>
             <Text className="text-[26px] font-black text-gray-900 dark:text-white tracking-tight">
               {plan.customer?.name ?? L('Einsatz', 'Shift')}
@@ -188,10 +195,7 @@ export default function PlanDetailScreen() {
           <Row
             icon={<Clock size={18} color="#0064E0" />}
             label={L('Zeit', 'Time')}
-            value={`${format(parseISO(plan.start_time), 'HH:mm')} – ${format(
-              parseISO(plan.end_time),
-              'HH:mm',
-            )} (${hours} h)`}
+            value={`${safeFormatTime(plan.start_time)} – ${safeFormatTime(plan.end_time)} (${hours} h)`}
           />
           {plan.employee?.full_name && (
             <Row

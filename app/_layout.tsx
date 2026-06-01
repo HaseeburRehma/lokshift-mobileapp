@@ -10,6 +10,12 @@
 
 import '../global.css'
 
+// IMPORTANT: monitoring init runs at module-load time so the very first
+// crash (even one inside a provider's constructor) is captured. Keep
+// this above every other import that has runtime side-effects.
+import { initMonitoring, setMonitoringUser, addBreadcrumb } from '@/lib/monitoring'
+initMonitoring()
+
 import React, { useEffect } from 'react'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -26,6 +32,27 @@ import { ThemeProvider, useTheme } from '@/lib/theme'
 import { BiometricLockProvider } from '@/lib/biometric/lock-context'
 import { AppDrawer } from '@/components/AppDrawer'
 import { BiometricLockOverlay } from '@/components/BiometricLockOverlay'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+
+/**
+ * Watches the user-context for auth changes and forwards user id + email
+ * to the monitoring layer so errors thereafter are correlated with the
+ * actual person who hit them.
+ */
+function MonitoringIdentitySync() {
+  const { session, profile } = useUser()
+  useEffect(() => {
+    const uid = session?.user?.id
+    if (uid) {
+      setMonitoringUser({ id: uid, email: profile?.email ?? session?.user?.email ?? null })
+      addBreadcrumb('session active', { uid }, 'auth')
+    } else {
+      setMonitoringUser(null)
+      addBreadcrumb('session cleared', undefined, 'auth')
+    }
+  }, [session?.user?.id, profile?.email, session?.user?.email])
+  return null
+}
 
 /**
  * Mounts the push registration hook inside the authenticated tree so it
@@ -38,7 +65,7 @@ function PushRegistrar() {
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { loading, session, profile, role } = useUser()
+  const { loading, ready, profileLoading, session, profile, role } = useUser()
   const segments = useSegments()
   const router = useRouter()
 
@@ -50,12 +77,21 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const onOnboarding = first === 'onboarding'
 
     if (!session) {
-      // Unauthenticated — only the (auth) group is allowed.
+      // Unauthenticated — only the (auth) group is allowed. Defence-in-
+      // depth: even if the file the user navigates to is mistakenly
+      // outside (auth), we redirect here.
       if (!inAuthGroup) router.replace('/(auth)/login')
       return
     }
 
-    // Authenticated. Must change password takes precedence over everything.
+    // Session present but profile hasn't been validated yet — don't make
+    // any routing decisions. Wait. (Once profile validation finishes,
+    // user-context either flips `ready=true` or signs the session out,
+    // and this effect re-fires.)
+    if (!ready) return
+
+    // Authenticated and profile valid. Must change password takes
+    // precedence over everything.
     const mustChange = !!profile?.must_change_password
     if (mustChange && !onPasswordChange) {
       router.replace('/change-password')
@@ -73,9 +109,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!mustChange && !needsOnboarding && (inAuthGroup || onPasswordChange || onOnboarding)) {
       router.replace('/(tabs)/home')
     }
-  }, [loading, session, profile?.must_change_password, profile?.onboarding_completed, role, segments, router])
+  }, [
+    loading,
+    ready,
+    session,
+    profile?.must_change_password,
+    profile?.onboarding_completed,
+    role,
+    segments,
+    router,
+  ])
 
   if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-brand">
+        <ActivityIndicator color="#fff" size="large" />
+      </View>
+    )
+  }
+
+  // Session in storage but profile not yet validated — block render so
+  // a stale session can't paint authed UI before user-context decides
+  // whether to keep it or sign out.
+  if (session && profileLoading && !ready) {
     return (
       <View className="flex-1 items-center justify-center bg-brand">
         <ActivityIndicator color="#fff" size="large" />
@@ -92,38 +148,49 @@ function ThemedStatusBar() {
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <I18nProvider>
-            <UserProvider>
-              <BiometricLockProvider>
-                <NotificationsProvider>
-                  <DrawerProvider>
-                  <AuthGuard>
-                    <PushRegistrar />
-                    <Stack screenOptions={{ headerShown: false }}>
-                      <Stack.Screen name="(auth)" />
-                      <Stack.Screen name="(tabs)" />
-                      <Stack.Screen name="change-password" />
-                      <Stack.Screen name="onboarding" />
-                    </Stack>
-                    {/* Drawer is rendered at the root so it's reachable from any
-                        authenticated screen, not just tab routes. It's a Modal
-                        so it overlays everything above it. */}
-                    <AppDrawer />
-                    {/* Lock overlay sits above everything (zIndex 9999) so
-                        it covers the tab bar, drawer, and any open modal. */}
-                    <BiometricLockOverlay />
-                    <ThemedStatusBar />
-                  </AuthGuard>
-                  </DrawerProvider>
-                </NotificationsProvider>
-              </BiometricLockProvider>
-            </UserProvider>
-          </I18nProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    // Top-level ErrorBoundary so a render crash anywhere in the tree —
+    // including providers below — shows a recovery screen and ships the
+    // error to monitoring instead of the RN red-box.
+    <ErrorBoundary boundary="root">
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <I18nProvider>
+              <UserProvider>
+                <MonitoringIdentitySync />
+                <BiometricLockProvider>
+                  <NotificationsProvider>
+                    <DrawerProvider>
+                    <AuthGuard>
+                      <PushRegistrar />
+                      {/* A second ErrorBoundary scopes route-level crashes so
+                          one broken screen doesn't tear down the providers
+                          (tab bar, drawer, biometric lock) above it. */}
+                      <ErrorBoundary boundary="screen">
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Screen name="(auth)" />
+                          <Stack.Screen name="(tabs)" />
+                          <Stack.Screen name="change-password" />
+                          <Stack.Screen name="onboarding" />
+                        </Stack>
+                      </ErrorBoundary>
+                      {/* Drawer is rendered at the root so it's reachable from any
+                          authenticated screen, not just tab routes. It's a Modal
+                          so it overlays everything above it. */}
+                      <AppDrawer />
+                      {/* Lock overlay sits above everything (zIndex 9999) so
+                          it covers the tab bar, drawer, and any open modal. */}
+                      <BiometricLockOverlay />
+                      <ThemedStatusBar />
+                    </AuthGuard>
+                    </DrawerProvider>
+                  </NotificationsProvider>
+                </BiometricLockProvider>
+              </UserProvider>
+            </I18nProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   )
 }

@@ -34,7 +34,7 @@ export function useCustomers(includeArchived = true) {
 
   const fetchCustomers = useCallback(
     async (silent = false) => {
-      if (!profile?.organization_id) return
+      if (!profile?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
 
       let query = supabase

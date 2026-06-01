@@ -29,6 +29,7 @@ import {
 import { format } from 'date-fns'
 
 import { Screen } from '@/components/Screen'
+import { safeFormatTime, safeParseISO } from '@/lib/safe-format'
 import { toast } from '@/components/Toast'
 import { AttachmentButton } from '@/components/chat/AttachmentButton'
 import { VoiceRecorder } from '@/components/chat/VoiceRecorder'
@@ -283,18 +284,19 @@ export default function ChatThreadScreen() {
                           fontSize: 9,
                         }}
                       >
-                        {format(new Date(m.created_at), 'HH:mm')}
+                        {safeFormatTime(m.created_at)}
                       </Text>
                       {mine && !m.id.startsWith('optimistic-') && (() => {
                         const otherMembers = (conv?.members ?? []).filter(
                           (mb) => mb.user_id !== myId,
                         )
-                        const msgTs = new Date(m.created_at).getTime()
-                        const readers = otherMembers.filter(
-                          (mb) =>
-                            mb.last_read_at &&
-                            new Date(mb.last_read_at).getTime() >= msgTs,
-                        ).length
+                        const msgD = safeParseISO(m.created_at)
+                        const msgTs = msgD ? msgD.getTime() : 0
+                        const readers = otherMembers.filter((mb) => {
+                          if (!mb.last_read_at) return false
+                          const d = safeParseISO(mb.last_read_at)
+                          return d ? d.getTime() >= msgTs : false
+                        }).length
                         const allRead = otherMembers.length > 0 && readers === otherMembers.length
                         const someRead = readers > 0
                         const tint = allRead ? '#7FB6FF' : '#BFDBFE'

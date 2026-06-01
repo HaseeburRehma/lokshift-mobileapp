@@ -4,7 +4,14 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react'
-import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  RefreshControl,
+  TextInput,
+} from 'react-native'
 import {
   Plus,
   Clock,
@@ -13,12 +20,23 @@ import {
   ShieldCheck,
   Download,
   FileText,
+  Search,
+  Users as UsersIcon,
 } from 'lucide-react-native'
-import { format, parseISO } from 'date-fns'
+import {
+  format,
+  parseISO,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  isWithinInterval,
+} from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 
 import { Screen } from '@/components/Screen'
+import { safeFormatDate, safeFormatTime, safeNumber } from '@/lib/safe-format'
 import { Card } from '@/components/Card'
 import { PageHeader } from '@/components/PageHeader'
 import { AppHeader } from '@/components/AppHeader'
@@ -29,6 +47,15 @@ import { useTimeEntries } from '@/hooks/useTimeEntries'
 import type { TimeEntry } from '@/lib/types'
 import { TimeEntrySheet } from '@/components/TimeEntrySheet'
 import { exportWorkingTimePdf } from '@/lib/pdf/reports'
+
+type StatusFilter =
+  | 'all'
+  | 'planned'
+  | 'actual'
+  | 'pending'
+  | 'approved'
+  | 'this_week'
+  | 'this_month'
 
 export default function TimesScreen() {
   const { t, locale } = useTranslation()
@@ -43,20 +70,104 @@ export default function TimesScreen() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<TimeEntry | null>(null)
   const [exporting, setExporting] = useState(false)
+  // Filter & search state — matches web's Zeiterfassung filter card.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [search, setSearch] = useState('')
+  const [employeeFilter, setEmployeeFilter] = useState<string>('all')
+  const [employeePickerOpen, setEmployeePickerOpen] = useState(false)
 
   const allEntries = useMemo(
     () => grouped.flatMap((g) => g.items),
     [grouped],
   )
 
+  // Employee options for the admin filter (managerial only)
+  const employeeOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of allEntries) {
+      if (e.employee_id && e.employee?.full_name) {
+        map.set(e.employee_id, e.employee.full_name)
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [allEntries])
+
+  const matchesFilter = (e: TimeEntry): boolean => {
+    // Employee filter
+    if (employeeFilter !== 'all' && e.employee_id !== employeeFilter) return false
+
+    // Status filter
+    const isPlanned = !!(e as any).is_planned
+    if (statusFilter === 'planned' && !isPlanned) return false
+    if (statusFilter === 'actual' && isPlanned) return false
+    if (statusFilter === 'pending' && (e.is_verified || isPlanned)) return false
+    if (statusFilter === 'approved' && !e.is_verified) return false
+    if (statusFilter === 'this_week') {
+      try {
+        const d = parseISO(e.date)
+        const week = { start: startOfWeek(new Date(), { weekStartsOn: 1 }), end: endOfWeek(new Date(), { weekStartsOn: 1 }) }
+        if (!isWithinInterval(d, week)) return false
+      } catch { return false }
+    }
+    if (statusFilter === 'this_month') {
+      try {
+        const d = parseISO(e.date)
+        const month = { start: startOfMonth(new Date()), end: endOfMonth(new Date()) }
+        if (!isWithinInterval(d, month)) return false
+      } catch { return false }
+    }
+
+    // Search (employee name, customer, location, notes, date)
+    const q = search.trim().toLowerCase()
+    if (q) {
+      const employeeName = e.employee?.full_name?.toLowerCase() ?? ''
+      const customer = e.customer?.name?.toLowerCase() ?? ''
+      const location = e.location?.toLowerCase() ?? ''
+      const notes = e.notes?.toLowerCase() ?? ''
+      const date = e.date?.toLowerCase() ?? ''
+      const matches =
+        employeeName.includes(q) ||
+        customer.includes(q) ||
+        location.includes(q) ||
+        notes.includes(q) ||
+        date.includes(q)
+      if (!matches) return false
+    }
+    return true
+  }
+
+  const filteredGroups = useMemo(() => {
+    return grouped
+      .map((g) => ({ date: g.date, items: g.items.filter(matchesFilter) }))
+      .filter((g) => g.items.length > 0)
+    // matchesFilter is intentionally not memoised — its inputs are below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grouped, statusFilter, search, employeeFilter])
+
+  const filteredEntries = useMemo(
+    () => filteredGroups.flatMap((g) => g.items),
+    [filteredGroups],
+  )
+
+  const noMatches = filteredGroups.length === 0 && allEntries.length > 0 && !loading
+  const selectedEmployeeName =
+    employeeFilter === 'all'
+      ? L('Alle Mitarbeiter', 'All employees')
+      : (employeeOptions.find((e) => e.id === employeeFilter)?.name ?? '—')
+
   const onExportPdf = async () => {
-    if (allEntries.length === 0) {
+    // Export the FILTERED set so admins can scope a PDF to a single
+    // employee or status without leaving this screen.
+    const rows = filteredEntries.length > 0 ? filteredEntries : allEntries
+    if (rows.length === 0) {
       toast.error(L('Keine Einträge zum Exportieren.', 'No entries to export.'))
       return
     }
     setExporting(true)
     try {
-      await exportWorkingTimePdf(allEntries, {
+      await exportWorkingTimePdf(rows, {
         title: L('Arbeitszeitbericht', 'Working Time Report'),
         subtitle: L(
           `Stand ${format(new Date(), 'dd.MM.yyyy')}`,
@@ -123,7 +234,9 @@ export default function TimesScreen() {
           <Text className="text-[12px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-3">
             {L('Filter & Suche', 'Filter & search')}
           </Text>
-          <View className="flex-row flex-wrap gap-2">
+
+          {/* Export + add row */}
+          <View className="flex-row flex-wrap gap-2 mb-3">
             <Pressable
               onPress={onExportPdf}
               disabled={exporting}
@@ -179,6 +292,168 @@ export default function TimesScreen() {
               <Plus size={20} color="#fff" />
             </Pressable>
           </View>
+
+          {/* Status pills — horizontal scroll so they don't wrap into 3 rows */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
+          >
+            {([
+              ['all', L('Alle', 'All')],
+              ['planned', L('Geplant', 'Planned')],
+              ['actual', L('Tatsächlich', 'Actual')],
+              ['pending', L('Ausstehend', 'Pending')],
+              ['approved', L('Genehmigt', 'Approved')],
+              ['this_week', L('Diese Woche', 'This week')],
+              ['this_month', L('Dieser Monat', 'This month')],
+            ] as [StatusFilter, string][]).map(([id, label]) => {
+              const active = statusFilter === id
+              return (
+                <Pressable
+                  key={id}
+                  onPress={() => setStatusFilter(id)}
+                  style={({ pressed }: { pressed: boolean }) => ({
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? '#0064E0' : '#E5E7EB',
+                    backgroundColor: active ? '#0064E0' : '#FFFFFF',
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: '700',
+                      color: active ? '#FFFFFF' : '#475569',
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </ScrollView>
+
+          {/* Search input + employee filter */}
+          <View className="flex-row gap-2 mt-3">
+            <View
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#F8FAFC',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                borderRadius: 14,
+                paddingHorizontal: 12,
+                height: 42,
+              }}
+            >
+              <Search size={14} color="#94A3B8" />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={L('Hier suchen…', 'Search…')}
+                placeholderTextColor="#94A3B8"
+                style={{ flex: 1, marginLeft: 8, fontSize: 13, fontWeight: '600', color: '#0F172A' }}
+                autoCapitalize="none"
+              />
+            </View>
+            {isManagerial && (
+              <Pressable
+                onPress={() => setEmployeePickerOpen((v) => !v)}
+                style={({ pressed }: { pressed: boolean }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 12,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
+                  backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                  height: 42,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
+                <Text
+                  className="ml-1.5"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '800',
+                    color: employeeFilter === 'all' ? '#475569' : '#0064E0',
+                  }}
+                >
+                  {employeeFilter === 'all'
+                    ? L('Alle', 'All')
+                    : (selectedEmployeeName ?? '—').split(' ')[0]}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
+          {isManagerial && employeePickerOpen && (
+            <View className="flex-row flex-wrap gap-2 mt-3">
+              <Pressable
+                onPress={() => {
+                  setEmployeeFilter('all')
+                  setEmployeePickerOpen(false)
+                }}
+                style={({ pressed }: { pressed: boolean }) => ({
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: employeeFilter === 'all' ? '#0064E0' : '#E5E7EB',
+                  backgroundColor: employeeFilter === 'all' ? '#0064E0' : '#FFFFFF',
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: '700',
+                    color: employeeFilter === 'all' ? '#FFFFFF' : '#475569',
+                  }}
+                >
+                  {L('Alle Mitarbeiter', 'All employees')}
+                </Text>
+              </Pressable>
+              {employeeOptions.map((e) => {
+                const active = employeeFilter === e.id
+                return (
+                  <Pressable
+                    key={e.id}
+                    onPress={() => {
+                      setEmployeeFilter(e.id)
+                      setEmployeePickerOpen(false)
+                    }}
+                    style={({ pressed }: { pressed: boolean }) => ({
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? '#0064E0' : '#E5E7EB',
+                      backgroundColor: active ? '#0064E0' : '#FFFFFF',
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '700',
+                        color: active ? '#FFFFFF' : '#475569',
+                      }}
+                    >
+                      {e.name}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          )}
         </Card>
 
         {(isAdmin || isDispatcher) && (
@@ -217,44 +492,70 @@ export default function TimesScreen() {
           </Card>
         ) : null}
 
-        {grouped.map((group) => (
+        {noMatches ? (
+          <Card className="items-center py-10">
+            <Search size={28} color="#D1D5DB" />
+            <Text className="text-[14px] text-gray-400 dark:text-slate-500 mt-3">
+              {L('Keine passenden Einträge.', 'No matching entries.')}
+            </Text>
+          </Card>
+        ) : null}
+
+        {filteredGroups.map((group) => (
           <View key={group.date} className="mb-5">
             <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1">
-              {format(parseISO(group.date), 'EEEE, dd. MMMM', { locale: dateLocale })}
+              {safeFormatDate(group.date, 'EEEE, dd. MMMM', { locale: dateLocale })}
             </Text>
             {group.items.map((entry) => (
               <Pressable key={entry.id} onPress={() => openDetail(entry)}>
                 <Card className="mb-2 flex-row items-center">
-                  <View className="w-12 h-12 rounded-2xl bg-brand/10 dark:bg-brand/20 items-center justify-center mr-3">
+                  <View className="w-12 h-12 rounded-2xl bg-brand/10 dark:bg-brand/20 items-center justify-center mr-3 shrink-0">
                     {entry.is_verified
                       ? <Check size={20} color="#10B981" />
                       : <Clock size={20} color="#0064E0" />}
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-                      {format(parseISO(entry.start_time), 'HH:mm')}
-                      {entry.end_time ? ` – ${format(parseISO(entry.end_time), 'HH:mm')}` : ''}
-                      {entry.net_hours ? `  ·  ${Number(entry.net_hours).toFixed(2)} h` : ''}
+                  <View className="flex-1" style={{ minWidth: 0 }}>
+                    <Text
+                      className="text-[14px] font-black text-gray-900 dark:text-white"
+                      numberOfLines={1}
+                    >
+                      {safeFormatTime(entry.start_time, '—')}
+                      {entry.end_time ? ` – ${safeFormatTime(entry.end_time, '—')}` : ''}
+                      {entry.net_hours ? `  ·  ${safeNumber(entry.net_hours)} h` : ''}
                     </Text>
-                    <View className="flex-row items-center mt-0.5">
+                    <View className="flex-row items-center mt-0.5" style={{ flexWrap: 'wrap' }}>
                       {entry.customer?.name && (
-                        <Text className="text-[12px] text-gray-500 dark:text-slate-400 mr-2">{entry.customer.name}</Text>
+                        <Text
+                          className="text-[12px] text-gray-500 dark:text-slate-400 mr-2"
+                          numberOfLines={1}
+                          style={{ maxWidth: '60%' }}
+                        >
+                          {entry.customer.name}
+                        </Text>
                       )}
                       {entry.location && (
-                        <View className="flex-row items-center">
+                        <View className="flex-row items-center" style={{ maxWidth: '70%' }}>
                           <MapPin size={11} color="#9CA3AF" />
-                          <Text className="text-[11px] text-gray-400 dark:text-slate-500 ml-1">{entry.location}</Text>
+                          <Text
+                            className="text-[11px] text-gray-400 dark:text-slate-500 ml-1"
+                            numberOfLines={1}
+                          >
+                            {entry.location}
+                          </Text>
                         </View>
                       )}
                     </View>
                     {(isAdmin || isDispatcher) && entry.employee?.full_name && (
-                      <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+                      <Text
+                        className="text-[10px] text-gray-400 dark:text-slate-500 mt-1"
+                        numberOfLines={1}
+                      >
                         {entry.employee.full_name}
                       </Text>
                     )}
                   </View>
                   {entry.overnight_stay && (
-                    <View className="px-2 py-0.5 rounded-full bg-emerald-100 ml-2">
+                    <View className="px-2 py-0.5 rounded-full bg-emerald-100 ml-2 shrink-0">
                       <Text className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">
                         {locale === 'de' ? 'Über.' : 'Over.'}
                       </Text>

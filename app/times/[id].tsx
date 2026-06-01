@@ -34,12 +34,13 @@ import {
   Moon,
   Hotel,
 } from 'lucide-react-native'
-import { format, parseISO } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
 import { StatusBadge } from '@/components/StatusBadge'
+import { safeFormatDate, safeFormatTime, safeNumber } from '@/lib/safe-format'
+import { captureError } from '@/lib/monitoring'
 import { toast } from '@/components/Toast'
 import { TimeEntrySheet } from '@/components/TimeEntrySheet'
 import { useTranslation } from '@/lib/i18n'
@@ -110,6 +111,11 @@ export default function TimeDetailScreen() {
       await fetchEntry()
       await fetchEntries()
     } catch (err: any) {
+      captureError(err, {
+        tags: { area: 'times.verify' },
+        extra: { entryId: entry.id, employeeId: entry.employee_id },
+        message: 'Time entry verify failed',
+      })
       toast.error(err?.message ?? L('Fehler beim Genehmigen', 'Failed to verify'))
     } finally {
       setVerifying(false)
@@ -161,7 +167,7 @@ export default function TimeDetailScreen() {
     )
   }
 
-  const netHours = Number(entry.net_hours ?? 0).toFixed(1)
+  const netHours = safeNumber(entry.net_hours, 1)
   const status = entry.is_verified ? 'confirmed' : 'assigned' // map to StatusBadge palette
 
   return (
@@ -192,7 +198,9 @@ export default function TimeDetailScreen() {
                 letterSpacing: -0.5,
                 textTransform: 'uppercase',
                 fontStyle: 'italic',
+                flexShrink: 1,
               }}
+              numberOfLines={1}
             >
               {L('Zeiteintrag', 'Time Details')}
             </Text>
@@ -260,14 +268,19 @@ export default function TimeDetailScreen() {
                 letterSpacing: -1.5,
                 marginTop: 8,
               }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
               {netHours} {L('Std.', 'hrs')}
             </Text>
             <View className="mt-3">
               <StatusBadge status={status} />
             </View>
-            <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-3">
-              {format(parseISO(entry.date), 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
+            <Text
+              className="text-[12px] text-gray-500 dark:text-slate-400 mt-3"
+              numberOfLines={1}
+            >
+              {safeFormatDate(entry.date, 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
             </Text>
           </View>
         </View>
@@ -287,17 +300,17 @@ export default function TimeDetailScreen() {
               <DetailRow
                 icon={<Clock size={18} color="#94A3B8" />}
                 label={L('Startzeit', 'Start Time')}
-                value={entry.start_time ? format(parseISO(entry.start_time), 'HH:mm') : '—'}
+                value={safeFormatTime(entry.start_time)}
               />
               <DetailRow
                 icon={<Clock size={18} color="#94A3B8" />}
                 label={L('Endzeit', 'End Time')}
-                value={entry.end_time ? format(parseISO(entry.end_time), 'HH:mm') : '—'}
+                value={safeFormatTime(entry.end_time)}
               />
               <DetailRow
                 icon={<Clock size={18} color="#94A3B8" />}
                 label={L('Pause', 'Break')}
-                value={`${entry.break_minutes ?? 0} ${L('Min.', 'mins')}`}
+                value={`${Number(entry.break_minutes) || 0} ${L('Min.', 'mins')}`}
               />
               <DetailRow
                 icon={<Briefcase size={18} color="#94A3B8" />}

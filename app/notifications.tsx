@@ -11,6 +11,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
+import { safeParseISO } from '@/lib/safe-format'
 import { Card } from '@/components/Card'
 import { PageHeader } from '@/components/PageHeader'
 import { AppHeader } from '@/components/AppHeader'
@@ -73,7 +74,10 @@ export default function NotificationsScreen() {
                   <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">{n.body}</Text>
                 )}
                 <Text className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mt-2">
-                  {formatDistanceToNow(new Date(n.created_at), { addSuffix: true, locale: dateLocale })}
+                  {(() => {
+                    const d = safeParseISO(n.created_at)
+                    return d ? formatDistanceToNow(d, { addSuffix: true, locale: dateLocale }) : '—'
+                  })()}
                 </Text>
               </View>
             </Card>

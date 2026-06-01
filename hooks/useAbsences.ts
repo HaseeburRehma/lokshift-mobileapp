@@ -56,7 +56,7 @@ export function useAbsences() {
 
   const fetchAbsences = useCallback(
     async (silent = false) => {
-      if (!profile?.organization_id || !myId) return
+      if (!profile?.organization_id || !myId) { setLoading(false); return }
       if (!silent) setLoading(true)
       let query = supabase
         .from('calendar_events')

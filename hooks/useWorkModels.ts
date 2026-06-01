@@ -26,7 +26,7 @@ export function useWorkModels() {
 
   const fetchModels = useCallback(
     async (silent = false) => {
-      if (!profile?.organization_id) return
+      if (!profile?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
       const { data, error } = await supabase
         .from('working_time_models')

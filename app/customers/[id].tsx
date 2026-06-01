@@ -21,6 +21,7 @@ import { canCreatePlans } from '@/lib/rbac/permissions'
 import { useCustomers } from '@/hooks/useCustomers'
 import { useSafeBack } from '@/lib/use-safe-back'
 import type { Customer } from '@/lib/types'
+import { captureError } from '@/lib/monitoring'
 
 export default function EditCustomerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -79,6 +80,7 @@ export default function EditCustomerScreen() {
           : L('Kunde reaktiviert', 'Customer reactivated'),
       )
     } catch (err: any) {
+      captureError(err, { tags: { action: 'customer.archive' } })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setBusy(false)
@@ -115,6 +117,7 @@ export default function EditCustomerScreen() {
               toast.success(L('Kunde gelöscht', 'Customer deleted'))
               router.replace('/customers')
             } catch (err: any) {
+              captureError(err, { tags: { action: 'customer.delete' } })
               toast.error(err?.message ?? t('common.error'))
             } finally {
               setBusy(false)
@@ -200,6 +203,7 @@ export default function EditCustomerScreen() {
             toast.success(L('Kunde gespeichert', 'Customer saved'))
             router.replace('/customers')
           } catch (err: any) {
+            captureError(err, { tags: { action: 'customer.update' } })
             toast.error(err?.message ?? t('common.error'))
           } finally {
             setSaving(false)

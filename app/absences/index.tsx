@@ -23,7 +23,8 @@ import {
   Trash2,
   Calendar as CalendarIcon,
 } from 'lucide-react-native'
-import { format, parseISO, differenceInCalendarDays } from 'date-fns'
+import { format, differenceInCalendarDays } from 'date-fns'
+import { safeParseISO } from '@/lib/safe-format'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
@@ -191,8 +192,8 @@ export default function AbsencesScreen() {
         ) : (
           <View className="space-y-3">
             {filtered.map((e) => {
-              const start = parseISO(e.start_time)
-              const end = parseISO(e.end_time)
+              const start = safeParseISO(e.start_time) ?? new Date()
+              const end = safeParseISO(e.end_time) ?? new Date()
               const days = Math.max(1, differenceInCalendarDays(end, start) + 1)
               const isHoliday = e.event_type === 'holiday'
               const color = isHoliday ? EVENT_COLORS.holiday : EVENT_COLORS.sick_leave

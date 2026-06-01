@@ -23,7 +23,13 @@ import {
   Wallet,
   Gift,
 } from 'lucide-react-native'
-import { format } from 'date-fns'
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  subMonths,
+  startOfYear,
+} from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
@@ -54,6 +60,7 @@ import {
   exportTimeAccountsPdf,
   exportPerDiemPdf,
   exportHolidayBonusPdf,
+  slugify as slugifyName,
 } from '@/lib/pdf/reports'
 import {
   exportTimeAccountsXlsx,
@@ -62,6 +69,7 @@ import {
 } from '@/lib/excel/reports'
 import type { TimeEntry, PerDiem, HolidayBonus } from '@/lib/types'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 function monthBounds(monthKey: string): { start: string; end: string } | null {
   const [y, m] = monthKey.split('-').map(Number)
@@ -122,6 +130,17 @@ export default function ReportsScreen() {
   const currentMonth = format(new Date(), 'yyyy-MM')
   const [monthKey, setMonthKey] = useState(currentMonth)
   const [employeeIds, setEmployeeIds] = useState<string[]>([])
+  // Date range + global employee filter — applied to the 3 management
+  // reports (Time Accounts uses YTD by nature; Per Diem and Bonus scope
+  // by this window). Defaults to current month so the screen reads the
+  // same on first paint as the previous monthly-only flow.
+  const today = new Date()
+  const [dateRange, setDateRange] = useState(() => ({
+    start: format(startOfMonth(today), 'yyyy-MM-dd'),
+    end: format(endOfMonth(today), 'yyyy-MM-dd'),
+  }))
+  const [globalEmployeeId, setGlobalEmployeeId] = useState<string>('all')
+  const [employeePickerOpen, setEmployeePickerOpen] = useState(false)
   const [busySingle, setBusySingle] = useState(false)
   const [busyMulti, setBusyMulti] = useState(false)
   const [busyXlsxSingle, setBusyXlsxSingle] = useState(false)
@@ -148,20 +167,90 @@ export default function ReportsScreen() {
     return format(start, 'MMMM yyyy', { locale: dateLocale })
   }, [monthKey, dateLocale])
 
+  // Preset detection — selectedPreset is null when the range is custom.
+  const selectedPreset: 'current' | 'previous' | 'ytd' | null = useMemo(() => {
+    const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
+    const curStart = fmt(startOfMonth(today))
+    const curEnd = fmt(endOfMonth(today))
+    if (dateRange.start === curStart && dateRange.end === curEnd) return 'current'
+    const prevStart = fmt(startOfMonth(subMonths(today, 1)))
+    const prevEnd = fmt(endOfMonth(subMonths(today, 1)))
+    if (dateRange.start === prevStart && dateRange.end === prevEnd) return 'previous'
+    const ytdStart = fmt(startOfYear(today))
+    if (dateRange.start === ytdStart && dateRange.end === curEnd) return 'ytd'
+    return null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange.start, dateRange.end])
+
+  const applyPreset = (preset: 'current' | 'previous' | 'ytd') => {
+    const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
+    if (preset === 'current') {
+      setDateRange({ start: fmt(startOfMonth(today)), end: fmt(endOfMonth(today)) })
+    } else if (preset === 'previous') {
+      const prev = subMonths(today, 1)
+      setDateRange({ start: fmt(startOfMonth(prev)), end: fmt(endOfMonth(prev)) })
+    } else {
+      setDateRange({ start: fmt(startOfYear(today)), end: fmt(endOfMonth(today)) })
+    }
+  }
+
+  const rangeValid =
+    /^\d{4}-\d{2}-\d{2}$/.test(dateRange.start) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(dateRange.end) &&
+    dateRange.start <= dateRange.end
+
+  const rangeSubtitle = useMemo(() => {
+    if (!rangeValid) return `${dateRange.start} – ${dateRange.end}`
+    try {
+      const startD = new Date(`${dateRange.start}T00:00:00`)
+      const endD = new Date(`${dateRange.end}T00:00:00`)
+      return `${format(startD, 'dd. MMM', { locale: dateLocale })} – ${format(endD, 'dd. MMM yyyy', { locale: dateLocale })}`
+    } catch {
+      return `${dateRange.start} – ${dateRange.end}`
+    }
+  }, [dateRange.start, dateRange.end, rangeValid, dateLocale])
+
+  // Build employee picker options from the available profiles list.
+  const employeeOptions = useMemo(
+    () =>
+      profiles
+        .filter((p) => p.full_name)
+        .map((p) => ({ id: p.id, name: p.full_name ?? p.email ?? '—' }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [profiles],
+  )
+  const selectedEmployeeName =
+    globalEmployeeId === 'all'
+      ? L('Alle Mitarbeiter', 'All employees')
+      : (employeeOptions.find((e) => e.id === globalEmployeeId)?.name ?? '—')
+
   const perDiemsInRange = useMemo(() => {
-    const bounds = monthBounds(monthKey)
-    if (!bounds) return [] as typeof perDiems
-    return perDiems.filter((pd) => pd.date >= bounds.start && pd.date <= bounds.end)
-  }, [perDiems, monthKey])
+    if (!rangeValid) return [] as typeof perDiems
+    return perDiems.filter((pd) => {
+      if (pd.date < dateRange.start || pd.date > dateRange.end) return false
+      if (globalEmployeeId !== 'all' && pd.employee_id !== globalEmployeeId) return false
+      return true
+    })
+  }, [perDiems, dateRange.start, dateRange.end, rangeValid, globalEmployeeId])
 
   const bonusesInRange = useMemo(() => {
-    const bounds = monthBounds(monthKey)
-    if (!bounds) return [] as typeof bonuses
+    if (!rangeValid) return [] as typeof bonuses
     return bonuses.filter((b) => {
       const stamp = b.created_at?.slice(0, 10) ?? ''
-      return stamp >= bounds.start && stamp <= bounds.end
+      if (stamp < dateRange.start || stamp > dateRange.end) return false
+      if (globalEmployeeId !== 'all' && b.employee_id !== globalEmployeeId) return false
+      return true
     })
-  }, [bonuses, monthKey])
+  }, [bonuses, dateRange.start, dateRange.end, rangeValid, globalEmployeeId])
+
+  // Time-accounts respect the employee filter (they're already YTD).
+  const filteredOrgAccounts = useMemo(
+    () =>
+      globalEmployeeId === 'all'
+        ? orgAccounts
+        : orgAccounts.filter((a) => a.employee_id === globalEmployeeId),
+    [orgAccounts, globalEmployeeId],
+  )
 
   const warnEmpty = (count: number): boolean => {
     if (count === 0) {
@@ -182,32 +271,35 @@ export default function ReportsScreen() {
     return map[key]?.[locale] ?? key
   }
 
-  // Fetch full per-diem rows scoped to the selected month, bypassing the
-  // 200-row hook cap. Joined with employee so the PDF/Excel can show names.
+  // Fetch full per-diem rows scoped to the selected date range AND
+  // optional employee filter, bypassing the 200-row hook cap so payroll
+  // reports never silently drop rows on large orgs.
   const fetchPerDiemsForReport = async (): Promise<PerDiem[]> => {
-    const bounds = monthBounds(monthKey)
-    if (!bounds || !profile?.organization_id) return []
-    const { data, error } = await getSupabase()
+    if (!rangeValid || !profile?.organization_id) return []
+    let q = getSupabase()
       .from('per_diems')
       .select('*, employee:profiles!employee_id(id, full_name, avatar_url)')
       .eq('organization_id', profile.organization_id)
-      .gte('date', bounds.start)
-      .lte('date', bounds.end)
+      .gte('date', dateRange.start)
+      .lte('date', dateRange.end)
       .order('date', { ascending: true })
+    if (globalEmployeeId !== 'all') q = q.eq('employee_id', globalEmployeeId)
+    const { data, error } = await q
     if (error) throw error
     return (data ?? []) as PerDiem[]
   }
 
   const fetchBonusesForReport = async (): Promise<HolidayBonus[]> => {
-    const bounds = monthBounds(monthKey)
-    if (!bounds || !profile?.organization_id) return []
-    const { data, error } = await getSupabase()
+    if (!rangeValid || !profile?.organization_id) return []
+    let q = getSupabase()
       .from('holiday_bonuses')
       .select('*, employee:profiles!employee_id(id, full_name)')
       .eq('organization_id', profile.organization_id)
-      .gte('created_at', `${bounds.start}T00:00:00`)
-      .lte('created_at', `${bounds.end}T23:59:59`)
+      .gte('created_at', `${dateRange.start}T00:00:00`)
+      .lte('created_at', `${dateRange.end}T23:59:59`)
       .order('created_at', { ascending: true })
+    if (globalEmployeeId !== 'all') q = q.eq('employee_id', globalEmployeeId)
+    const { data, error } = await q
     if (error) throw error
     return (data ?? []) as HolidayBonus[]
   }
@@ -217,32 +309,44 @@ export default function ReportsScreen() {
       toast.error(L('Daten werden geladen…', 'Loading data…'))
       return
     }
-    if (warnEmpty(orgAccounts.length)) return
+    if (warnEmpty(filteredOrgAccounts.length)) return
     setBusyAccounts(fmt)
     try {
       const year = format(new Date(), 'yyyy')
       const title = L('Zeitkonto-Salden', 'Time Account Balances')
-      const subtitle = `${title} · ${L(`Jahr bis dato (${year})`, `Year to date (${year})`)}`
-      const filename = `zeitkonto-salden_${year}`
+      const scopeLabel =
+        globalEmployeeId !== 'all' ? selectedEmployeeName : L(`Jahr bis dato (${year})`, `Year to date (${year})`)
+      const subtitle = `${title} · ${scopeLabel}`
+      const filename =
+        globalEmployeeId !== 'all'
+          ? `zeitkonto-salden_${slugifyName(selectedEmployeeName)}_${year}`
+          : `zeitkonto-salden_${year}`
       if (fmt === 'pdf') {
-        await exportTimeAccountsPdf(orgAccounts, { title, subtitle, filename, locale })
+        await exportTimeAccountsPdf(filteredOrgAccounts, { title, subtitle, filename, locale })
       } else {
-        await exportTimeAccountsXlsx(orgAccounts, {
+        await exportTimeAccountsXlsx(filteredOrgAccounts, {
           sheetName: title,
           filename,
           locale,
         })
       }
     } catch (err: any) {
+      captureError(err, {
+        tags: { area: 'reports.time-accounts' },
+        extra: { rowCount: filteredOrgAccounts.length, employeeFilter: globalEmployeeId },
+        message: 'Time-accounts report failed',
+      })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setBusyAccounts(null)
     }
   }
 
+  const rangeFilenameStamp = `${dateRange.start}_${dateRange.end}`
+
   const exportPerDiemReport = async (fmt: 'pdf' | 'xlsx') => {
-    if (!monthValid) {
-      toast.error(L('Ungültiger Monat (YYYY-MM).', 'Invalid month (YYYY-MM).'))
+    if (!rangeValid) {
+      toast.error(L('Ungültiger Datumsbereich.', 'Invalid date range.'))
       return
     }
     setBusyPerDiem(fmt)
@@ -250,8 +354,13 @@ export default function ReportsScreen() {
       const rows = await fetchPerDiemsForReport()
       if (warnEmpty(rows.length)) return
       const title = L('Spesenbericht', 'Per Diem Report')
-      const subtitle = `${title} · ${monthSubtitle}`
-      const filename = `spesenbericht_${monthKey}`
+      const scopeParts = [rangeSubtitle]
+      if (globalEmployeeId !== 'all') scopeParts.push(selectedEmployeeName)
+      const subtitle = `${title} · ${scopeParts.join(' · ')}`
+      const filename =
+        globalEmployeeId !== 'all'
+          ? `spesenbericht_${slugifyName(selectedEmployeeName)}_${rangeFilenameStamp}`
+          : `spesenbericht_${rangeFilenameStamp}`
       if (fmt === 'pdf') {
         await exportPerDiemPdf(rows, { title, subtitle, filename, locale })
       } else {
@@ -262,6 +371,11 @@ export default function ReportsScreen() {
         })
       }
     } catch (err: any) {
+      captureError(err, {
+        tags: { area: 'reports.per-diem' },
+        extra: { dateRange, employeeFilter: globalEmployeeId },
+        message: 'Per-diem report failed',
+      })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setBusyPerDiem(null)
@@ -269,8 +383,8 @@ export default function ReportsScreen() {
   }
 
   const exportBonusReport = async (fmt: 'pdf' | 'xlsx') => {
-    if (!monthValid) {
-      toast.error(L('Ungültiger Monat (YYYY-MM).', 'Invalid month (YYYY-MM).'))
+    if (!rangeValid) {
+      toast.error(L('Ungültiger Datumsbereich.', 'Invalid date range.'))
       return
     }
     setBusyBonus(fmt)
@@ -278,8 +392,13 @@ export default function ReportsScreen() {
       const rows = await fetchBonusesForReport()
       if (warnEmpty(rows.length)) return
       const title = L('Urlaubsgeld-Bericht', 'Holiday Bonus Report')
-      const subtitle = `${title} · ${monthSubtitle}`
-      const filename = `urlaubsgeld-bericht_${monthKey}`
+      const scopeParts = [rangeSubtitle]
+      if (globalEmployeeId !== 'all') scopeParts.push(selectedEmployeeName)
+      const subtitle = `${title} · ${scopeParts.join(' · ')}`
+      const filename =
+        globalEmployeeId !== 'all'
+          ? `urlaubsgeld-bericht_${slugifyName(selectedEmployeeName)}_${rangeFilenameStamp}`
+          : `urlaubsgeld-bericht_${rangeFilenameStamp}`
       if (fmt === 'pdf') {
         await exportHolidayBonusPdf(rows, {
           title,
@@ -297,6 +416,11 @@ export default function ReportsScreen() {
         })
       }
     } catch (err: any) {
+      captureError(err, {
+        tags: { area: 'reports.holiday-bonus' },
+        extra: { dateRange, employeeFilter: globalEmployeeId },
+        message: 'Holiday-bonus report failed',
+      })
       toast.error(err?.message ?? t('common.error'))
     } finally {
       setBusyBonus(null)
@@ -684,6 +808,179 @@ export default function ReportsScreen() {
               <View className="flex-1 h-px bg-gray-200 dark:bg-slate-700 ml-3" />
             </View>
 
+            {/* Date range + employee filter — applied to all 3 reports below */}
+            <Card className="mb-4">
+              <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-3">
+                {L('Zeitraum & Mitarbeiter-Filter', 'Date range & employee filter')}
+              </Text>
+
+              {/* Preset row */}
+              <View className="flex-row flex-wrap gap-2 mb-3">
+                {([
+                  ['current', L('Aktueller Monat', 'Current Month')],
+                  ['previous', L('Vormonat', 'Previous Month')],
+                  ['ytd', L('Jahr', 'Year-to-date')],
+                ] as ['current' | 'previous' | 'ytd', string][]).map(([id, label]) => {
+                  const active = selectedPreset === id
+                  return (
+                    <Pressable
+                      key={id}
+                      onPress={() => applyPreset(id)}
+                      style={({ pressed }: { pressed: boolean }) => ({
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: active ? '#0F172A' : '#E5E7EB',
+                        backgroundColor: active ? '#0F172A' : '#FFFFFF',
+                        opacity: pressed ? 0.85 : 1,
+                      })}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: active ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
+              </View>
+
+              {/* Custom range row */}
+              <Text className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">
+                {L('Benutzerdefinierter Zeitraum', 'Custom range')}
+              </Text>
+              <View className="flex-row gap-2 mb-3">
+                <View style={{ flex: 1 }}>
+                  <FormField
+                    label={L('Von', 'From')}
+                    value={dateRange.start}
+                    onChangeText={(v) => setDateRange((r) => ({ ...r, start: v }))}
+                    placeholder="YYYY-MM-DD"
+                    autoCapitalize="none"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <FormField
+                    label={L('Bis', 'To')}
+                    value={dateRange.end}
+                    onChangeText={(v) => setDateRange((r) => ({ ...r, end: v }))}
+                    placeholder="YYYY-MM-DD"
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <Text className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+                {rangeValid
+                  ? rangeSubtitle
+                  : L('Ungültiger Zeitraum.', 'Invalid range.')}
+              </Text>
+
+              {/* Employee filter */}
+              <Text className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">
+                {L('Mitarbeiter', 'Employee')}
+              </Text>
+              <Pressable
+                onPress={() => setEmployeePickerOpen((v) => !v)}
+                style={({ pressed }: { pressed: boolean }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: globalEmployeeId === 'all' ? '#E5E7EB' : '#0064E0',
+                  backgroundColor: globalEmployeeId === 'all' ? '#FFFFFF' : '#EFF6FF',
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <View className="flex-row items-center">
+                  <UsersIcon size={14} color={globalEmployeeId === 'all' ? '#475569' : '#0064E0'} />
+                  <Text
+                    className="ml-2"
+                    style={{
+                      fontSize: 13,
+                      fontWeight: '700',
+                      color: globalEmployeeId === 'all' ? '#475569' : '#0064E0',
+                    }}
+                  >
+                    {selectedEmployeeName}
+                  </Text>
+                </View>
+                <Text className="text-[10px] font-black text-gray-400">
+                  {employeePickerOpen ? '▲' : '▼'}
+                </Text>
+              </Pressable>
+
+              {employeePickerOpen && (
+                <View className="flex-row flex-wrap gap-2 mt-3">
+                  <Pressable
+                    onPress={() => {
+                      setGlobalEmployeeId('all')
+                      setEmployeePickerOpen(false)
+                    }}
+                    style={({ pressed }: { pressed: boolean }) => ({
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: globalEmployeeId === 'all' ? '#0064E0' : '#E5E7EB',
+                      backgroundColor: globalEmployeeId === 'all' ? '#0064E0' : '#FFFFFF',
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '700',
+                        color: globalEmployeeId === 'all' ? '#FFFFFF' : '#475569',
+                      }}
+                    >
+                      {L('Alle Mitarbeiter', 'All employees')}
+                    </Text>
+                  </Pressable>
+                  {employeeOptions.map((e) => {
+                    const active = globalEmployeeId === e.id
+                    return (
+                      <Pressable
+                        key={e.id}
+                        onPress={() => {
+                          setGlobalEmployeeId(e.id)
+                          setEmployeePickerOpen(false)
+                        }}
+                        style={({ pressed }: { pressed: boolean }) => ({
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: active ? '#0064E0' : '#E5E7EB',
+                          backgroundColor: active ? '#0064E0' : '#FFFFFF',
+                          opacity: pressed ? 0.85 : 1,
+                        })}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight: '700',
+                            color: active ? '#FFFFFF' : '#475569',
+                          }}
+                        >
+                          {e.name}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+              )}
+            </Card>
+
             <Card className="mb-4">
               <View className="flex-row items-center mb-3">
                 <BarChart3 size={18} color="#0064E0" />
@@ -701,8 +998,8 @@ export default function ReportsScreen() {
                 {loadingAccounts
                   ? L('Daten werden geladen…', 'Loading data…')
                   : L(
-                      `${orgAccounts.length} Mitarbeiter im Bericht`,
-                      `${orgAccounts.length} employees in report`,
+                      `${filteredOrgAccounts.length} Mitarbeiter im Bericht`,
+                      `${filteredOrgAccounts.length} employees in report`,
                     )}
               </Text>
               <View style={{ gap: 8 }}>
@@ -762,7 +1059,7 @@ export default function ReportsScreen() {
                   }
                   onPress={() => exportPerDiemReport('pdf')}
                   loading={busyPerDiem === 'pdf'}
-                  disabled={busyPerDiem !== null}
+                  disabled={busyPerDiem !== null || !rangeValid}
                   leftIcon={<Download size={18} color="#fff" />}
                 />
                 <Button
@@ -773,7 +1070,7 @@ export default function ReportsScreen() {
                   }
                   onPress={() => exportPerDiemReport('xlsx')}
                   loading={busyPerDiem === 'xlsx'}
-                  disabled={busyPerDiem !== null}
+                  disabled={busyPerDiem !== null || !rangeValid}
                   variant="secondary"
                   leftIcon={<FileSpreadsheet size={18} color="#0064E0" />}
                 />
@@ -810,7 +1107,7 @@ export default function ReportsScreen() {
                   }
                   onPress={() => exportBonusReport('pdf')}
                   loading={busyBonus === 'pdf'}
-                  disabled={busyBonus !== null}
+                  disabled={busyBonus !== null || !rangeValid}
                   leftIcon={<Download size={18} color="#fff" />}
                 />
                 <Button
@@ -821,7 +1118,7 @@ export default function ReportsScreen() {
                   }
                   onPress={() => exportBonusReport('xlsx')}
                   loading={busyBonus === 'xlsx'}
-                  disabled={busyBonus !== null}
+                  disabled={busyBonus !== null || !rangeValid}
                   variant="secondary"
                   leftIcon={<FileSpreadsheet size={18} color="#0064E0" />}
                 />

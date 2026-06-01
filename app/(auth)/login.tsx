@@ -21,7 +21,7 @@
  * AsyncStorage here).
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, Image, Pressable, AppState, ScrollView, TextInput } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { Globe, Eye, EyeOff } from 'lucide-react-native'
@@ -31,6 +31,10 @@ import { SplashScreen } from '@/components/SplashScreen'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { getSupabase } from '@/lib/supabase/client'
+import { classifyAuthError, authErrorMessage } from '@/lib/auth/errors'
+
+const MAX_ATTEMPTS = 5
+const LOCKOUT_SECONDS = 30
 
 const REMEMBER_KEY = 'lokshift.remember'
 const SEEN_SPLASH_KEY = 'lokshift.seenSplash'
@@ -60,12 +64,45 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(true)
   const [loading, setLoading] = useState(false)
+  // Track consecutive wrong-credential attempts. After MAX_ATTEMPTS we
+  // lock the form for LOCKOUT_SECONDS. The counter is per-component-
+  // mount and per-email so swapping the email also resets it. This is
+  // client-side defence-in-depth; Supabase has its own rate limit too.
+  const [attempts, setAttempts] = useState(0)
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null)
+  const [tick, setTick] = useState(0)
+  const lastEmailRef = useRef('')
 
   useEffect(() => {
     AsyncStorage.getItem(SEEN_SPLASH_KEY).then((v) => {
       if (v === 'true') setShowSplash(false)
     })
   }, [])
+
+  // Drive the lockout countdown display.
+  useEffect(() => {
+    if (!lockoutUntil) return
+    const t = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [lockoutUntil])
+
+  // Resetting the email field clears the attempt counter so a user who
+  // types the wrong account by accident isn't penalised for the right
+  // one.
+  useEffect(() => {
+    if (email !== lastEmailRef.current) {
+      lastEmailRef.current = email
+      if (attempts > 0) setAttempts(0)
+      if (lockoutUntil) setLockoutUntil(null)
+    }
+  }, [email, attempts, lockoutUntil])
+
+  const lockoutRemaining = lockoutUntil
+    ? Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000))
+    : 0
+  const isLockedOut = lockoutRemaining > 0
+  // Tick is read so the recompute happens every second while locked.
+  void tick
 
   const onSplashComplete = () => {
     AsyncStorage.setItem(SEEN_SPLASH_KEY, 'true').catch(() => {})
@@ -76,18 +113,63 @@ export default function LoginScreen() {
 
   const onSubmit = async () => {
     if (!email || !password) return
+    if (isLockedOut) {
+      toast.error(
+        L(
+          `Zu viele Versuche. Bitte ${lockoutRemaining}s warten.`,
+          `Too many attempts. Please wait ${lockoutRemaining}s.`,
+        ),
+      )
+      return
+    }
     setLoading(true)
+    const supabase = getSupabase()
     try {
+      // SECURITY: clear any stale session BEFORE the new credentials are
+      // tested. Without this, a failed sign-in leaves the prior session
+      // intact and AuthGuard would happily route the wrong user into
+      // their previous dashboard. signOut here is best-effort; ignore
+      // errors so an offline retry still surfaces the network-error
+      // toast below.
+      try { await supabase.auth.signOut() } catch { /* swallow */ }
+
       await AsyncStorage.setItem(REMEMBER_KEY, remember ? 'true' : 'false')
       installRememberListener()
-      const { error } = await getSupabase().auth.signInWithPassword({ email, password })
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
       if (error) throw error
+      if (!data?.session) {
+        // Defensive — Supabase should always return a session on success,
+        // but if anything ever changes we don't want to silently flag
+        // the user as authed without one.
+        throw new Error('No session returned')
+      }
+      // Success: reset counters.
+      setAttempts(0)
+      setLockoutUntil(null)
     } catch (err: any) {
-      toast.error(err?.message || t('auth.invalid'))
+      const kind = classifyAuthError(err)
+      toast.error(authErrorMessage(kind, locale))
+      // Only "real" credential rejections count against the lockout. A
+      // network blip should not lock the user out of trying again.
+      if (kind === 'invalid_credentials' || kind === 'rate_limited') {
+        const next = attempts + 1
+        setAttempts(next)
+        if (next >= MAX_ATTEMPTS) {
+          setLockoutUntil(Date.now() + LOCKOUT_SECONDS * 1000)
+        }
+      }
     } finally {
       setLoading(false)
     }
   }
+
+  // Show a soft warning once the user is 2 attempts from lockout — gives
+  // them a chance to recover before being timed out.
+  const attemptsLeft = MAX_ATTEMPTS - attempts
+  const showAttemptHint = attempts > 0 && attemptsLeft <= 2 && !isLockedOut
 
   if (showSplash) {
     return <SplashScreen onComplete={onSplashComplete} />
@@ -255,20 +337,45 @@ export default function LoginScreen() {
                 </Link>
               </View>
 
+              {/* Inline status — soft warning then hard lockout */}
+              {(showAttemptHint || isLockedOut) && (
+                <View style={{ marginTop: 4 }}>
+                  <Text
+                    style={{
+                      color: isLockedOut ? '#FCA5A5' : 'rgba(255,255,255,0.85)',
+                      fontSize: 12,
+                      fontWeight: '600',
+                    }}
+                  >
+                    {isLockedOut
+                      ? L(
+                          `Konto vorübergehend gesperrt. Erneut versuchen in ${lockoutRemaining}s.`,
+                          `Locked for ${lockoutRemaining}s after too many attempts.`,
+                        )
+                      : L(
+                          `Noch ${attemptsLeft} Versuch${attemptsLeft === 1 ? '' : 'e'} bis zur Sperre.`,
+                          `${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before lockout.`,
+                        )}
+                  </Text>
+                </View>
+              )}
+
               {/* Sign in button */}
               <Pressable
                 onPress={onSubmit}
-                disabled={loading || !email || !password}
+                disabled={loading || !email || !password || isLockedOut}
                 style={{
                   height: 56, marginTop: 24, borderRadius: 12, backgroundColor: '#FFFFFF',
                   alignItems: 'center', justifyContent: 'center',
-                  opacity: (loading || !email || !password) ? 0.5 : 1,
+                  opacity: (loading || !email || !password || isLockedOut) ? 0.5 : 1,
                 }}
               >
                 <Text style={{ color: '#0064E0', fontWeight: '700', fontSize: 16 }}>
                   {loading
                     ? L('Anmeldung läuft…', 'Signing in…')
-                    : L('Anmelden', 'Sign in')}
+                    : isLockedOut
+                      ? L(`Gesperrt (${lockoutRemaining}s)`, `Locked (${lockoutRemaining}s)`)
+                      : L('Anmelden', 'Sign in')}
                 </Text>
               </Pressable>
             </View>

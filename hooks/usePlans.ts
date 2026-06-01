@@ -26,7 +26,7 @@ export function usePlans() {
       : null
 
   const fetchPlans = useCallback(async () => {
-    if (!profile?.organization_id || !myId) return
+    if (!profile?.organization_id || !myId) { setLoading(false); return }
     setLoading(true)
     let query = supabase
       .from('plans')

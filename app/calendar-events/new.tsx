@@ -18,6 +18,7 @@ import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useCalendarEvents } from '@/hooks/useCalendarEvents'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 export default function NewCalendarEventScreen() {
   const router = useRouter()
@@ -75,6 +76,7 @@ export default function NewCalendarEventScreen() {
             toast.success(L('Termin angelegt', 'Event created'))
             router.replace('/(tabs)/calendar')
           } catch (err: any) {
+            captureError(err, { tags: { action: 'calendar-event.create' } })
             toast.error(err?.message ?? t('common.error'))
           } finally {
             setSaving(false)

@@ -35,7 +35,7 @@ export function useOperationalLocations(includeArchived = true) {
 
   const fetchLocations = useCallback(
     async (silent = false) => {
-      if (!profile?.organization_id) return
+      if (!profile?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
 
       let query = supabase

@@ -21,7 +21,9 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { Platform } from 'react-native'
 import { getSupabase } from './supabase/client'
+import { clearAllCache } from './cache'
 import type { Profile, UserRole } from './types'
 import { normalizeRole } from './rbac/permissions'
 
@@ -38,6 +40,13 @@ const PROFILE_TIMEOUT_MS = 6_000
 interface UserContextValue {
   loading: boolean          // session check finished
   profileLoading: boolean   // profile fetch finished (independent of loading)
+  /**
+   * True only after both the session check + initial profile fetch have
+   * completed AND the profile is valid (exists + is_active). AuthGuard
+   * uses this as the gate to render authenticated screens, so a stale
+   * session in storage can't paint UI before we've confirmed who's there.
+   */
+  ready: boolean
   session: Session | null
   profile: Profile | null
   role: UserRole | null
@@ -69,6 +78,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // Track the user id we're currently loading a profile for so old
   // requests can't overwrite newer state after a fast sign-in/out cycle.
   const activeUserIdRef = useRef<string | null>(null)
+  // True once we've successfully resolved a usable profile for the
+  // current session. Flipped back to false on sign-out / failed profile
+  // load so AuthGuard never lets a stale session paint authed screens.
+  const [profileValidated, setProfileValidated] = useState(false)
 
   const loadProfile = useCallback(async (userId: string): Promise<Profile | null> => {
     // Supabase's query builder returns a PromiseLike (`.then` only).
@@ -120,6 +133,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const loadProfileWithCache = useCallback(async (userId: string) => {
     activeUserIdRef.current = userId
     setProfileLoading(true)
+    setProfileValidated(false)
 
     // 1) instant-hydrate from cache
     try {
@@ -129,16 +143,42 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
     } catch {}
 
-    // 2) network refresh
+    // 2) network refresh — authoritative result. Cache is only a paint
+    // accelerator; we never declare the user authed off cache alone.
     const fresh = await loadProfile(userId)
     if (activeUserIdRef.current !== userId) return // stale, ignore
 
     if (fresh) {
+      // Deactivated accounts must NOT be allowed in even though they
+      // hold a valid session — the admin pressed "Deactivate" on them.
+      if (fresh.is_active === false) {
+        console.warn('[UserContext] profile is inactive, signing out')
+        await supabase.auth.signOut()
+        await clearAllCache()
+        AsyncStorage.removeItem(PROFILE_CACHE_KEY(userId)).catch(() => {})
+        setProfile(null)
+        setSession(null)
+        setProfileValidated(false)
+        setProfileLoading(false)
+        return
+      }
       setProfile(fresh)
       AsyncStorage.setItem(PROFILE_CACHE_KEY(userId), JSON.stringify(fresh)).catch(() => {})
+      setProfileValidated(true)
+    } else {
+      // No profile row + no auth user → session is bogus (deleted user,
+      // wrong project, revoked token). Tear it down so AuthGuard can't
+      // route into the authed tree with a phantom session.
+      console.warn('[UserContext] no profile resolved for session, signing out')
+      await supabase.auth.signOut()
+      await clearAllCache()
+      AsyncStorage.removeItem(PROFILE_CACHE_KEY(userId)).catch(() => {})
+      setProfile(null)
+      setSession(null)
+      setProfileValidated(false)
     }
     setProfileLoading(false)
-  }, [loadProfile])
+  }, [loadProfile, supabase])
 
   useEffect(() => {
     let mounted = true
@@ -165,6 +205,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         activeUserIdRef.current = null
         setProfile(null)
         setProfileLoading(false)
+        setProfileValidated(false)
+        // Defence-in-depth: a sign-out (whether user-initiated, token
+        // expiry, or RLS revoke) wipes every data cache. The next user
+        // on this device starts from a clean slate, never seeing the
+        // previous user's hydrated lists.
+        clearAllCache().catch(() => {})
       }
     })
 
@@ -183,10 +229,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     setSession(null)
     setProfile(null)
-    // Drop cached profile so the next user starts fresh.
+    setProfileValidated(false)
+    setProfileLoading(false)
+    // Drop cached profile + all hook-level data caches so the next user
+    // on this device starts fresh — no leakage of plans/times/chat etc.
     const id = activeUserIdRef.current
     if (id) AsyncStorage.removeItem(PROFILE_CACHE_KEY(id)).catch(() => {})
     activeUserIdRef.current = null
+    await clearAllCache()
+    // On web, also clear the raw supabase auth keys from localStorage.
+    // The auth adapter handles this, but belt-and-suspenders for the
+    // case where a previous corrupted entry would otherwise be picked
+    // up by getSession() on the next visit.
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        Object.keys(window.localStorage).forEach((k) => {
+          if (k.startsWith('sb-') || k.includes('supabase.auth')) {
+            window.localStorage.removeItem(k)
+          }
+        })
+      } catch { /* swallow */ }
+    }
   }, [supabase])
 
   const refreshProfile = useCallback(async () => {
@@ -194,9 +257,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await loadProfileWithCache(session.user.id)
   }, [session?.user?.id, loadProfileWithCache])
 
+  // "Ready" = session check finished AND (no session OR profile is valid).
+  // Only when this is true should the AuthGuard route into authed tabs.
+  const ready = !loading && (!session || profileValidated)
+
   const value = useMemo<UserContextValue>(() => ({
     loading,
     profileLoading,
+    ready,
     session,
     profile,
     role,
@@ -205,7 +273,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     isEmployee: role === 'employee',
     signOut,
     refreshProfile,
-  }), [loading, profileLoading, session, profile, role, signOut, refreshProfile])
+  }), [loading, profileLoading, ready, session, profile, role, signOut, refreshProfile])
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>
 }

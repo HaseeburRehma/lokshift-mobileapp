@@ -18,7 +18,7 @@ export function useHolidayBonus() {
   const myId = session?.user?.id
 
   const fetchItems = useCallback(async () => {
-    if (!profile?.organization_id || !myId) return
+    if (!profile?.organization_id || !myId) { setLoading(false); return }
     setLoading(true)
     let query = supabase
       .from('holiday_bonuses')
@@ -73,5 +73,15 @@ export function useHolidayBonus() {
     return data as HolidayBonus
   }
 
-  return { items, loading, fetchItems, grantBonus, ytdTotal }
+  const deleteBonus = async (id: string) => {
+    const prev = items
+    setItems((curr) => curr.filter((b) => b.id !== id))
+    const { error } = await supabase.from('holiday_bonuses').delete().eq('id', id)
+    if (error) {
+      setItems(prev) // rollback
+      throw error
+    }
+  }
+
+  return { items, loading, fetchItems, grantBonus, deleteBonus, ytdTotal }
 }

@@ -33,7 +33,7 @@ export function useShiftTemplates() {
   const [loading, setLoading] = useState(true)
 
   const fetchTemplates = useCallback(async () => {
-    if (!profile?.organization_id) return
+    if (!profile?.organization_id) { setLoading(false); return }
     setLoading(true)
     const { data, error } = await supabase
       .from('shift_templates')

@@ -39,6 +39,7 @@ import {
   type CsvImportReport,
 } from '@/lib/plans/csvImport'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 export default function CsvImportScreen() {
   const router = useRouter()

@@ -29,6 +29,7 @@ import {
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
+import { safeNumber } from '@/lib/safe-format'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
@@ -232,32 +233,52 @@ export default function MonthlyDetailScreen() {
             }}
           >
             <View className="flex-row flex-wrap">
-              <View style={{ width: '50%', marginBottom: 20 }}>
-                <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
+              <View style={{ width: '50%', marginBottom: 20, paddingRight: 8 }}>
+                <Text
+                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
+                  numberOfLines={1}
+                >
                   {L('Soll', 'Scheduled')}
                 </Text>
-                <Text className="text-[22px] font-black text-gray-900 dark:text-white mt-1">
-                  {totals.scheduled.toFixed(1)} {L('Std.', 'hrs')}
+                <Text
+                  className="text-[22px] font-black text-gray-900 dark:text-white mt-1"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {safeNumber(totals.scheduled, 1)} {L('Std.', 'hrs')}
                 </Text>
               </View>
-              <View style={{ width: '50%', marginBottom: 20, alignItems: 'flex-end' }}>
-                <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
+              <View style={{ width: '50%', marginBottom: 20, alignItems: 'flex-end', paddingLeft: 8 }}>
+                <Text
+                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
+                  numberOfLines={1}
+                >
                   {L('Ist', 'Actual')}
                 </Text>
-                <Text className="text-[22px] font-black mt-1" style={{ color: '#0064E0' }}>
-                  {totals.actual.toFixed(1)} {L('Std.', 'hrs')}
+                <Text
+                  className="text-[22px] font-black mt-1"
+                  style={{ color: '#0064E0' }}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {safeNumber(totals.actual, 1)} {L('Std.', 'hrs')}
                 </Text>
               </View>
-              <View style={{ width: '50%' }}>
-                <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
+              <View style={{ width: '50%', paddingRight: 8 }}>
+                <Text
+                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
+                  numberOfLines={1}
+                >
                   {L('Abweichung', 'Variance')}
                 </Text>
                 <Text
                   className="text-[22px] font-black mt-1"
                   style={{ color: isPositive ? '#059669' : '#DC2626' }}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
                 >
                   {isPositive ? '+' : ''}
-                  {totals.difference.toFixed(1)} {L('Std.', 'hrs')}
+                  {safeNumber(totals.difference, 1)} {L('Std.', 'hrs')}
                 </Text>
               </View>
               <View style={{ width: '50%', alignItems: 'flex-end' }}>
@@ -329,25 +350,38 @@ export default function MonthlyDetailScreen() {
                 }}
               >
                 <View style={{ width: 48 }}>
-                  <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
+                  <Text
+                    className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
+                    numberOfLines={1}
+                  >
                     {format(d.date, 'EEE', { locale: dateLocale })}
                   </Text>
                   <Text className="text-[18px] font-black text-gray-900 dark:text-white">
                     {format(d.date, 'd')}
                   </Text>
                 </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-                    {d.scheduled.toFixed(1)} h / {d.actual.toFixed(1)} h
+                <View className="flex-1 ml-3" style={{ minWidth: 0 }}>
+                  <Text
+                    className="text-[13px] font-bold text-gray-900 dark:text-white"
+                    numberOfLines={1}
+                  >
+                    {safeNumber(d.scheduled, 1)} h / {safeNumber(d.actual, 1)} h
                   </Text>
-                  <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 uppercase tracking-widest font-black">
+                  <Text
+                    className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 uppercase tracking-widest font-black"
+                    numberOfLines={1}
+                  >
                     {L('Soll · Ist', 'Scheduled · Actual')}
                   </Text>
                 </View>
                 {hasData && (
-                  <Text className="text-[14px] font-black" style={{ color: varianceColor }}>
+                  <Text
+                    className="text-[14px] font-black"
+                    style={{ color: varianceColor, flexShrink: 0, marginLeft: 8 }}
+                    numberOfLines={1}
+                  >
                     {variance >= 0 ? '+' : ''}
-                    {variance.toFixed(1)} h
+                    {safeNumber(variance, 1)} h
                   </Text>
                 )}
               </View>

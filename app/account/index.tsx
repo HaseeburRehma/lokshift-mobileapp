@@ -46,6 +46,7 @@ import {
 import { format } from 'date-fns'
 
 import { Screen } from '@/components/Screen'
+import { safeNumber } from '@/lib/safe-format'
 import { Card } from '@/components/Card'
 import { AppHeader } from '@/components/AppHeader'
 import { toast } from '@/components/Toast'
@@ -238,23 +239,29 @@ function PersonnelView() {
               ? L('Mitarbeiter-Saldo', 'Employee Balance')
               : L('Organisations-Saldo', 'Organisation Balance')}
           </Text>
-          <View className="flex-row items-baseline mt-3">
+          <View className="flex-row items-baseline mt-3" style={{ flexWrap: 'wrap' }}>
             <Text
               style={{
                 fontSize: 44,
                 fontWeight: '900',
                 color: heroPositive ? '#60A5FA' : '#F87171',
                 letterSpacing: -1,
+                flexShrink: 1,
               }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
               {heroPositive ? '+' : ''}
-              {heroBalance.toFixed(1)}
+              {safeNumber(heroBalance, 1)}
             </Text>
             <Text style={{ fontSize: 18, fontWeight: '700', color: '#94A3B8', marginLeft: 6 }}>
               {hr}
             </Text>
           </View>
-          <Text style={{ color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: 280 }}>
+          <Text
+            style={{ color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: 280 }}
+            numberOfLines={3}
+          >
             {selected
               ? L(
                   `Angesammelte Zeitguthaben für ${selected.full_name}.`,
@@ -272,13 +279,13 @@ function PersonnelView() {
           <View className="flex-row gap-3 mb-5">
             <StatTile
               label={L('Ist-Stunden', 'Actual hours')}
-              value={`${selected.actual_hours.toFixed(1)}${hr}`}
+              value={`${safeNumber(selected.actual_hours, 1)}${hr}`}
               iconBg="#DBEAFE"
               icon={<Clock size={14} color="#0064E0" />}
             />
             <StatTile
               label={L('Soll-Stunden', 'Target hours')}
-              value={`${selected.target_hours.toFixed(1)}${hr}`}
+              value={`${safeNumber(selected.target_hours, 1)}${hr}`}
               iconBg="#DCFCE7"
               icon={<TrendingUp size={14} color="#10B981" />}
             />
@@ -521,11 +528,14 @@ function EmployeeMonthlyPanel({
         >
           <CalendarIcon size={16} color="#2563EB" />
         </View>
-        <View className="flex-1">
+        <View className="flex-1" style={{ minWidth: 0 }}>
           <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
             {employeeName}
           </Text>
-          <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+          <Text
+            className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
+            numberOfLines={1}
+          >
             {L('Monatliche Zeitkonto-Aufschlüsselung', 'Monthly time account breakdown')}
           </Text>
         </View>
@@ -539,6 +549,8 @@ function EmployeeMonthlyPanel({
             borderRadius: 10,
             backgroundColor: '#EFF6FF',
             opacity: pressed ? 0.85 : 1,
+            flexShrink: 0,
+            marginLeft: 8,
           })}
         >
           <Text className="text-[11px] font-black text-blue-600 mr-1">
@@ -579,12 +591,15 @@ function EmployeeMonthlyPanel({
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <View className="flex-1">
-                <Text className="text-[14px] font-black text-gray-900 dark:text-white">
+              <View className="flex-1" style={{ minWidth: 0 }}>
+                <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
                   {month.label}
                 </Text>
-                <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
-                  {month.workingDays} {L('Tage', 'days')} · {month.actualHours.toFixed(1)}
+                <Text
+                  className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
+                  numberOfLines={1}
+                >
+                  {month.workingDays} {L('Tage', 'days')} · {safeNumber(month.actualHours, 1)}
                   {hr} {L('tatsächlich', 'actual')}
                 </Text>
               </View>
@@ -593,10 +608,13 @@ function EmployeeMonthlyPanel({
                   fontSize: 14,
                   fontWeight: '800',
                   color: positive ? '#10B981' : '#EF4444',
+                  flexShrink: 0,
+                  marginLeft: 8,
                 }}
+                numberOfLines={1}
               >
                 {positive ? '+' : ''}
-                {month.difference.toFixed(1)}
+                {safeNumber(month.difference, 1)}
                 {hr}
               </Text>
             </Pressable>
@@ -701,6 +719,7 @@ function StatBlock({ label, value, color }: { label: string; value: string; colo
     <View
       style={{
         flex: 1,
+        minWidth: 0,
         borderWidth: 1,
         borderColor: '#E5E7EB',
         borderRadius: 16,
@@ -708,7 +727,11 @@ function StatBlock({ label, value, color }: { label: string; value: string; colo
         backgroundColor: '#FFFFFF',
       }}
     >
-      <Text style={{ fontSize: 26, fontWeight: '800', color, letterSpacing: -0.5 }}>
+      <Text
+        style={{ fontSize: 26, fontWeight: '800', color, letterSpacing: -0.5 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
         {value}
       </Text>
       <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-1.5 font-normal" numberOfLines={2}>
@@ -744,22 +767,29 @@ export function MonthRow({
     <Pressable onPress={onPress}>
       <Card className="mb-2 flex-row items-center">
         <View
-          className="w-12 h-12 rounded-2xl items-center justify-center mr-3"
+          className="w-12 h-12 rounded-2xl items-center justify-center mr-3 shrink-0"
           style={{ backgroundColor: `${color}1A` }}
         >
           <Icon size={20} color={color} />
         </View>
-        <View className="flex-1">
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white">
+        <View className="flex-1" style={{ minWidth: 0 }}>
+          <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
             {monthLabel}
           </Text>
-          <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">
-            {workingDays} {L('Tage', 'days')} · {actualHours.toFixed(1)}h / {targetHours.toFixed(1)}h
+          <Text
+            className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5"
+            numberOfLines={1}
+          >
+            {workingDays} {L('Tage', 'days')} · {safeNumber(actualHours, 1)}h / {safeNumber(targetHours, 1)}h
           </Text>
         </View>
-        <Text className="text-[16px] font-black mr-2" style={{ color }}>
+        <Text
+          className="text-[16px] font-black mr-2"
+          style={{ color, flexShrink: 0 }}
+          numberOfLines={1}
+        >
           {positive ? '+' : ''}
-          {difference.toFixed(1)}
+          {safeNumber(difference, 1)}
           {hr}
         </Text>
         <ChevronRight size={16} color="#D1D5DB" />
@@ -800,6 +830,7 @@ function FilterChip({
         borderColor: selected ? borderSelected : '#E5E7EB',
         backgroundColor: selected ? bgSelected : '#FFFFFF',
         opacity: pressed ? 0.85 : 1,
+        maxWidth: 240,
       })}
     >
       {leadingIcon ? <View style={{ marginRight: 6 }}>{leadingIcon}</View> : null}
@@ -808,7 +839,9 @@ function FilterChip({
           fontSize: 12,
           fontWeight: '700',
           color: selected ? '#FFFFFF' : '#475569',
+          flexShrink: 1,
         }}
+        numberOfLines={1}
       >
         {label}
       </Text>
@@ -820,6 +853,7 @@ function FilterChip({
             marginLeft: 6,
             color: selected ? '#BFDBFE' : positive ? '#10B981' : '#EF4444',
           }}
+          numberOfLines={1}
         >
           {value}
         </Text>
@@ -840,7 +874,7 @@ function StatTile({
   icon: React.ReactNode
 }) {
   return (
-    <Card className="flex-1">
+    <Card className="flex-1" style={{ minWidth: 0 }}>
       <View
         style={{
           width: 28,
@@ -854,10 +888,17 @@ function StatTile({
       >
         {icon}
       </View>
-      <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
+      <Text
+        className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
+        numberOfLines={1}
+      >
         {label}
       </Text>
-      <Text className="text-[20px] font-black text-gray-900 dark:text-white mt-0.5">
+      <Text
+        className="text-[20px] font-black text-gray-900 dark:text-white mt-0.5"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
         {value}
       </Text>
     </Card>

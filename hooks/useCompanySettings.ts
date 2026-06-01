@@ -39,7 +39,7 @@ export function useCompanySettings() {
   const [loading, setLoading] = useState(true)
 
   const fetchSettings = useCallback(async () => {
-    if (!profile?.organization_id) return
+    if (!profile?.organization_id) { setLoading(false); return }
     setLoading(true)
     let query = supabase.from('company_settings').select('*')
     // Some installations key by organization_id; others have a single row

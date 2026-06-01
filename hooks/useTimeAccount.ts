@@ -30,7 +30,7 @@ export function useTimeAccount(employeeId?: string) {
   const weeklyTarget = profile?.target_hours ?? 40
 
   const fetchData = useCallback(async () => {
-    if (!profile?.organization_id || !targetId) return
+    if (!profile?.organization_id || !targetId) { setLoading(false); return }
     setLoading(true)
     const { data, error } = await supabase
       .from('time_entries')

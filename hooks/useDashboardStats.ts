@@ -49,7 +49,7 @@ export function useDashboardStats() {
   const [loading, setLoading] = useState(true)
 
   const fetchStats = useCallback(async () => {
-    if (!profile?.organization_id || !session?.user?.id) return
+    if (!profile?.organization_id || !session?.user?.id) { setLoading(false); return }
     setLoading(true)
 
     const now = new Date()

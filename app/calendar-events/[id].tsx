@@ -17,6 +17,7 @@ import { useUser } from '@/lib/user-context'
 import { useCalendarEvents } from '@/hooks/useCalendarEvents'
 import { canManageUsers } from '@/lib/rbac/permissions'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 export default function EditCalendarEventScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -67,6 +68,7 @@ export default function EditCalendarEventScreen() {
               toast.success(L('Termin gelöscht', 'Event deleted'))
               router.replace('/(tabs)/calendar')
             } catch (err: any) {
+              captureError(err, { tags: { action: 'calendar-event.delete' } })
               toast.error(err?.message ?? t('common.error'))
             } finally {
               setBusy(false)
@@ -126,6 +128,7 @@ export default function EditCalendarEventScreen() {
               toast.success(L('Termin gespeichert', 'Event saved'))
               router.replace('/(tabs)/calendar')
             } catch (err: any) {
+              captureError(err, { tags: { action: 'calendar-event.update' } })
               toast.error(err?.message ?? t('common.error'))
             } finally {
               setSaving(false)

@@ -36,7 +36,7 @@ export function useProfiles(includeInactive = true) {
 
   const fetchProfiles = useCallback(
     async (silent = false) => {
-      if (!me?.organization_id) return
+      if (!me?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
       let query = supabase
         .from('profiles')

@@ -16,6 +16,7 @@ import { useUser } from '@/lib/user-context'
 import { canCreatePlans } from '@/lib/rbac/permissions'
 import { useCustomers } from '@/hooks/useCustomers'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { captureError } from '@/lib/monitoring'
 
 export default function NewCustomerScreen() {
   const router = useRouter()
@@ -64,6 +65,7 @@ export default function NewCustomerScreen() {
             toast.success(L('Kunde angelegt', 'Customer created'))
             router.replace('/customers')
           } catch (err: any) {
+            captureError(err, { tags: { action: 'customer.create' } })
             toast.error(err?.message ?? t('common.error'))
           } finally {
             setSaving(false)

@@ -19,8 +19,9 @@ import {
   FileText,
   CalendarDays,
 } from 'lucide-react-native'
-import { format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
+import { safeFormatDate, safeFormatTime, safeParseISO, safeNumber } from '@/lib/safe-format'
 import { useRouter } from 'expo-router'
 
 import { Screen } from '@/components/Screen'
@@ -36,6 +37,7 @@ import { canCreatePlans } from '@/lib/rbac/permissions'
 import { exportPlansPdf } from '@/lib/pdf/reports'
 import { exportPlansXlsx } from '@/lib/excel/reports'
 import { exportCsv } from '@/lib/csv/exportCsv'
+import { captureError } from '@/lib/monitoring'
 
 function isoWeek(d: Date): number {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
@@ -75,18 +77,22 @@ export default function PlansScreen() {
           ? ['Mitarbeiter', 'Kunde', 'Ort', 'Strecke', 'Datum', 'Zeit', 'Std.', 'KW', 'Status', 'Notizen']
           : ['Employee', 'Customer', 'Location', 'Route', 'Date', 'Time', 'Hours', 'KW', 'Status', 'Notes']
       const rows = plans.map((p) => {
-        const start = new Date(p.start_time)
-        const end = new Date(p.end_time)
-        const hours = (end.getTime() - start.getTime()) / 3_600_000
+        // Defensive parsing — a malformed timestamp shouldn't take the
+        // whole export down. safeParseISO returns null on bad input.
+        const start = safeParseISO(p.start_time)
+        const end = safeParseISO(p.end_time)
+        const hours =
+          start && end ? (end.getTime() - start.getTime()) / 3_600_000 : 0
+        const cw = start ? `KW ${isoWeek(start)}` : '—'
         return [
           p.employee?.full_name ?? '',
           p.customer?.name ?? '',
           p.location ?? '',
           p.route ?? '',
-          format(start, 'dd.MM.yyyy'),
-          `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`,
-          Number(hours.toFixed(2)),
-          `KW ${isoWeek(start)}`,
+          safeFormatDate(p.start_time, 'dd.MM.yyyy'),
+          `${safeFormatTime(p.start_time)} - ${safeFormatTime(p.end_time)}`,
+          Number(safeNumber(hours, 2)),
+          cw,
           p.status,
           (p.notes ?? '').replace(/[,;]/g, ' '),
         ]
@@ -98,6 +104,7 @@ export default function PlansScreen() {
         dialogTitle: L('Einsatzpläne', 'Plans'),
       })
     } catch (err: any) {
+      captureError(err, { tags: { action: 'plans.export-csv' } })
       toast.error(err?.message ?? L('Fehler beim Export.', 'Export failed.'))
     } finally {
       setBusy(null)
@@ -115,6 +122,7 @@ export default function PlansScreen() {
         showEmployee: true,
       })
     } catch (err: any) {
+      captureError(err, { tags: { action: 'plans.export-excel' } })
       toast.error(err?.message ?? L('Fehler beim Export.', 'Export failed.'))
     } finally {
       setBusy(null)
@@ -136,6 +144,7 @@ export default function PlansScreen() {
         showEmployee: true,
       })
     } catch (err: any) {
+      captureError(err, { tags: { action: 'plans.export-pdf' } })
       toast.error(err?.message ?? L('Fehler beim Export.', 'Export failed.'))
     } finally {
       setBusy(null)
@@ -198,32 +207,48 @@ export default function PlansScreen() {
           {grouped.map((group) => (
             <View key={group.date} className="mb-5">
               <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1">
-                {format(parseISO(group.date), 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
+                {safeFormatDate(group.date, 'EEEE, dd. MMMM yyyy', { locale: dateLocale })}
               </Text>
               {group.items.map((p) => (
                 <Pressable key={p.id} onPress={() => router.push(`/plans/${p.id}` as any)}>
                   <Card className="mb-2 flex-row items-center">
-                    <View className="w-12 h-12 rounded-2xl bg-brand/10 dark:bg-brand/20 items-center justify-center mr-3">
+                    <View className="w-12 h-12 rounded-2xl bg-brand/10 dark:bg-brand/20 items-center justify-center mr-3 shrink-0">
                       <Briefcase size={20} color="#0064E0" />
                     </View>
-                    <View className="flex-1">
-                      <Text className="text-[14px] font-black text-gray-900 dark:text-white">
+                    <View className="flex-1" style={{ minWidth: 0 }}>
+                      <Text
+                        className="text-[14px] font-black text-gray-900 dark:text-white"
+                        numberOfLines={1}
+                      >
                         {p.customer?.name ?? '—'}
                       </Text>
-                      <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">
-                        {format(parseISO(p.start_time), 'HH:mm')} – {format(parseISO(p.end_time), 'HH:mm')}
+                      <Text
+                        className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5"
+                        numberOfLines={1}
+                      >
+                        {safeFormatTime(p.start_time)} – {safeFormatTime(p.end_time)}
                       </Text>
                       {p.location && (
-                        <View className="flex-row items-center mt-1">
+                        <View className="flex-row items-center mt-1" style={{ maxWidth: '100%' }}>
                           <MapPin size={11} color="#9CA3AF" />
-                          <Text className="text-[11px] text-gray-400 dark:text-slate-500 ml-1">{p.location}</Text>
+                          <Text
+                            className="text-[11px] text-gray-400 dark:text-slate-500 ml-1"
+                            numberOfLines={1}
+                          >
+                            {p.location}
+                          </Text>
                         </View>
                       )}
                       {(isAdmin || isDispatcher) && p.employee?.full_name && (
-                        <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">{p.employee.full_name}</Text>
+                        <Text
+                          className="text-[11px] text-gray-500 dark:text-slate-400 mt-1"
+                          numberOfLines={1}
+                        >
+                          {p.employee.full_name}
+                        </Text>
                       )}
                     </View>
-                    <View className="items-end ml-2">
+                    <View className="items-end ml-2 shrink-0">
                       <StatusBadge status={p.status} />
                       <ArrowRight size={16} color="#D1D5DB" style={{ marginTop: 8 }} />
                     </View>

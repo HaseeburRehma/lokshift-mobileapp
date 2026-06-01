@@ -21,7 +21,7 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
   const myId = session?.user?.id
 
   const fetchItems = useCallback(async () => {
-    if (!profile?.organization_id || !myId) return
+    if (!profile?.organization_id || !myId) { setLoading(false); return }
     setLoading(true)
     let query = supabase
       .from('per_diems')
