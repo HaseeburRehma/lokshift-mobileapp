@@ -33,6 +33,7 @@ import { BiometricLockProvider } from '@/lib/biometric/lock-context'
 import { AppDrawer } from '@/components/AppDrawer'
 import { BiometricLockOverlay } from '@/components/BiometricLockOverlay'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ToastHost } from '@/components/Toast'
 
 /**
  * Watches the user-context for auth changes and forwards user id + email
@@ -181,6 +182,10 @@ export default function RootLayout() {
                       {/* Lock overlay sits above everything (zIndex 9999) so
                           it covers the tab bar, drawer, and any open modal. */}
                       <BiometricLockOverlay />
+                      {/* Toasts sit just below the lock overlay (zIndex 99999)
+                          so they're visible over every screen — including
+                          modals — without blocking the lock itself. */}
+                      <ToastHost />
                       <ThemedStatusBar />
                     </AuthGuard>
                     </DrawerProvider>
