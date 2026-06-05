@@ -149,11 +149,19 @@ function enrich(entries: StundenzettelEntry[]): EnrichedRow[] {
         e.break_minutes ?? 0,
         !!e.is_gastfahrt,
       )
+      // ALWAYS prefer the freshly computed netHours over the stored
+      // `e.net_hours`. The stored value is a denormalised cache that was
+      // 0 for old overnight rows (Issue 3 in the bug brief: 23:00 →
+      // 09:45 stored as 0.00 because the original insert path didn't
+      // know how to span midnight). The engine is the source of truth.
+      const computed = shift.netHours
+      const stored = Number(e.net_hours) || 0
+      const hours = computed > 0 ? computed : stored
       return {
         entry: e,
         start,
         end,
-        hours: e.net_hours ?? shift.netHours,
+        hours,
         isOvernight: shift.isOvernight,
         zuschlag,
       }
@@ -168,8 +176,24 @@ function enrich(entries: StundenzettelEntry[]): EnrichedRow[] {
 export function renderStundenzettelSection(opts: StundenzettelOptions): string {
   const enriched = enrich(opts.entries)
   const totals: ZuschlagBreakdown = sumZuschlag(enriched.map((r) => r.zuschlag))
-  const totalHours = enriched.reduce((s, r) => s + (r.hours || 0), 0)
-  const workingDays = enriched.filter((r) => (r.hours || 0) > 0).length
+
+  // ─── Hour totals — Issue 2: Gastfahrt must NOT be counted in
+  // Gesamtstunden. Split into regularHours (paid as work) and
+  // gastfahrtHours (paid separately). Both show in the summary; the
+  // per-row table shows regular hours in the Stunden column and the
+  // gastfahrt hours in the dedicated Gastfahrt column, never both.
+  const regularHours = enriched.reduce(
+    (s, r) => s + (r.entry.is_gastfahrt ? 0 : r.hours || 0),
+    0,
+  )
+  const gastfahrtHours = enriched.reduce(
+    (s, r) => s + (r.entry.is_gastfahrt ? r.hours || 0 : 0),
+    0,
+  )
+
+  const workingDays = enriched.filter(
+    (r) => !r.entry.is_gastfahrt && (r.hours || 0) > 0,
+  ).length
   const overnightCount = enriched.filter((r) => !!r.entry.overnight_stay).length
   const noOvernightWorkingDays = Math.max(0, workingDays - overnightCount)
   const totalSpesen = enriched.reduce(
@@ -185,20 +209,25 @@ export function renderStundenzettelSection(opts: StundenzettelOptions): string {
         : `<td>nein</td>`
       const endCell = r.end ? (r.isOvernight ? `${r.end} (+1)` : r.end) : ''
       const fmtNum = (n: number) => (n > 0 ? n.toFixed(2) : '')
+      // Issue 2 — split Stunden vs Gastfahrt per row so summing the
+      // Stunden column reflects regular work only.
+      const isGast = !!r.entry.is_gastfahrt
+      const regularCell = !isGast && r.hours > 0 ? r.hours.toFixed(2) : ''
+      const gastfahrtCell = isGast && r.hours > 0 ? r.hours.toFixed(2) : fmtNum(r.zuschlag.gastfahrt)
       return `
         <tr>
           <td class="left">${escapeHtml(fmtDate(r.entry.date))}</td>
           <td class="left">${escapeHtml(weekdayOf(r.entry.date))}</td>
           <td>${escapeHtml(r.start)}</td>
           <td>${escapeHtml(endCell)}</td>
-          <td>${r.hours > 0 ? r.hours.toFixed(2) : ''}</td>
+          <td>${regularCell}</td>
           <td>${(r.entry.meal_allowance ?? 0).toFixed(2)}</td>
           ${overnight}
           <td>${fmtNum(r.zuschlag.night25)}</td>
           <td>${fmtNum(r.zuschlag.night40)}</td>
           <td>${fmtNum(r.zuschlag.sunday)}</td>
           <td>${fmtNum(r.zuschlag.holiday)}</td>
-          <td>${fmtNum(r.zuschlag.gastfahrt)}</td>
+          <td>${gastfahrtCell}</td>
         </tr>`
     })
     .join('')
@@ -209,27 +238,27 @@ export function renderStundenzettelSection(opts: StundenzettelOptions): string {
       <td></td>
       <td></td>
       <td></td>
-      <td>${totalHours.toFixed(2)}</td>
+      <td>${regularHours.toFixed(2)}</td>
       <td>${totalSpesen.toFixed(2)}</td>
       <td>${overnightCount}x ja &nbsp; ${noOvernightWorkingDays}x nein</td>
       <td>${totals.night25.toFixed(2)}</td>
       <td>${totals.night40.toFixed(2)}</td>
       <td>${totals.sunday.toFixed(2)}</td>
       <td>${totals.holiday.toFixed(2)}</td>
-      <td>${totals.gastfahrt.toFixed(2)}</td>
+      <td>${gastfahrtHours.toFixed(2)}</td>
     </tr>`
 
   const summaryRows: Array<[string, string]> = [
     ['Arbeitstage :', String(workingDays)],
-    ['Gesamtstunden :', totalHours.toFixed(2)],
+    ['Gesamtstunden :', regularHours.toFixed(2)],
+    ['Gastfahrt Stunden :', gastfahrtHours.toFixed(2)],
     ['25% Nachtarbeit :', totals.night25.toFixed(2)],
     ['40% Nachtarbeit :', totals.night40.toFixed(2)],
     ['Sonntag :', totals.sunday.toFixed(2)],
     ['Feiertag :', totals.holiday.toFixed(2)],
-    ['Gastfahrt :', totals.gastfahrt.toFixed(2)],
     ['Besonderheit:', opts.remarks ?? ''],
     ['Soll:', sollHours ? `${sollHours} H` : ''],
-    ['Ist:', totalHours.toFixed(2)],
+    ['Ist:', regularHours.toFixed(2)],
     ['14 Speßen', String(noOvernightWorkingDays)],
     ['28 Speßen', String(overnightCount)],
     ['STUNDELOHN', opts.hourlyRate ? opts.hourlyRate.toFixed(2) : ''],

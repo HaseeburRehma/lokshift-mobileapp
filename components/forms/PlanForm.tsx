@@ -28,6 +28,10 @@ interface PlanFormProps {
   initialPlan?: Plan
   onSuccess?: (planId: string) => void
   showBulkCta?: boolean
+  /** Pre-select an employee — used by the dashboard "tap empty cell" flow. */
+  initialEmployeeId?: string
+  /** Pre-fill the date as YYYY-MM-DD — also used by the dashboard flow. */
+  initialDate?: string
 }
 
 function timeFromIso(iso: string): string {
@@ -39,7 +43,13 @@ function dateFromIso(iso: string): string {
   return iso.slice(0, 10)
 }
 
-export function PlanForm({ initialPlan, onSuccess, showBulkCta = false }: PlanFormProps) {
+export function PlanForm({
+  initialPlan,
+  onSuccess,
+  showBulkCta = false,
+  initialEmployeeId,
+  initialDate,
+}: PlanFormProps) {
   const isEditing = !!initialPlan
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
@@ -47,7 +57,11 @@ export function PlanForm({ initialPlan, onSuccess, showBulkCta = false }: PlanFo
   const { profile, session } = useUser()
 
   const [date, setDate] = useState(
-    initialPlan ? dateFromIso(initialPlan.start_time) : format(new Date(), 'yyyy-MM-dd'),
+    initialPlan
+      ? dateFromIso(initialPlan.start_time)
+      : (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)
+          ? initialDate
+          : format(new Date(), 'yyyy-MM-dd')),
   )
   const [startTime, setStartTime] = useState(
     initialPlan ? timeFromIso(initialPlan.start_time) : '08:00',
@@ -55,7 +69,9 @@ export function PlanForm({ initialPlan, onSuccess, showBulkCta = false }: PlanFo
   const [endTime, setEndTime] = useState(
     initialPlan ? timeFromIso(initialPlan.end_time) : '16:00',
   )
-  const [employeeId, setEmployeeId] = useState(initialPlan?.employee_id ?? '')
+  const [employeeId, setEmployeeId] = useState(
+    initialPlan?.employee_id ?? initialEmployeeId ?? '',
+  )
   const [customerId, setCustomerId] = useState(initialPlan?.customer_id ?? '')
   const [location, setLocation] = useState(initialPlan?.location ?? '')
   const [route, setRoute] = useState(initialPlan?.route ?? '')

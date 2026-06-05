@@ -19,25 +19,30 @@
  */
 
 import { calculateShiftTimes } from './shift-hours'
+import {
+  DEFAULT_STATE,
+  holidayDatesFor,
+  excludedZuschlagDatesFor,
+  type GermanState,
+} from './holidays'
 
-export const DEFAULT_HOLIDAYS_2025: string[] = [
-  '2025-01-01', // Neujahr
-  '2025-04-18', // Karfreitag
-  '2025-04-21', // Ostermontag
-  '2025-05-01', // Tag der Arbeit
-  '2025-05-29', // Christi Himmelfahrt
-  '2025-06-09', // Pfingstmontag
-  '2025-06-19', // Fronleichnam
-  '2025-10-03', // Tag der Deutschen Einheit
-  '2025-11-01', // Allerheiligen
-]
+/**
+ * Deprecated — kept exported as backward-compatible stub. Old callers
+ * referenced this constant directly. Use `holidayDatesFor(year, state)`
+ * from `./holidays` instead so 2026+ shifts get correct Feiertagszuschlag.
+ *
+ * @deprecated Use holidayDatesFor(date.year, 'NW') from ./holidays.
+ */
+export const DEFAULT_HOLIDAYS_2025: string[] = holidayDatesFor(2025, 'NW')
 
 /**
  * Holidays the client template excludes from the Feiertag column even
  * though they would otherwise qualify. Christmas Day and Boxing Day are
  * paid via a separate Weihnachtsgeld scheme.
+ *
+ * @deprecated Use excludedZuschlagDatesFor(year) from ./holidays.
  */
-export const EXCLUDED_HOLIDAYS: string[] = ['2025-12-25', '2025-12-26']
+export const EXCLUDED_HOLIDAYS: string[] = excludedZuschlagDatesFor(2025)
 
 export interface ZuschlagBreakdown {
   /** 25% night premium hours (20:00 – 24:00). */
@@ -87,14 +92,28 @@ export function calculateZuschlag(
   endTime: string,
   breakMinutes: number = 0,
   isGastfahrt: boolean = false,
-  holidays: string[] = DEFAULT_HOLIDAYS_2025,
-  excluded: string[] = EXCLUDED_HOLIDAYS,
+  /** When omitted, auto-generated for the date's year + Rheinmaasrail state (NW). */
+  holidays?: string[],
+  /** When omitted, auto-generated for the date's year (1./2. Weihnachten). */
+  excluded?: string[],
+  /** Override for non-NRW deployments. */
+  state: GermanState = DEFAULT_STATE,
 ): ZuschlagBreakdown {
   if (!date || !startTime || !endTime) return { ...EMPTY }
 
   const shift = calculateShiftTimes(date, startTime, endTime, breakMinutes)
   const netHours = shift.netHours
   if (netHours <= 0) return { ...EMPTY }
+
+  // Auto-derive the holiday list for the shift's year(s) — covers both
+  // the start date and the next day in the overnight case. Previously we
+  // shipped a hard-coded 2025 list which silently treated 01.05.2026
+  // (Tag der Arbeit) as a normal weekday (Issue 4 in the bug brief).
+  const startYear = parseInt(date.slice(0, 4), 10)
+  const endYear = parseInt(shift.endDate.slice(0, 4), 10)
+  const years = startYear === endYear ? [startYear] : [startYear, endYear]
+  const holidayList = holidays ?? holidayDatesFor(years, state)
+  const excludedList = excluded ?? excludedZuschlagDatesFor(years)
 
   const [sh, sm] = startTime.split(':').map(Number)
   const [eh, em] = endTime.split(':').map(Number)
@@ -108,7 +127,7 @@ export function calculateZuschlag(
   const weekday = new Date(`${date}T00:00:00`).getDay()
   const sunday = weekday === 0 ? netHours : 0
 
-  const isHoliday = holidays.includes(date) && !excluded.includes(date)
+  const isHoliday = holidayList.includes(date) && !excludedList.includes(date)
   const holiday = isHoliday ? netHours : 0
 
   const gastfahrt = isGastfahrt ? netHours : 0

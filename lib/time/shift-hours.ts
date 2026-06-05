@@ -34,9 +34,17 @@ function isEndBeforeStart(start: string, end: string): boolean {
 }
 
 function addDays(date: string, n: number): string {
+  // Compose the result from LOCAL components — using toISOString() rolls
+  // the day backward by the UTC offset whenever the local timezone is
+  // east of UTC (e.g. CEST = UTC+2 → 2026-05-06 became 2026-05-05). That
+  // silently turned every overnight shift into a non-shift, which the
+  // client saw as "23:00 → 09:45 = 0.00 hours" (Issue 3 in the brief).
   const d = new Date(`${date}T00:00:00`)
   d.setDate(d.getDate() + n)
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
 }
 
 export function calculateShiftTimes(

@@ -77,11 +77,17 @@ function enrich(entries: StundenzettelEntry[]): EnrichedRow[] {
         e.break_minutes ?? 0,
         !!e.is_gastfahrt,
       )
+      // Always prefer the computed netHours when the engine returns > 0.
+      // Stored net_hours is a stale denormalised cache that was 0 for old
+      // overnight entries (Issue 3 — 23:00 → 09:45 was stored as 0.00).
+      const computed = shift.netHours
+      const stored = Number(e.net_hours) || 0
+      const hours = computed > 0 ? computed : stored
       return {
         entry: e,
         start,
         end,
-        hours: e.net_hours ?? shift.netHours,
+        hours,
         isOvernight: shift.isOvernight,
         zuschlag,
       }
@@ -109,9 +115,19 @@ function monthHeader(monthKey: string): string {
 function buildSheet(section: ExcelExportSection): XLSX.WorkSheet {
   const enriched = enrich(section.entries)
   const totals = sumZuschlag(enriched.map((r) => r.zuschlag))
-  const totalHours = enriched.reduce((s, r) => s + (r.hours || 0), 0)
+  // Issue 2 — Stunden total excludes Gastfahrt; Gastfahrt has its own column.
+  const regularHours = enriched.reduce(
+    (s, r) => s + (r.entry.is_gastfahrt ? 0 : r.hours || 0),
+    0,
+  )
+  const gastfahrtHours = enriched.reduce(
+    (s, r) => s + (r.entry.is_gastfahrt ? r.hours || 0 : 0),
+    0,
+  )
   const totalSpesen = enriched.reduce((s, r) => s + (r.entry.meal_allowance ?? 0), 0)
-  const workingDays = enriched.filter((r) => (r.hours || 0) > 0).length
+  const workingDays = enriched.filter(
+    (r) => !r.entry.is_gastfahrt && (r.hours || 0) > 0,
+  ).length
   const overnightCount = enriched.filter((r) => !!r.entry.overnight_stay).length
 
   // Two title rows + a blank gap + header + data + totals + summary block.
@@ -135,51 +151,56 @@ function buildSheet(section: ExcelExportSection): XLSX.WorkSheet {
   ])
 
   for (const r of enriched) {
+    const isGast = !!r.entry.is_gastfahrt
     aoa.push([
       fmtDate(r.entry.date),
       weekdayOf(r.entry.date),
       r.start || '',
       r.end ? (r.isOvernight ? `${r.end} (+1)` : r.end) : '',
-      r.hours > 0 ? Number(r.hours.toFixed(2)) : '',
+      !isGast && r.hours > 0 ? Number(r.hours.toFixed(2)) : '',
       Number((r.entry.meal_allowance ?? 0).toFixed(2)),
       r.entry.overnight_stay ? 'ja' : 'nein',
       r.zuschlag.night25 > 0 ? Number(r.zuschlag.night25.toFixed(2)) : '',
       r.zuschlag.night40 > 0 ? Number(r.zuschlag.night40.toFixed(2)) : '',
       r.zuschlag.sunday > 0 ? Number(r.zuschlag.sunday.toFixed(2)) : '',
       r.zuschlag.holiday > 0 ? Number(r.zuschlag.holiday.toFixed(2)) : '',
-      r.zuschlag.gastfahrt > 0 ? Number(r.zuschlag.gastfahrt.toFixed(2)) : '',
+      isGast && r.hours > 0
+        ? Number(r.hours.toFixed(2))
+        : r.zuschlag.gastfahrt > 0
+          ? Number(r.zuschlag.gastfahrt.toFixed(2))
+          : '',
     ])
   }
 
-  // Totals row
+  // Totals row — regularHours (NOT total) so the column sums match.
   aoa.push([
     'Σ',
     '',
     '',
     '',
-    Number(totalHours.toFixed(2)),
+    Number(regularHours.toFixed(2)),
     Number(totalSpesen.toFixed(2)),
     `${overnightCount}x ja  ${Math.max(0, workingDays - overnightCount)}x nein`,
     Number(totals.night25.toFixed(2)),
     Number(totals.night40.toFixed(2)),
     Number(totals.sunday.toFixed(2)),
     Number(totals.holiday.toFixed(2)),
-    Number(totals.gastfahrt.toFixed(2)),
+    Number(gastfahrtHours.toFixed(2)),
   ])
 
   // Spacer + summary block mirrors the PDF
   aoa.push([])
   aoa.push(['Arbeitstage', workingDays])
-  aoa.push(['Gesamtstunden', Number(totalHours.toFixed(2))])
+  aoa.push(['Gesamtstunden', Number(regularHours.toFixed(2))])
+  aoa.push(['Gastfahrt Stunden', Number(gastfahrtHours.toFixed(2))])
   aoa.push(['25% Nachtarbeit', Number(totals.night25.toFixed(2))])
   aoa.push(['40% Nachtarbeit', Number(totals.night40.toFixed(2))])
   aoa.push(['Sonntag', Number(totals.sunday.toFixed(2))])
   aoa.push(['Feiertag', Number(totals.holiday.toFixed(2))])
-  aoa.push(['Gastfahrt', Number(totals.gastfahrt.toFixed(2))])
   aoa.push(['14 Speßen', Math.max(0, workingDays - overnightCount)])
   aoa.push(['28 Speßen', overnightCount])
   aoa.push(['Soll-Stunden', section.targetHours ?? ''])
-  aoa.push(['Ist-Stunden', Number(totalHours.toFixed(2))])
+  aoa.push(['Ist-Stunden', Number(regularHours.toFixed(2))])
   aoa.push(['Stundenlohn', section.hourlyRate ?? ''])
 
   const ws = XLSX.utils.aoa_to_sheet(aoa)

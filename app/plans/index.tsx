@@ -166,35 +166,84 @@ export default function PlansScreen() {
           />
 
           {showExports && (
-            <View className="flex-row flex-wrap gap-2 mb-5">
-              <ExportChip
-                icon={<Download size={14} color="#0064E0" />}
-                label="CSV"
-                onPress={onCsv}
-                loading={busy === 'csv'}
-                disabled={busy !== null}
-              />
-              <ExportChip
-                icon={<FileSpreadsheet size={14} color="#0064E0" />}
-                label="Excel"
-                onPress={onExcel}
-                loading={busy === 'xlsx'}
-                disabled={busy !== null}
-              />
-              <ExportChip
-                icon={<FileText size={14} color="#0064E0" />}
-                label="PDF"
-                onPress={onPdf}
-                loading={busy === 'pdf'}
-                disabled={busy !== null}
-              />
-              <ExportChip
-                icon={<CalendarDays size={14} color="#0064E0" />}
-                label={L('Mehrere', 'Bulk')}
-                onPress={() => router.push('/plans/bulk' as any)}
-                disabled={busy !== null}
-              />
-            </View>
+            <>
+              {/* Wilson-style unified shift dashboard — admin entry point */}
+              <Pressable
+                onPress={() => router.push('/dashboard' as any)}
+                style={({ pressed }: { pressed: boolean }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#0F172A',
+                  borderRadius: 16,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  marginBottom: 12,
+                  opacity: pressed ? 0.85 : 1,
+                  shadowColor: '#0F172A',
+                  shadowOpacity: 0.18,
+                  shadowRadius: 16,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 4,
+                })}
+                accessibilityLabel={L('Schicht-Dashboard öffnen', 'Open shift dashboard')}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    backgroundColor: '#0064E0',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <CalendarDays size={18} color="#FFFFFF" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-[13px] font-black text-white" numberOfLines={1}>
+                    {L('Wochenübersicht (Dashboard)', 'Weekly dashboard')}
+                  </Text>
+                  <Text className="text-[11px] text-slate-300 mt-0.5" numberOfLines={1}>
+                    {L(
+                      'Alle Mitarbeiter, alle Schichten, eine Ansicht',
+                      'All employees, all shifts, one view',
+                    )}
+                  </Text>
+                </View>
+                <ArrowRight size={16} color="#FFFFFF" />
+              </Pressable>
+
+              <View className="flex-row flex-wrap gap-2 mb-5">
+                <ExportChip
+                  icon={<Download size={14} color="#0064E0" />}
+                  label="CSV"
+                  onPress={onCsv}
+                  loading={busy === 'csv'}
+                  disabled={busy !== null}
+                />
+                <ExportChip
+                  icon={<FileSpreadsheet size={14} color="#0064E0" />}
+                  label="Excel"
+                  onPress={onExcel}
+                  loading={busy === 'xlsx'}
+                  disabled={busy !== null}
+                />
+                <ExportChip
+                  icon={<FileText size={14} color="#0064E0" />}
+                  label="PDF"
+                  onPress={onPdf}
+                  loading={busy === 'pdf'}
+                  disabled={busy !== null}
+                />
+                <ExportChip
+                  icon={<CalendarDays size={14} color="#0064E0" />}
+                  label={L('Mehrere', 'Bulk')}
+                  onPress={() => router.push('/plans/bulk' as any)}
+                  disabled={busy !== null}
+                />
+              </View>
+            </>
           )}
 
           {grouped.length === 0 && !loading ? (

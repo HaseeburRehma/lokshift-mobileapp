@@ -9,6 +9,7 @@
 import React from 'react'
 import { View, Text, Pressable } from 'react-native'
 import { ChevronLeft, CalendarPlus } from 'lucide-react-native'
+import { useLocalSearchParams } from 'expo-router'
 
 import { Screen } from '@/components/Screen'
 import { PlanForm } from '@/components/forms/PlanForm'
@@ -22,6 +23,11 @@ export default function NewPlanScreen() {
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const goBack = useSafeBack('/plans')
   const { role } = useUser()
+  // Optional prefill from the dashboard "tap empty cell" flow.
+  const { employeeId, date } = useLocalSearchParams<{
+    employeeId?: string
+    date?: string
+  }>()
 
   if (!canCreatePlans(role)) {
     return (
@@ -61,7 +67,11 @@ export default function NewPlanScreen() {
         </View>
       </View>
 
-      <PlanForm showBulkCta />
+      <PlanForm
+        showBulkCta
+        initialEmployeeId={employeeId || undefined}
+        initialDate={date || undefined}
+      />
     </Screen>
   )
 }

@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nouh-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/Nouh-wehres",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3030"
+      ],
+      "port": 3030
+    }
+  ]
+}

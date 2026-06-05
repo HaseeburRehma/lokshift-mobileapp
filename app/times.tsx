@@ -46,7 +46,11 @@ import { useUser } from '@/lib/user-context'
 import { useTimeEntries } from '@/hooks/useTimeEntries'
 import type { TimeEntry } from '@/lib/types'
 import { TimeEntrySheet } from '@/components/TimeEntrySheet'
-import { exportWorkingTimePdf } from '@/lib/pdf/reports'
+import {
+  exportMultiEmployeeReportPdf,
+  exportStundenzettelPdf,
+  type StundenzettelOptions,
+} from '@/lib/pdf/stundenzettel'
 
 type StatusFilter =
   | 'all'
@@ -158,8 +162,11 @@ export default function TimesScreen() {
       : (employeeOptions.find((e) => e.id === employeeFilter)?.name ?? '—')
 
   const onExportPdf = async () => {
-    // Export the FILTERED set so admins can scope a PDF to a single
-    // employee or status without leaving this screen.
+    // Issue 1 (client bug brief) — the times screen used to emit a
+    // separate "Arbeitszeitbericht" layout that disagreed with the
+    // Stundenzettel for the same period. We now produce a Stundenzettel-
+    // format PDF, grouping the filtered rows by (employee, month) so the
+    // same row never appears in two places.
     const rows = filteredEntries.length > 0 ? filteredEntries : allEntries
     if (rows.length === 0) {
       toast.error(L('Keine Einträge zum Exportieren.', 'No entries to export.'))
@@ -167,16 +174,43 @@ export default function TimesScreen() {
     }
     setExporting(true)
     try {
-      await exportWorkingTimePdf(rows, {
-        title: L('Arbeitszeitbericht', 'Working Time Report'),
-        subtitle: L(
-          `Stand ${format(new Date(), 'dd.MM.yyyy')}`,
-          `As of ${format(new Date(), 'yyyy-MM-dd')}`,
-        ),
-        filename: `arbeitszeitbericht_${format(new Date(), 'yyyy-MM-dd')}`,
-        locale,
-        showEmployee: isManagerial,
-      })
+      // Group by (employee_id, monthKey)
+      const groups = new Map<string, { employeeName: string; monthKey: string; entries: typeof rows }>()
+      for (const e of rows) {
+        const monthKey = (e.date || '').slice(0, 7)
+        const empId = e.employee_id || 'self'
+        const empName = e.employee?.full_name ?? '—'
+        const key = `${empId}::${monthKey}`
+        const g = groups.get(key)
+        if (g) g.entries.push(e)
+        else groups.set(key, { employeeName: empName, monthKey, entries: [e] })
+      }
+
+      const sections: StundenzettelOptions[] = Array.from(groups.values()).map((g) => ({
+        employeeName: g.employeeName,
+        monthKey: g.monthKey,
+        entries: g.entries.map((e) => ({
+          date: e.date,
+          start_time: e.start_time,
+          end_time: e.end_time,
+          break_minutes: e.break_minutes,
+          net_hours: e.net_hours,
+          overnight_stay: e.overnight_stay,
+          meal_allowance: e.meal_allowance,
+          is_gastfahrt: e.is_gastfahrt,
+          notes: e.notes,
+        })),
+      }))
+
+      const stamp = format(new Date(), 'yyyy-MM-dd')
+      if (sections.length === 1) {
+        await exportStundenzettelPdf({
+          ...sections[0],
+          filenameBase: `Stundenzettel_${stamp}`,
+        })
+      } else {
+        await exportMultiEmployeeReportPdf(sections, `Stundenzettel_Sammelbericht_${stamp}`)
+      }
     } catch (err: any) {
       toast.error(err?.message ?? L('Fehler beim Export.', 'Export failed.'))
     } finally {
