@@ -28,6 +28,7 @@ import { I18nProvider } from '@/lib/i18n'
 import { DrawerProvider } from '@/lib/drawer-context'
 import { NotificationsProvider } from '@/lib/notifications-context'
 import { usePushRegistration } from '@/lib/notifications/push'
+import { useSessionGuard } from '@/lib/session-guard'
 import { ThemeProvider, useTheme } from '@/lib/theme'
 import { BiometricLockProvider } from '@/lib/biometric/lock-context'
 import { AppDrawer } from '@/components/AppDrawer'
@@ -62,6 +63,17 @@ function MonitoringIdentitySync() {
  */
 function PushRegistrar() {
   usePushRegistration()
+  return null
+}
+
+/**
+ * Mounted inside AuthGuard so the auth event listener attaches only
+ * once after the session resolves. Forces routing back to /login when
+ * the Supabase session dies under us (token revoked / password changed
+ * elsewhere / refresh window exceeded).
+ */
+function SessionGuardRunner() {
+  useSessionGuard()
   return null
 }
 
@@ -164,6 +176,7 @@ export default function RootLayout() {
                     <DrawerProvider>
                     <AuthGuard>
                       <PushRegistrar />
+                      <SessionGuardRunner />
                       {/* A second ErrorBoundary scopes route-level crashes so
                           one broken screen doesn't tear down the providers
                           (tab bar, drawer, biometric lock) above it. */}
