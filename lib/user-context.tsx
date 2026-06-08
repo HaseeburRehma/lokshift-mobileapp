@@ -114,7 +114,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       role: ((u.user_metadata?.role as UserRole | undefined) ?? 'employee') as UserRole,
       avatar_url: null,
       is_active: true,
-      onboarding_completed: true, // assume true to avoid forcing onboarding when offline
+      onboarding_completed: true, 
       must_change_password: false,
       target_hours: 40,
       created_at: new Date().toISOString(),

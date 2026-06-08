@@ -17,6 +17,8 @@ import { useUser } from '@/lib/user-context'
 import { canManageUsers, ROLE_LABELS, ROLE_COLORS } from '@/lib/rbac/permissions'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { webappPath } from '@/lib/webapp-url'
+import { AlertTriangle } from 'lucide-react-native'
 
 export default function UsersScreen() {
   const router = useRouter()
@@ -24,7 +26,7 @@ export default function UsersScreen() {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
-  const { profiles, loading, fetchProfiles } = useProfiles()
+  const { profiles, loading, error, fetchProfiles } = useProfiles()
   const [showInactive, setShowInactive] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const onRefresh = useCallback(async () => {
@@ -36,10 +38,10 @@ export default function UsersScreen() {
     }
   }, [fetchProfiles])
 
-  const webappUrl =
-    (Constants.expoConfig?.extra as any)?.EXPO_PUBLIC_WEBAPP_URL ??
-    process.env.EXPO_PUBLIC_WEBAPP_URL ??
-    null
+  // Resolved via the shared helper so every screen / hook agrees on the
+  // production URL (and the .env.example placeholder never leaks into
+  // the UI as a clickable link).
+  const webappUsersUrl = webappPath('/dashboard/users')
 
   const sorted = useMemo(() => {
     return [...profiles].sort((a, b) => {
@@ -124,20 +126,60 @@ export default function UsersScreen() {
                   'New accounts are created in the LokShift web app (service-role required).',
                 )}
               </Text>
-              {webappUrl && (
-                <Pressable
-                  onPress={() => Linking.openURL(`${webappUrl}/dashboard/users`)}
-                  className="flex-row items-center mt-2"
-                >
-                  <Text className="text-[12px] font-black text-brand">
-                    {L('In Web-App öffnen', 'Open in web app')}
-                  </Text>
-                  <ExternalLink size={14} color="#0064E0" style={{ marginLeft: 4 }} />
-                </Pressable>
-              )}
+              <Pressable
+                onPress={() => Linking.openURL(webappUsersUrl)}
+                className="flex-row items-center mt-2"
+              >
+                <Text className="text-[12px] font-black text-brand">
+                  {L('In Web-App öffnen', 'Open in web app')}
+                </Text>
+                <ExternalLink size={14} color="#0064E0" style={{ marginLeft: 4 }} />
+              </Pressable>
             </View>
           </View>
         </Card>
+
+        {error ? (
+          <Card
+            className="mb-3"
+            style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1 } as any}
+          >
+            <View className="flex-row items-start">
+              <AlertTriangle size={18} color="#B45309" style={{ marginTop: 2, marginRight: 10 }} />
+              <View className="flex-1">
+                <Text className="text-[13px] font-black" style={{ color: '#7C2D12' }}>
+                  {error.kind === 'missing_org'
+                    ? L(
+                        'Ihr Konto ist keiner Organisation zugeordnet',
+                        'Your account has no organization assigned',
+                      )
+                    : L('Mitarbeiter konnten nicht geladen werden', 'Failed to load members')}
+                </Text>
+                <Text
+                  className="text-[12px] mt-1"
+                  style={{ color: '#7C2D12' }}
+                  numberOfLines={4}
+                >
+                  {error.kind === 'missing_org'
+                    ? L(
+                        'Bitten Sie einen Admin, organization_id für Ihr Profil in Supabase zu setzen, oder führen Sie den Registrierungs-Trigger erneut aus. Solange das Profil nicht verknüpft ist, sind keine Daten sichtbar.',
+                        'Ask an admin to set organization_id on your profile in Supabase, or re-run the user-creation trigger. Until your profile is linked, no org data will load.',
+                      )
+                    : error.message}
+                </Text>
+                <Pressable
+                  onPress={() => Linking.openURL(webappUsersUrl)}
+                  className="flex-row items-center mt-2"
+                >
+                  <Text className="text-[12px] font-black" style={{ color: '#0064E0' }}>
+                    {L('Im Web-Admin öffnen', 'Open in web admin')}
+                  </Text>
+                  <ExternalLink size={14} color="#0064E0" style={{ marginLeft: 4 }} />
+                </Pressable>
+              </View>
+            </View>
+          </Card>
+        ) : null}
 
         {loading ? (
           <Card>
@@ -148,8 +190,18 @@ export default function UsersScreen() {
             <View className="items-center py-8">
               <UsersIcon size={32} color="#D1D5DB" />
               <Text className="text-[14px] font-bold text-gray-500 dark:text-slate-400 mt-3">
-                {L('Keine Mitarbeiter', 'No members')}
+                {error?.kind === 'missing_org'
+                  ? L('Konto noch nicht aktiviert', 'Account not yet provisioned')
+                  : L('Keine Mitarbeiter', 'No members')}
               </Text>
+              {!error && (
+                <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-1 text-center">
+                  {L(
+                    'Fügen Sie neue Mitarbeiter in der Web-App hinzu (siehe Hinweis oben).',
+                    'Add new members in the web app (see hint above).',
+                  )}
+                </Text>
+              )}
             </View>
           </Card>
         ) : (

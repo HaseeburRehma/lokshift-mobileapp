@@ -33,6 +33,7 @@ import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { getSupabase } from '@/lib/supabase/client'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { getWebappUrl } from '@/lib/webapp-url'
 
 export default function ForgotPasswordScreen() {
   const { t, locale } = useTranslation()
@@ -49,10 +50,7 @@ export default function ForgotPasswordScreen() {
   const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const webappUrl =
-    Constants.expoConfig?.extra?.webappUrl ??
-    process.env.EXPO_PUBLIC_WEBAPP_URL ??
-    ''
+  const webappUrl = getWebappUrl()
 
   const sendResetEmail = async () => {
     if (!email) {

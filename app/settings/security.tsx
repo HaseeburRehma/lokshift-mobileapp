@@ -44,6 +44,7 @@ import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
+import { getWebappUrl } from '@/lib/webapp-url'
 import {
   authenticate as biometricAuthenticate,
   describeBiometric,
@@ -138,10 +139,7 @@ export default function SecuritySettingsScreen() {
     )
   }
 
-  const webappUrl =
-    (Constants.expoConfig?.extra as any)?.EXPO_PUBLIC_WEBAPP_URL ??
-    process.env.EXPO_PUBLIC_WEBAPP_URL ??
-    null
+  const webappUrl = getWebappUrl()
 
   const changePassword = async () => {
     if (!newPw || newPw.length < 8) {

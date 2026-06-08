@@ -403,6 +403,8 @@ export type CalendarEventType =
   | 'holiday'
   | 'other'
 
+export type AbsenceRequestStatus = 'pending' | 'approved' | 'rejected'
+
 export interface CalendarEvent {
   id: string
   organization_id: string
@@ -419,8 +421,16 @@ export interface CalendarEvent {
   reminder_sent_at?: string | null
   created_at: string
   updated_at: string
+  // Approval workflow (added 2026-06 — vacation needs admin approval,
+  // sick leave auto-approves). Older rows will be null; treat as
+  // 'approved' for backward compat.
+  request_status?: AbsenceRequestStatus | null
+  decided_by?: string | null
+  decided_at?: string | null
+  decision_reason?: string | null
   // Joined
   creator?: Profile
+  decided_by_profile?: { id: string; full_name: string | null } | null
   members?: { user: Profile }[]
 }
 

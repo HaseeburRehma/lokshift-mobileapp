@@ -9,10 +9,8 @@
  * via expo-sharing, matching the existing Stundenzettel flow.
  */
 
-import * as Print from 'expo-print'
-import * as Sharing from 'expo-sharing'
-import * as FileSystem from 'expo-file-system'
 import { format } from 'date-fns'
+import { renderAndSharePdf } from './share'
 import type { OrgTimeAccount } from '@/hooks/useOrgTimeAccounts'
 import type { PerDiem, HolidayBonus, Plan, TimeEntry } from '@/lib/types'
 
@@ -149,38 +147,13 @@ function renderTableHtml(opts: TableOptions): string {
     </body></html>`
 }
 
-async function ensureCanShare(): Promise<boolean> {
-  try {
-    return await Sharing.isAvailableAsync()
-  } catch {
-    return false
-  }
-}
-
 export async function exportTableToPdf(opts: TableOptions): Promise<string> {
   const html = renderTableHtml(opts)
-  const { uri } = await Print.printToFileAsync({ html, base64: false })
-
-  const stamp = format(new Date(), 'yyyy-MM-dd')
-  const filename = `${opts.filename}_${stamp}.pdf`
-  const targetDir = (FileSystem as any).cacheDirectory ?? (FileSystem as any).documentDirectory
-  const finalUri = targetDir ? `${targetDir}${filename}` : uri
-  try {
-    if (targetDir) {
-      await (FileSystem as any).moveAsync({ from: uri, to: finalUri })
-    }
-  } catch {
-    // Rename is best-effort. The temp uri still works.
-  }
-
-  if (await ensureCanShare()) {
-    await Sharing.shareAsync(finalUri, {
-      mimeType: 'application/pdf',
-      dialogTitle: opts.dialogTitle ?? opts.title,
-      UTI: 'com.adobe.pdf',
-    })
-  }
-  return finalUri
+  return renderAndSharePdf({
+    html,
+    filenameBase: opts.filename,
+    dialogTitle: opts.dialogTitle ?? opts.title,
+  })
 }
 
 // ─── Report-specific wrappers ──────────────────────────────────────────────

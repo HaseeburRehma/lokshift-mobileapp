@@ -54,6 +54,7 @@ import { useUser } from '@/lib/user-context'
 import { useTheme } from '@/lib/theme'
 import { useNotifications } from '@/lib/notifications-context'
 import { ROLE_LABELS, ROLE_COLORS, canManageUsers, canCreatePlans } from '@/lib/rbac/permissions'
+import { getWebappUrl } from '@/lib/webapp-url'
 
 interface RowItem {
   key: string
@@ -91,10 +92,7 @@ export default function SettingsScreen() {
     .toUpperCase()
   const isAdminOrDispatcher = canCreatePlans(role)
   const isAdmin = canManageUsers(role)
-  const webappUrl =
-    (Constants.expoConfig?.extra as any)?.EXPO_PUBLIC_WEBAPP_URL ??
-    process.env.EXPO_PUBLIC_WEBAPP_URL ??
-    null
+  const webappUrl = getWebappUrl()
 
   const personal: RowItem[] = useMemo(
     () => [

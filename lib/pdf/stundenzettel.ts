@@ -17,10 +17,8 @@
  * what the client hand-fills today.
  */
 
-import * as Print from 'expo-print'
-import * as Sharing from 'expo-sharing'
-import * as FileSystem from 'expo-file-system'
 import { format } from 'date-fns'
+import { renderAndSharePdf } from './share'
 
 import { calculateShiftTimes } from '@/lib/time/shift-hours'
 import {
@@ -425,49 +423,21 @@ function renderDocument(sections: string[]): string {
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"/>${STYLES}</head><body>${sections.join('')}</body></html>`
 }
 
-async function ensureCanShare(): Promise<boolean> {
-  try {
-    return await Sharing.isAvailableAsync()
-  } catch {
-    return false
-  }
-}
-
 /**
  * Render → save → share a per-employee Stundenzettel PDF.
- * Returns the final file URI.
+ * Returns the final file URI on native, or the blob URL on web.
+ *
+ * Cross-platform handling lives in `./share`. The web path opens a
+ * print dialog so the browser's native Save-as-PDF works without
+ * needing expo-print's printToFileAsync (which is undefined on web).
  */
 export async function exportStundenzettelPdf(
   opts: StundenzettelOptions,
 ): Promise<string> {
   const html = renderDocument([renderStundenzettelSection(opts)])
-  const { uri } = await Print.printToFileAsync({ html, base64: false })
-
-  // Rename to a human-friendly filename. The default uri is an
-  // unhelpful guid-based temp name; the client wants something they can
-  // read in a Mail attachment list.
-  const stamp = format(new Date(), 'yyyy-MM-dd')
   const base =
     opts.filenameBase ?? `Stundenzettel_${slugify(opts.employeeName)}_${opts.monthKey}`
-  const filename = `${base}_${stamp}.pdf`
-  const targetDir = (FileSystem as any).cacheDirectory ?? (FileSystem as any).documentDirectory
-  const finalUri = targetDir ? `${targetDir}${filename}` : uri
-  try {
-    if (targetDir) {
-      await (FileSystem as any).moveAsync({ from: uri, to: finalUri })
-    }
-  } catch {
-    // If rename fails fall back to the temp uri — the share sheet still works.
-  }
-
-  if (await ensureCanShare()) {
-    await Sharing.shareAsync(finalUri, {
-      mimeType: 'application/pdf',
-      dialogTitle: 'Stundenzettel',
-      UTI: 'com.adobe.pdf',
-    })
-  }
-  return finalUri
+  return renderAndSharePdf({ html, filenameBase: base, dialogTitle: 'Stundenzettel' })
 }
 
 /**
@@ -480,25 +450,6 @@ export async function exportMultiEmployeeReportPdf(
   filenameBase?: string,
 ): Promise<string> {
   const html = renderDocument(sections.map((s) => renderStundenzettelSection(s)))
-  const { uri } = await Print.printToFileAsync({ html, base64: false })
-
-  const stamp = format(new Date(), 'yyyy-MM-dd')
-  const base = filenameBase ?? `Arbeitszeitbericht_${stamp}`
-  const filename = `${base}.pdf`
-  const targetDir = (FileSystem as any).cacheDirectory ?? (FileSystem as any).documentDirectory
-  const finalUri = targetDir ? `${targetDir}${filename}` : uri
-  try {
-    if (targetDir) {
-      await (FileSystem as any).moveAsync({ from: uri, to: finalUri })
-    }
-  } catch {}
-
-  if (await ensureCanShare()) {
-    await Sharing.shareAsync(finalUri, {
-      mimeType: 'application/pdf',
-      dialogTitle: 'Arbeitszeitbericht',
-      UTI: 'com.adobe.pdf',
-    })
-  }
-  return finalUri
+  const base = filenameBase ?? `Stundenzettel_Sammelbericht_${format(new Date(), 'yyyy-MM-dd')}`
+  return renderAndSharePdf({ html, filenameBase: base, dialogTitle: 'Stundenzettel' })
 }

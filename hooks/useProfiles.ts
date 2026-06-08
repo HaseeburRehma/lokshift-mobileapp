@@ -28,29 +28,91 @@ import { useUser } from '@/lib/user-context'
 import { normalizeRole } from '@/lib/rbac/permissions'
 import type { Profile, UserRole } from '@/lib/types'
 
+/**
+ * Failure modes the UI cares about — used to render an actionable
+ * banner instead of a silent "0 members" empty state when something is
+ * actually wrong with the admin's own account or the Supabase RLS rules.
+ */
+export type ProfilesError =
+  | { kind: 'missing_org'; message: string }
+  | { kind: 'fetch_failed'; message: string }
+
 export function useProfiles(includeInactive = true) {
   const supabase = getSupabase()
   const { profile: me } = useUser()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<ProfilesError | null>(null)
 
   const fetchProfiles = useCallback(
     async (silent = false) => {
-      if (!me?.organization_id) { setLoading(false); return }
+      // Surface missing organization explicitly. If the admin's own
+      // profile row has no organization_id (a fresh signup whose
+      // handle_new_lokshift_user trigger errored, a manually-inserted
+      // row, etc.), every "filter by org" hook in the app returns an
+      // empty list. The user sees "0 members" and concludes the org is
+      // empty — when really their own account is broken. Bubble that
+      // up so the screen can show a fixable explanation.
+      if (!me?.organization_id) {
+        setLoading(false)
+        setError({
+          kind: 'missing_org',
+          message:
+            'Your profile is not linked to an organization. Ask an admin to set your organization_id in Supabase, or re-run the user-creation trigger.',
+        })
+        setProfiles([])
+        return
+      }
       if (!silent) setLoading(true)
-      let query = supabase
-        .from('profiles')
-        .select(
-          'id, organization_id, full_name, email, role, avatar_url, is_active, onboarding_completed, must_change_password, target_hours, working_time_model_id, created_at, updated_at',
-        )
-        .eq('organization_id', me.organization_id)
-        .order('full_name', { ascending: true })
+      // ── Defensive SELECT ──────────────────────────────────────────────
+      // Some Supabase instances were provisioned before the later
+      // migrations that added onboarding_completed, must_change_password
+      // and working_time_model_id to `profiles`. Including them in the
+      // SELECT made PostgREST return 400 ("column does not exist") and
+      // the entire members list vanished. We first try the full schema;
+      // on failure we retry with just the base columns so the screen
+      // still works against an older instance.
+      const FULL_COLUMNS =
+        'id, organization_id, full_name, email, role, avatar_url, is_active, ' +
+        'onboarding_completed, must_change_password, target_hours, working_time_model_id, ' +
+        'created_at, updated_at'
+      const BASE_COLUMNS =
+        'id, organization_id, full_name, email, role, avatar_url, is_active, target_hours, created_at, updated_at'
 
-      if (!includeInactive) query = query.eq('is_active', true)
+      const runQuery = async (cols: string) => {
+        let q = supabase
+          .from('profiles')
+          .select(cols)
+          .eq('organization_id', me.organization_id)
+          .order('full_name', { ascending: true })
+        if (!includeInactive) q = q.eq('is_active', true)
+        return q
+      }
 
-      const { data, error } = await query
-      if (error) {
-        console.warn('[useProfiles] fetch failed', error.message)
+      let { data, error: queryError } = await runQuery(FULL_COLUMNS)
+      if (queryError) {
+        // 400 from PostgREST when a column is missing — fall back to
+        // the base column set so the UI still loads.
+        const msg = String(queryError.message ?? '').toLowerCase()
+        const looksLikeMissingColumn =
+          msg.includes('column') ||
+          msg.includes('does not exist') ||
+          msg.includes('schema') ||
+          queryError.code === '42703' ||
+          (queryError as any).status === 400
+        if (looksLikeMissingColumn) {
+          console.warn(
+            '[useProfiles] full SELECT failed, retrying with base columns:',
+            queryError.message,
+          )
+          const retry = await runQuery(BASE_COLUMNS)
+          data = retry.data
+          queryError = retry.error as any
+        }
+      }
+      if (queryError) {
+        console.warn('[useProfiles] fetch failed', queryError.message)
+        setError({ kind: 'fetch_failed', message: queryError.message })
       } else {
         // Normalize legacy roles ("administrator" → "admin", etc.) so the
         // UI always works with the canonical three values.
@@ -59,6 +121,7 @@ export function useProfiles(includeInactive = true) {
           role: normalizeRole(p.role),
         })) as Profile[]
         setProfiles(normalized)
+        setError(null)
       }
       setLoading(false)
     },
@@ -152,6 +215,7 @@ export function useProfiles(includeInactive = true) {
   return {
     profiles,
     loading,
+    error,
     fetchProfiles,
     updateRole,
     toggleActive,
