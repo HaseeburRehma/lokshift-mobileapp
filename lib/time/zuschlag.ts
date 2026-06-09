@@ -125,10 +125,32 @@ export function calculateZuschlag(
   const night40 = overlapHours(startMin, endMin, 0, 240)
 
   const weekday = new Date(`${date}T00:00:00`).getDay()
-  const sunday = weekday === 0 ? netHours : 0
+  const endWeekday = new Date(`${shift.endDate}T00:00:00`).getDay()
 
+  // Sunday allowance — must handle overnight shifts that cross into or out of Sunday:
+  //   • Pure Sunday shift (start=Sun, not overnight)         → full netHours
+  //   • Sunday start crossing into Monday (overnight)        → only the Sunday part (start→midnight)
+  //   • Saturday (or any day) crossing midnight into Sunday  → only the Sunday part (midnight→end)
+  let sunday = 0
+  if (weekday === 0 && !shift.isOvernight) {
+    sunday = netHours
+  } else if (weekday === 0 && shift.isOvernight) {
+    sunday = Math.max(0, 1440 - startMin) / 60
+  } else if (shift.isOvernight && endWeekday === 0) {
+    sunday = Math.max(0, endMin - 1440) / 60
+  }
+
+  // Holiday allowance — same cross-midnight logic as Sunday above.
   const isHoliday = holidayList.includes(date) && !excludedList.includes(date)
-  const holiday = isHoliday ? netHours : 0
+  const isHolidayEnd = holidayList.includes(shift.endDate) && !excludedList.includes(shift.endDate)
+  let holiday = 0
+  if (isHoliday && !shift.isOvernight) {
+    holiday = netHours
+  } else if (isHoliday && shift.isOvernight) {
+    holiday = Math.max(0, 1440 - startMin) / 60
+  } else if (shift.isOvernight && isHolidayEnd) {
+    holiday = Math.max(0, endMin - 1440) / 60
+  }
 
   const gastfahrt = isGastfahrt ? netHours : 0
 

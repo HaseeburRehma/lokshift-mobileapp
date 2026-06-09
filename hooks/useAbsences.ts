@@ -118,7 +118,11 @@ export function useAbsences() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try {
+        supabase.removeChannel(channel)
+      } catch {
+        // best-effort
+      }
     }
   }, [supabase, profile?.organization_id, fetchAbsences])
 

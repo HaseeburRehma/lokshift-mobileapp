@@ -11,6 +11,7 @@
 
 import { format } from 'date-fns'
 import { renderAndSharePdf } from './share'
+import { calculateShiftTimes } from '@/lib/time/shift-hours'
 import type { OrgTimeAccount } from '@/hooks/useOrgTimeAccounts'
 import type { PerDiem, HolidayBonus, Plan, TimeEntry } from '@/lib/types'
 
@@ -25,11 +26,28 @@ function isoWeek(d: Date): number {
 
 function safeTime(value: string | null | undefined): string {
   if (!value) return '-'
+  // Plain time strings ("HH:mm" or "HH:mm:ss") — take the first 5 chars.
+  if (/^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) return value.slice(0, 5)
   try {
     return format(new Date(value), 'HH:mm')
   } catch {
     return '-'
   }
+}
+
+/**
+ * Recompute net hours for a time entry, overriding the stored value when
+ * it is 0 or null. Handles old overnight rows where the original INSERT
+ * stored 0 due to the UTC-offset/addDays bug (Bug 2 in the client brief).
+ */
+function recomputeNetHours(e: TimeEntry): number {
+  const stored = Number(e.net_hours) || 0
+  if (!e.start_time || !e.end_time) return stored
+  const start = safeTime(e.start_time)
+  const end = safeTime(e.end_time)
+  if (!start || start === '-' || !end || end === '-') return stored
+  const computed = calculateShiftTimes(e.date, start, end, e.break_minutes ?? 0).netHours
+  return computed > 0 ? computed : stored
 }
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -409,13 +427,14 @@ export function exportWorkingTimePdf(
   }
 
   const rows: Cell[][] = entries.map((e) => {
+    const netHours = recomputeNetHours(e)
     const row: Cell[] = [safeDate(e.date)]
     if (showEmployee) row.push(e.employee?.full_name ?? '-')
     row.push(
       safeTime(e.start_time),
       safeTime(e.end_time),
       String(e.break_minutes ?? 0),
-      Number(e.net_hours ?? 0).toFixed(2),
+      netHours.toFixed(2),
       e.customer?.name ?? '-',
       e.overnight_stay ? (locale === 'de' ? 'Ja' : 'Yes') : '-',
       Number(e.meal_allowance ?? 0).toFixed(2),
@@ -424,7 +443,7 @@ export function exportWorkingTimePdf(
     return row
   })
 
-  const totalHours = entries.reduce((s, e) => s + (Number(e.net_hours) || 0), 0)
+  const totalHours = entries.reduce((s, e) => s + recomputeNetHours(e), 0)
   const totalBreak = entries.reduce((s, e) => s + (Number(e.break_minutes) || 0), 0)
   const totalSpesen = entries.reduce((s, e) => s + (Number(e.meal_allowance) || 0), 0)
   const totalsRow: Cell[] = [locale === 'de' ? 'Summe' : 'Total']

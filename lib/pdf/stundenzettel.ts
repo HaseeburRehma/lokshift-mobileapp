@@ -77,6 +77,8 @@ const MONTH_DE = [
 
 function fmtHHMM(iso?: string | null): string {
   if (!iso) return ''
+  // Plain time strings ("HH:mm" or "HH:mm:ss") from Supabase time columns — take the first 5 chars.
+  if (/^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(iso)) return iso.slice(0, 5)
   try {
     return format(new Date(iso), 'HH:mm')
   } catch {
@@ -147,14 +149,18 @@ function enrich(entries: StundenzettelEntry[]): EnrichedRow[] {
         e.break_minutes ?? 0,
         !!e.is_gastfahrt,
       )
-      // ALWAYS prefer the freshly computed netHours over the stored
-      // `e.net_hours`. The stored value is a denormalised cache that was
-      // 0 for old overnight rows (Issue 3 in the bug brief: 23:00 →
-      // 09:45 stored as 0.00 because the original insert path didn't
-      // know how to span midnight). The engine is the source of truth.
+      // Always prefer freshly computed netHours. The stored `net_hours`
+      // was 0 for old overnight rows created before the addDays timezone
+      // fix (Issue 3 / Bug 2): the UTC offset caused endDate to stay on
+      // the same day, making the stored duration negative → clamped to 0.
+      // If the fresh compute also returns 0 (e.g. fmtHHMM couldn't parse
+      // the timestamp), fall back to the stored value so we never lose
+      // a value that was later corrected manually.
       const computed = shift.netHours
       const stored = Number(e.net_hours) || 0
       const hours = computed > 0 ? computed : stored
+      // Re-derive zuschlag using the same corrected time strings so that
+      // Sunday/holiday hours are also recomputed from the fixed shift window.
       return {
         entry: e,
         start,

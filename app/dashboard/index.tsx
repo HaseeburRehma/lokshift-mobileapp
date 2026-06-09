@@ -17,11 +17,12 @@
  * Admin / dispatcher only. Employees see /plans personal view instead.
  */
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
   Pressable,
+  Platform,
   ScrollView,
   TextInput,
   RefreshControl,
@@ -84,6 +85,9 @@ export default function DashboardScreen() {
   const [actionPlan, setActionPlan] = useState<Plan | null>(null)
   const [reassignOpen, setReassignOpen] = useState(false)
   const [moveDateOpen, setMoveDateOpen] = useState(false)
+  // Web drag-and-drop state — ref avoids stale-closure in onDrop
+  const dragRef = useRef<{ planId: string; employeeId: string; date: string } | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
 
   const { profiles, loading: loadingProfiles } = useProfiles(false)
   const {
@@ -240,6 +244,51 @@ export default function DashboardScreen() {
       closeActions()
     } catch (err: any) {
       toast.error(err?.message ?? L('Löschen fehlgeschlagen', 'Delete failed'))
+    }
+  }
+
+  // ── Web drag-and-drop handlers ──────────────────────────────────────────
+  const handleDragStart = (planId: string, empId: string, d: string) => {
+    dragRef.current = { planId, employeeId: empId, date: d }
+  }
+  const handleDragOver = (empId: string, d: string) => {
+    setDragOverKey(`${empId}|${d}`)
+  }
+  const handleDragEnd = () => {
+    dragRef.current = null
+    setDragOverKey(null)
+  }
+  const handleDrop = async (targetEmpId: string, targetDate: string) => {
+    const src = dragRef.current
+    dragRef.current = null
+    setDragOverKey(null)
+    if (!src || (src.employeeId === targetEmpId && src.date === targetDate)) return
+    try {
+      const patch: { employee_id?: string; start_time?: string; end_time?: string } = {}
+      if (src.employeeId !== targetEmpId) patch.employee_id = targetEmpId
+      if (src.date !== targetDate) {
+        const plan = plans.find((p) => p.id === src.planId)
+        if (plan) {
+          const oldStart = new Date(plan.start_time)
+          const oldEnd = new Date(plan.end_time)
+          const [yr, mo, dy] = targetDate.split('-').map(Number)
+          const newStart = new Date(yr, mo - 1, dy, oldStart.getHours(), oldStart.getMinutes(), 0, 0)
+          const newEnd = new Date(yr, mo - 1, dy, oldEnd.getHours(), oldEnd.getMinutes(), 0, 0)
+          if (newEnd.getTime() <= newStart.getTime()) newEnd.setDate(newEnd.getDate() + 1)
+          patch.start_time = newStart.toISOString()
+          patch.end_time = newEnd.toISOString()
+        }
+      }
+      await updatePlanField(src.planId, patch)
+      const newEmpName = filteredEmployees.find((e) => e.id === targetEmpId)?.full_name ?? '—'
+      const sameEmp = src.employeeId === targetEmpId
+      toast.success(
+        sameEmp
+          ? L(`Plan auf ${targetDate} verschoben`, `Plan moved to ${targetDate}`)
+          : L(`Plan an ${newEmpName} übertragen`, `Plan reassigned to ${newEmpName}`),
+      )
+    } catch (err: any) {
+      toast.error(err?.message ?? L('Drag fehlgeschlagen', 'Drag failed'))
     }
   }
 
@@ -507,12 +556,20 @@ export default function DashboardScreen() {
                   </View>
                   {days.map((d) => {
                     const cell = cellPlans(emp.id, d)
+                    const cellDate = format(d, 'yyyy-MM-dd')
                     return (
                       <DashboardCell
                         key={`${emp.id}|${d.toISOString()}`}
                         plans={cell}
+                        employeeId={emp.id}
+                        date={cellDate}
                         onTap={() => onCellTap(emp.id, d, cell)}
                         onLongPress={() => onCellLongPress(cell)}
+                        isDragTarget={dragOverKey === `${emp.id}|${cellDate}`}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDragEnd={handleDragEnd}
+                        onDrop={handleDrop}
                       />
                     )
                   })}
@@ -590,12 +647,26 @@ export default function DashboardScreen() {
 
 function DashboardCell({
   plans,
+  employeeId,
+  date,
   onTap,
   onLongPress,
+  isDragTarget,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }: {
   plans: Plan[]
+  employeeId: string
+  date: string
   onTap: () => void
   onLongPress: () => void
+  isDragTarget: boolean
+  onDragStart: (planId: string, empId: string, d: string) => void
+  onDragOver: (empId: string, d: string) => void
+  onDragEnd: () => void
+  onDrop: (empId: string, d: string) => void
 }) {
   const has = plans.length > 0
   const first = plans[0]
@@ -610,18 +681,48 @@ function DashboardCell({
   const status = first?.status ?? ''
   const isCancelled = status === 'cancelled' || status === 'rejected'
 
+  // HTML5 drag-and-drop (web only). RNW forwards unrecognised props to the DOM.
+  const webDragProps =
+    Platform.OS === 'web'
+      ? {
+          draggable: has || undefined,
+          onDragStart: has
+            ? (e: any) => {
+                e.dataTransfer?.setData('text/plain', first!.id)
+                onDragStart(first!.id, employeeId, date)
+              }
+            : undefined,
+          onDragOver: (e: any) => {
+            e.preventDefault()
+            onDragOver(employeeId, date)
+          },
+          onDrop: (e: any) => {
+            e.preventDefault()
+            onDrop(employeeId, date)
+          },
+          onDragEnd,
+        }
+      : {}
+
   return (
     <Pressable
       onPress={onTap}
       onLongPress={onLongPress}
       delayLongPress={350}
+      {...(webDragProps as any)}
       style={({ pressed }: { pressed: boolean }) => ({
         width: DAY_COL_W,
         height: ROW_H,
         padding: 6,
-        backgroundColor: has ? (isCancelled ? '#FEE2E2' : '#EFF6FF') : '#FFFFFF',
+        backgroundColor: isDragTarget
+          ? '#BFDBFE'
+          : has
+          ? isCancelled
+            ? '#FEE2E2'
+            : '#EFF6FF'
+          : '#FFFFFF',
         borderRightWidth: 1,
-        borderColor: '#F1F5F9',
+        borderColor: isDragTarget ? '#3B82F6' : '#F1F5F9',
         opacity: pressed ? 0.7 : 1,
       })}
     >
