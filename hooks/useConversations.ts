@@ -97,7 +97,7 @@ export function useConversations() {
   )
 
   useEffect(() => {
-    if (!myId) return
+    if (!myId) { setLoading(false); return }
     fetchConversations()
 
     const channel = supabase
@@ -148,7 +148,7 @@ export function useConversations() {
     const poll = setInterval(() => fetchConversations(true), 15000)
 
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
       clearInterval(poll)
     }
   }, [supabase, myId, fetchConversations])

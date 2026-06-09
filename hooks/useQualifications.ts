@@ -60,7 +60,7 @@ export function useQualifications(targetUserId?: string) {
   )
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId) { setLoading(false); return }
     fetchItems()
     const channel = supabase
       .channel(uniqueChannelName(`qualifications:${orgId}`))
@@ -76,7 +76,7 @@ export function useQualifications(targetUserId?: string) {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, fetchItems])
 

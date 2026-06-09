@@ -145,7 +145,7 @@ export function useProfiles(includeInactive = true) {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, me?.organization_id, fetchProfiles])
 

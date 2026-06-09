@@ -60,7 +60,7 @@ export function useWorkModels() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, profile?.organization_id, fetchModels])
 

@@ -120,7 +120,7 @@ export function useTimeTracking() {
   }, [supabase, myId, profile?.organization_id])
 
   useEffect(() => {
-    if (!myId) return
+    if (!myId) { setLoading(false); return }
     fetchActive()
     const channel = supabase
       .channel(uniqueChannelName(`personal-shift-${myId}`))
@@ -133,7 +133,7 @@ export function useTimeTracking() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [myId, fetchActive, supabase])
 

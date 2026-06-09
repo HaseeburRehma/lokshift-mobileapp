@@ -53,7 +53,7 @@ export function usePresence() {
       })
 
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, myId])
 

@@ -60,7 +60,7 @@ export function useTyping(conversationId: string | null) {
     return () => {
       timersRef.current.forEach((t) => clearTimeout(t))
       timersRef.current.clear()
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
       channelRef.current = null
     }
   }, [supabase, conversationId, myId])

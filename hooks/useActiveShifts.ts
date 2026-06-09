@@ -89,7 +89,7 @@ export function useActiveShifts() {
   )
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId) { setLoading(false); return }
     refresh()
     const channel = supabase
       .channel(uniqueChannelName(`active-shifts:${orgId}`))
@@ -105,7 +105,7 @@ export function useActiveShifts() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, refresh])
 

@@ -85,7 +85,7 @@ export function useCalendarEvents(filterFromIso?: string, filterToIso?: string) 
   )
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId) { setLoading(false); return }
     fetchEvents()
     const channel = supabase
       .channel(uniqueChannelName(`calendar-events:${orgId}`))
@@ -106,7 +106,7 @@ export function useCalendarEvents(filterFromIso?: string, filterToIso?: string) 
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, fetchEvents])
 

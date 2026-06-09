@@ -76,7 +76,7 @@ export function useOperationalLocations(includeArchived = true) {
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, profile?.organization_id, fetchLocations])
 

@@ -80,7 +80,7 @@ export function useOrganization() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, fetchOrg])
 

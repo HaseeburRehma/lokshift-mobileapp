@@ -168,8 +168,8 @@ export function useMessages(conversationId: string | null) {
 
     return () => {
       cancelled = true
-      supabase.removeChannel(dbChannel)
-      supabase.removeChannel(broadcast)
+      try { supabase.removeChannel(dbChannel) } catch {}
+      try { supabase.removeChannel(broadcast) } catch {}
       clearInterval(poll)
     }
   }, [supabase, conversationId, addOrReplace, hydrateSender, markAsRead])
@@ -229,7 +229,7 @@ export function useMessages(conversationId: string | null) {
           event: 'new_message',
           payload: inserted,
         })
-        supabase.removeChannel(bc)
+        try { supabase.removeChannel(bc) } catch {}
 
         // Fan-out in-app notifications.
         try {

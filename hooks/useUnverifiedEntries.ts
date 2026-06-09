@@ -44,7 +44,7 @@ export function useUnverifiedEntries() {
   )
 
   useEffect(() => {
-    if (!orgId) return
+    if (!orgId) { setLoading(false); return }
     fetchEntries()
     const channel = supabase
       .channel(uniqueChannelName(`unverified-entries:${orgId}`))
@@ -60,7 +60,7 @@ export function useUnverifiedEntries() {
       )
       .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, orgId, fetchEntries])
 
