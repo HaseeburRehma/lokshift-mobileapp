@@ -1,37 +1,44 @@
 /**
- * Left-side slide-in drawer that mirrors the webapp's
- * `components/dashboard/sidebar.tsx` nav exactly.
+ * Left-side slide-in drawer — full nav with sections mirroring the webapp
+ * sidebar. Sections are grouped by workflow so admins/dispatchers can jump
+ * to any feature in one tap.
  *
- * Items:
- *   Dashboard → /(tabs)/home
- *   Live      → /(tabs)/live           (admin/dispatcher only)
- *   Calendar  → /(tabs)/calendar
- *   Plans     → /plans                 — w/ badge
- *   Times     → /times                 — w/ badge
- *   Time Acc. → /account
- *   Per Diem  → /per-diem
- *   Holiday B.→ /bonuses
- *   Customers → /customers             (admin/dispatcher only)
- *   Reports   → /account               (admin/dispatcher) — reports v2
- *   Chat      → /(tabs)/chat           — w/ badge
- *   Users     → /(tabs)/settings       (admin only)
- *   Settings  → /(tabs)/settings
+ * Sections & items:
  *
- * Active item: bg-[#F0F7FF] (blue-50) + text-blue-600 with a small dot
- * indicator, matching the webapp.
+ * OVERVIEW
+ *   Home, Live (admin/disp), Calendar, Chat
+ *
+ * PLANNING  (admin/dispatcher only)
+ *   Weekly Dashboard ← NEW, Plans, Shift Templates
+ *
+ * TIMES
+ *   Times, Time Account, Per Diem, Holiday Bonus, Requests, Reports (admin/disp)
+ *
+ * MANAGEMENT  (admin/dispatcher only)
+ *   Customers, Locations, Work Models (admin only)
+ *
+ * MEMBERS  (admin only)
+ *   Members, Qualifications
+ *
+ * COMPANY  (admin only)
+ *   Company Profile
+ *
+ * ACCOUNT
+ *   Settings
  */
 
 import React from 'react'
 import {
-  Animated, Image, Modal, Pressable, ScrollView, Text, View, type GestureResponderEvent,
+  Animated, Image, Modal, Pressable, ScrollView, Text, View,
+  type GestureResponderEvent,
 } from 'react-native'
 import { useEffect, useRef } from 'react'
 import { useRouter, useSegments } from 'expo-router'
 import {
   LayoutDashboard, Calendar, Clock, BarChart3, Wallet, Star, Users,
   FileText, MessageSquare, ShieldAlert, Settings, Activity, X,
-  Building, LayoutTemplate, Palmtree as PalmtreeIcon, Timer,
-  // Note: FileText is already imported above; reused for both Plans and Reports.
+  Building, LayoutTemplate, Timer, LayoutGrid, Palmtree as PalmtreeIcon,
+  ClipboardList, MapPin, Briefcase, ChevronRight,
 } from 'lucide-react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -43,10 +50,97 @@ import { ROLE_LABELS, ROLE_COLORS } from '@/lib/rbac/permissions'
 interface NavItem {
   id: string
   href: string
-  label: string
+  labelDe: string
+  labelEn: string
   icon: any
-  roles?: string[]
+  /** Highlight badge — shown as a small colored dot when true */
+  badge?: boolean
 }
+
+interface NavSection {
+  id: string
+  labelDe: string
+  labelEn: string
+  /** Roles that can see this entire section. Omit = visible to all. */
+  roles?: string[]
+  items: NavItem[]
+}
+
+const SECTIONS: NavSection[] = [
+  {
+    id: 'overview',
+    labelDe: 'Übersicht',
+    labelEn: 'Overview',
+    items: [
+      { id: 'home',     href: '/(tabs)/home',     labelDe: 'Dashboard',       labelEn: 'Dashboard',       icon: LayoutDashboard },
+      { id: 'live',     href: '/(tabs)/live',     labelDe: 'Live',            labelEn: 'Live',            icon: Activity },
+      { id: 'calendar', href: '/(tabs)/calendar', labelDe: 'Kalender',        labelEn: 'Calendar',        icon: Calendar },
+      { id: 'chat',     href: '/(tabs)/chat',     labelDe: 'Chat',            labelEn: 'Chat',            icon: MessageSquare },
+    ],
+  },
+  {
+    id: 'planning',
+    labelDe: 'Planung',
+    labelEn: 'Planning',
+    roles: ['admin', 'dispatcher'],
+    items: [
+      { id: 'weekly-dashboard', href: '/dashboard',        labelDe: 'Wochenübersicht',  labelEn: 'Weekly Dashboard', icon: LayoutGrid },
+      { id: 'plans',            href: '/plans',             labelDe: 'Schichtpläne',    labelEn: 'Plans',            icon: FileText },
+      { id: 'templates',        href: '/shift-templates',  labelDe: 'Schichtvorlagen', labelEn: 'Templates',        icon: LayoutTemplate },
+    ],
+  },
+  {
+    id: 'times',
+    labelDe: 'Zeiten',
+    labelEn: 'Times',
+    items: [
+      { id: 'times',     href: '/times',      labelDe: 'Zeiterfassung',   labelEn: 'Times',         icon: Clock },
+      { id: 'account',   href: '/account',    labelDe: 'Zeitkonto',       labelEn: 'Time Account',  icon: BarChart3 },
+      { id: 'per-diem',  href: '/per-diem',   labelDe: 'Spesen',          labelEn: 'Per Diem',      icon: Wallet },
+      { id: 'bonuses',   href: '/bonuses',    labelDe: 'Urlaubsgeld',     labelEn: 'Holiday Bonus', icon: Star },
+      { id: 'absences',  href: '/absences',   labelDe: 'Anträge',         labelEn: 'Requests',      icon: PalmtreeIcon },
+      { id: 'reports',   href: '/reports',    labelDe: 'Berichte',        labelEn: 'Reports',       icon: ClipboardList },
+    ],
+  },
+  {
+    id: 'management',
+    labelDe: 'Verwaltung',
+    labelEn: 'Management',
+    roles: ['admin', 'dispatcher'],
+    items: [
+      { id: 'customers',  href: '/customers',              labelDe: 'Kunden',            labelEn: 'Customers',  icon: Users },
+      { id: 'locations',  href: '/operational-locations',  labelDe: 'Betriebsstellen',   labelEn: 'Locations',  icon: MapPin },
+      { id: 'work-models',href: '/work-models',            labelDe: 'Arbeitszeitmodelle',labelEn: 'Work Models',icon: Timer },
+    ],
+  },
+  {
+    id: 'members',
+    labelDe: 'Mitarbeiter',
+    labelEn: 'Members',
+    roles: ['admin'],
+    items: [
+      { id: 'users',          href: '/users',          labelDe: 'Mitarbeiterliste',  labelEn: 'Members',        icon: ShieldAlert },
+      { id: 'qualifications', href: '/qualifications', labelDe: 'Qualifikationen',   labelEn: 'Qualifications', icon: Briefcase },
+    ],
+  },
+  {
+    id: 'company',
+    labelDe: 'Unternehmen',
+    labelEn: 'Company',
+    roles: ['admin'],
+    items: [
+      { id: 'company', href: '/company', labelDe: 'Unternehmensprofil', labelEn: 'Company Profile', icon: Building },
+    ],
+  },
+  {
+    id: 'account',
+    labelDe: 'Konto',
+    labelEn: 'Account',
+    items: [
+      { id: 'settings', href: '/(tabs)/settings', labelDe: 'Einstellungen', labelEn: 'Settings', icon: Settings },
+    ],
+  },
+]
 
 export function AppDrawer() {
   const { isOpen, close } = useDrawer()
@@ -57,8 +151,6 @@ export function AppDrawer() {
   const segments = useSegments()
   const insets = useSafeAreaInsets()
 
-  // Slide-in animation. The drawer is rendered as a full-screen Modal so
-  // it sits above the tab bar and gets dimmed-out scrim handling for free.
   const slide = useRef(new Animated.Value(-320)).current
   useEffect(() => {
     Animated.timing(slide, {
@@ -70,34 +162,11 @@ export function AppDrawer() {
 
   if (!profile) return null
 
-  const items: NavItem[] = [
-    { id: 'dashboard',  href: '/(tabs)/home',     label: L('Übersicht',       'Dashboard'),     icon: LayoutDashboard },
-    { id: 'live',       href: '/(tabs)/live',     label: L('Live',            'Live'),          icon: Activity, roles: ['admin', 'dispatcher'] },
-    { id: 'calendar',   href: '/(tabs)/calendar', label: L('Kalender',        'Calendar'),      icon: Calendar },
-    { id: 'plans',      href: '/plans',           label: L('Pläne',           'Plans'),         icon: FileText },
-    { id: 'times',      href: '/times',           label: L('Zeiten',          'Times'),         icon: Clock },
-    { id: 'account',    href: '/account',         label: L('Zeitkonto',       'Time Account'),  icon: BarChart3 },
-    { id: 'per-diem',   href: '/per-diem',        label: L('Spesen',          'Per Diem'),      icon: Wallet },
-    { id: 'bonuses',    href: '/bonuses',         label: L('Urlaubsgeld',     'Holiday Bonus'), icon: Star },
-    { id: 'absences',   href: '/absences',        label: L('Anträge',         'Requests'),      icon: PalmtreeIcon },
-    { id: 'reports',    href: '/reports',         label: L('Berichte',        'Reports'),       icon: FileText },
-    { id: 'customers',  href: '/customers',       label: L('Kunden',          'Customers'),     icon: Users, roles: ['admin', 'dispatcher'] },
-    { id: 'betriebsstellen', href: '/operational-locations', label: L('Betriebsstellen', 'Locations'), icon: Building, roles: ['admin', 'dispatcher'] },
-    { id: 'templates',  href: '/shift-templates', label: L('Schichtvorlagen', 'Templates'),     icon: LayoutTemplate, roles: ['admin', 'dispatcher'] },
-    { id: 'chat',       href: '/(tabs)/chat',     label: L('Chat',            'Chat'),          icon: MessageSquare },
-    { id: 'company',    href: '/company',         label: L('Unternehmensprofil', 'Company profile'), icon: Building, roles: ['admin'] },
-    { id: 'members',    href: '/users',           label: L('Mitarbeiter',     'Members'),       icon: ShieldAlert, roles: ['admin'] },
-    { id: 'work-models', href: '/work-models',    label: L('Arbeitszeitmodelle', 'Work models'), icon: Timer, roles: ['admin'] },
-    { id: 'settings',   href: '/(tabs)/settings', label: L('Einstellungen',   'Settings'),      icon: Settings },
-  ]
-
-  const visible = items.filter((i) => !i.roles || i.roles.includes(role ?? ''))
-
   const isActive = (href: string) => {
     const path = '/' + segments.filter(Boolean).join('/').replace(/^\(tabs\)\//, '')
     const target = href.replace(/^\/\(tabs\)\//, '/')
     if (target === '/home') return path === '/home' || path === '/'
-    return path === target || path.startsWith(target)
+    return path === target || path.startsWith(target + '/')
   }
 
   const navigate = (href: string) => {
@@ -109,6 +178,10 @@ export function AppDrawer() {
   const roleColor = role ? ROLE_COLORS[role] : '#9CA3AF'
   const initials = (profile.full_name ?? profile.email ?? 'U')
     .split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+
+  const visibleSections = SECTIONS.filter(
+    (s) => !s.roles || s.roles.includes(role ?? ''),
+  )
 
   return (
     <Modal visible={isOpen} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
@@ -122,7 +195,7 @@ export function AppDrawer() {
       <Animated.View
         style={{
           position: 'absolute', top: 0, bottom: 0, left: 0,
-          width: 320, maxWidth: '85%',
+          width: 300, maxWidth: '85%',
           backgroundColor: '#FFFFFF',
           transform: [{ translateX: slide }],
           shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.15, shadowRadius: 20,
@@ -132,13 +205,15 @@ export function AppDrawer() {
         {/* Logo + close */}
         <View
           style={{
-            paddingTop: insets.top + 16, paddingHorizontal: 20, paddingBottom: 16,
+            paddingTop: insets.top + 16, paddingHorizontal: 20, paddingBottom: 14,
             borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
           }}
         >
           <View>
-            <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 22, letterSpacing: -0.5 }}>Lokshift</Text>
+            <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 22, letterSpacing: -0.5 }}>
+              Lokshift
+            </Text>
             <Text style={{ color: '#94A3B8', fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 2, marginTop: 2 }}>
               {L('Einsatzzentrale', 'Operations Center')}
             </Text>
@@ -149,27 +224,30 @@ export function AppDrawer() {
         </View>
 
         {/* User card */}
-        <View style={{ paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+        <View style={{ paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {profile.avatar_url ? (
               <Image
                 source={{ uri: profile.avatar_url }}
-                style={{ width: 44, height: 44, borderRadius: 999, marginRight: 12 }}
+                style={{ width: 42, height: 42, borderRadius: 999, marginRight: 12 }}
               />
             ) : (
               <View style={{
-                width: 44, height: 44, borderRadius: 999,
+                width: 42, height: 42, borderRadius: 999,
                 backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center', marginRight: 12,
               }}>
                 <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 15 }}>{initials}</Text>
               </View>
             )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#0F172A', fontWeight: '900', fontSize: 14 }} numberOfLines={1}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: '#0F172A', fontWeight: '900', fontSize: 13 }} numberOfLines={1}>
                 {profile.full_name ?? profile.email ?? '—'}
               </Text>
+              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                {profile.email ?? ''}
+              </Text>
               <View style={{
-                marginTop: 4, alignSelf: 'flex-start',
+                marginTop: 5, alignSelf: 'flex-start',
                 paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999,
                 backgroundColor: `${roleColor}1A`,
               }}>
@@ -181,55 +259,98 @@ export function AppDrawer() {
           </View>
         </View>
 
-        {/* Nav items */}
-        <ScrollView contentContainerStyle={{ paddingVertical: 12, paddingHorizontal: 12 }} showsVerticalScrollIndicator={false}>
-          {visible.map((item) => {
-            const active = isActive(item.href)
-            const Icon = item.icon
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => navigate(item.href)}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 14,
-                  height: 48, marginBottom: 6, borderRadius: 12,
-                  paddingHorizontal: 16,
-                  backgroundColor: active ? '#F0F7FF' : 'transparent',
-                  borderWidth: 1, borderColor: 'transparent',
-                }}
-              >
-                <Icon size={20} color={active ? '#2563EB' : '#94A3B8'} strokeWidth={active ? 2.4 : 2} />
-                <Text style={{
-                  flex: 1, fontSize: 13, fontWeight: '700',
-                  color: active ? '#2563EB' : '#94A3B8',
-                  letterSpacing: -0.1,
-                }}>
-                  {item.label}
-                </Text>
-                {active && (
-                  <View style={{
-                    width: 8, height: 8, borderRadius: 999,
-                    backgroundColor: '#2563EB',
-                    shadowColor: '#2563EB', shadowOpacity: 0.5, shadowRadius: 4,
-                  }} />
-                )}
-              </Pressable>
-            )
-          })}
+        {/* Nav sections */}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 16 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {visibleSections.map((section) => (
+            <View key={section.id} style={{ marginTop: 6 }}>
+              {/* Section header */}
+              <Text style={{
+                paddingHorizontal: 20,
+                paddingTop: 12,
+                paddingBottom: 4,
+                fontSize: 9,
+                fontWeight: '900',
+                color: '#CBD5E1',
+                letterSpacing: 1.6,
+                textTransform: 'uppercase',
+              }}>
+                {L(section.labelDe, section.labelEn)}
+              </Text>
+
+              {/* Section items */}
+              <View style={{ paddingHorizontal: 10 }}>
+                {section.items.map((item) => {
+                  const active = isActive(item.href)
+                  const Icon = item.icon
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => navigate(item.href)}
+                      style={({ pressed }: { pressed: boolean }) => ({
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 12,
+                        height: 44,
+                        marginBottom: 2,
+                        borderRadius: 10,
+                        paddingHorizontal: 14,
+                        backgroundColor: active
+                          ? '#EFF6FF'
+                          : pressed
+                          ? '#F8FAFC'
+                          : 'transparent',
+                      })}
+                    >
+                      <View style={{
+                        width: 32, height: 32, borderRadius: 8,
+                        backgroundColor: active ? '#DBEAFE' : '#F1F5F9',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Icon size={16} color={active ? '#2563EB' : '#64748B'} strokeWidth={active ? 2.5 : 2} />
+                      </View>
+                      <Text style={{
+                        flex: 1,
+                        fontSize: 13,
+                        fontWeight: active ? '800' : '600',
+                        color: active ? '#1D4ED8' : '#334155',
+                        letterSpacing: -0.1,
+                      }}>
+                        {L(item.labelDe, item.labelEn)}
+                      </Text>
+                      {active ? (
+                        <View style={{
+                          width: 6, height: 6, borderRadius: 999,
+                          backgroundColor: '#2563EB',
+                        }} />
+                      ) : (
+                        <ChevronRight size={14} color="#CBD5E1" />
+                      )}
+                    </Pressable>
+                  )
+                })}
+              </View>
+            </View>
+          ))}
         </ScrollView>
 
-        {/* Footer — role pill + sign out */}
-        <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#F1F5F9', backgroundColor: 'rgba(248,250,252,0.5)' }}>
+        {/* Footer — sign out */}
+        <View style={{
+          paddingHorizontal: 16, paddingVertical: 14,
+          borderTopWidth: 1, borderTopColor: '#F1F5F9',
+        }}>
           <Pressable
-            onPress={async () => { await signOut(); close() }}
+            onPress={async () => { close(); await signOut() }}
             style={({ pressed }: { pressed: boolean }) => ({
               flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-              paddingVertical: 12, borderRadius: 12,
+              paddingVertical: 11, borderRadius: 10,
               backgroundColor: pressed ? '#FEF2F2' : 'transparent',
-              borderWidth: 1, borderColor: '#FEE2E2',
+              borderWidth: 1, borderColor: '#FECACA',
             })}
           >
-            <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 13 }}>
+            <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 13 }}>
               {L('Abmelden', 'Sign out')}
             </Text>
           </Pressable>
@@ -239,6 +360,5 @@ export function AppDrawer() {
   )
 }
 
-// Convenience: a hidden Pressable that swallows the gesture event for
-// callers that don't need it. Used internally — not exported.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _noop(_e: GestureResponderEvent) {}

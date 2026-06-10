@@ -121,9 +121,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       updated_at: new Date().toISOString(),
     }
 
-    // Best-effort upsert in the background — don't block returning the
-    // fallback so the UI renders immediately.
-    Promise.resolve(supabase.from('profiles').upsert(fallback as any, { onConflict: 'id' }))
+    // Best-effort INSERT — only creates the row if it doesn't exist yet.
+    // Never upsert here: an upsert with guessed metadata would overwrite a
+    // real profile row (with correct role / org_id) the next time the DB
+    // is slow and the timeout fires.
+    Promise.resolve(supabase.from('profiles').insert(fallback as any))
       .then(() => {})
       .catch(() => {})
     return fallback

@@ -28,6 +28,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Modal,
+  Linking,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import {
@@ -41,6 +42,11 @@ import {
   Move,
   Trash2,
   X,
+  AlertTriangle,
+  Mail,
+  Phone,
+  Briefcase,
+  ExternalLink,
 } from 'lucide-react-native'
 import {
   addDays,
@@ -64,11 +70,37 @@ import { useDashboardWeek } from '@/hooks/useDashboardWeek'
 import { useSafeBack } from '@/lib/use-safe-back'
 import { safeFormatTime } from '@/lib/safe-format'
 import { canCreatePlans } from '@/lib/rbac/permissions'
-import type { Plan } from '@/lib/types'
+import type { Plan, Profile } from '@/lib/types'
 
-const DAY_COL_W = 110
-const EMP_COL_W = 130
-const ROW_H = 72
+const DAY_COL_W = 130
+const EMP_COL_W = 150
+const ROW_H = 84
+
+// Wilson-inspired palette — soft teal for assigned shifts, slate for chrome.
+const C = {
+  bg: '#FFFFFF',
+  chrome: '#F8FAFC',
+  border: '#E2E8F0',
+  borderSoft: '#F1F5F9',
+  text: '#0F172A',
+  textMuted: '#64748B',
+  textFaint: '#94A3B8',
+
+  shiftBg: '#E6FAF5',          // pale mint cell background
+  shiftAccent: '#0F766E',      // teal text
+  shiftBorder: '#A7F3D0',
+  shiftCodeBg: '#FBFEFD',      // header pill inside cell
+  warning: '#DC2626',          // red triangle
+
+  cancelledBg: '#FEE2E2',
+  cancelledText: '#7F1D1D',
+
+  todayBg: '#E0F2FE',
+  todayText: '#0369A1',
+
+  dragTargetBg: '#BFDBFE',
+  dragTargetBorder: '#3B82F6',
+}
 
 export default function DashboardScreen() {
   const { locale } = useTranslation()
@@ -76,7 +108,7 @@ export default function DashboardScreen() {
   const dateLocale = locale === 'de' ? deLocale : enUS
   const goBack = useSafeBack('/plans')
   const router = useRouter()
-  const { role } = useUser()
+  const { role, ready } = useUser()
 
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date())
   const [search, setSearch] = useState('')
@@ -85,11 +117,19 @@ export default function DashboardScreen() {
   const [actionPlan, setActionPlan] = useState<Plan | null>(null)
   const [reassignOpen, setReassignOpen] = useState(false)
   const [moveDateOpen, setMoveDateOpen] = useState(false)
+  // Wilson-style employee hover card. Web: opens on mouse-enter of the
+  // employee column. Mobile: opens on tap of the avatar/name.
+  const [hoveredEmployee, setHoveredEmployee] = useState<Profile | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Web drag-and-drop state — ref avoids stale-closure in onDrop
   const dragRef = useRef<{ planId: string; employeeId: string; date: string } | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
 
-  const { profiles, loading: loadingProfiles } = useProfiles(false)
+  // Wilson dashboard shows every member of the org (active + inactive)
+  // so dispatchers can see the full roster, including people on leave.
+  // Pass `true` so inactive profiles are NOT filtered out.
+  const { profiles, loading: loadingProfiles, error: profilesError } =
+    useProfiles(true)
   const {
     plans,
     byCell,
@@ -102,7 +142,8 @@ export default function DashboardScreen() {
 
   // Permission gate — employees never reach this route (link is hidden
   // on plans list) but if they deep-link here, show a friendly notice.
-  if (!canCreatePlans(role)) {
+  // Guard with `ready` so we don't false-fire before the profile loads.
+  if (ready && !canCreatePlans(role)) {
     return (
       <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
         <AppHeader />
@@ -315,53 +356,88 @@ export default function DashboardScreen() {
                 onBack={goBack}
               />
 
-              {/* Week navigator */}
-              <View className="flex-row items-center justify-between mb-3">
+              {/* Toolbar — Wilson-style: PERIOD label · date · navigation · summary chip */}
+              <View
+                className="flex-row items-center mb-3"
+                style={{
+                  backgroundColor: C.chrome,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  borderRadius: 14,
+                  padding: 8,
+                  gap: 8,
+                }}
+              >
                 <Pressable
                   onPress={onPrev}
                   style={({ pressed }: { pressed: boolean }) => ({
-                    width: 36,
-                    height: 36,
-                    borderRadius: 12,
+                    width: 32,
+                    height: 32,
+                    borderRadius: 10,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: C.border,
+                    backgroundColor: C.bg,
                     alignItems: 'center',
                     justifyContent: 'center',
                     opacity: pressed ? 0.7 : 1,
                   })}
                   accessibilityLabel={L('Vorherige Woche', 'Previous week')}
                 >
-                  <ChevronLeft size={18} color="#475569" />
+                  <ChevronLeft size={16} color={C.textMuted} />
                 </Pressable>
-                <View className="flex-1 items-center mx-2">
+
+                <View style={{ flex: 1 }}>
                   <Text
-                    className="text-[14px] font-black text-gray-900 dark:text-white"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: '900',
+                      color: C.textFaint,
+                      letterSpacing: 1.2,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {L('Zeitraum', 'Period')}
+                  </Text>
+                  <Text
+                    style={{ fontSize: 13, fontWeight: '900', color: C.text, marginTop: 1 }}
                     numberOfLines={1}
                     adjustsFontSizeToFit
                   >
                     {weekLabel}
                   </Text>
-                  <Pressable onPress={onToday}>
-                    <Text className="text-[11px] font-bold text-[#0064E0] mt-0.5">
-                      {L('Heute', 'Today')}
-                    </Text>
-                  </Pressable>
                 </View>
+
+                <Pressable
+                  onPress={onToday}
+                  style={({ pressed }: { pressed: boolean }) => ({
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 10,
+                    backgroundColor: '#0064E0',
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '900', color: '#FFFFFF' }}>
+                    {L('Heute', 'Today')}
+                  </Text>
+                </Pressable>
+
                 <Pressable
                   onPress={onNext}
                   style={({ pressed }: { pressed: boolean }) => ({
-                    width: 36,
-                    height: 36,
-                    borderRadius: 12,
+                    width: 32,
+                    height: 32,
+                    borderRadius: 10,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: C.border,
+                    backgroundColor: C.bg,
                     alignItems: 'center',
                     justifyContent: 'center',
                     opacity: pressed ? 0.7 : 1,
                   })}
                   accessibilityLabel={L('Nächste Woche', 'Next week')}
                 >
-                  <ChevronRight size={18} color="#475569" />
+                  <ChevronRight size={16} color={C.textMuted} />
                 </Pressable>
               </View>
 
@@ -451,24 +527,38 @@ export default function DashboardScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator
-            contentContainerStyle={{ paddingBottom: 24 }}
+            contentContainerStyle={{ paddingBottom: 8 }}
           >
             <View>
               {/* Day header row */}
-              <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#E5E7EB' }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  borderBottomWidth: 2,
+                  borderColor: C.border,
+                  backgroundColor: C.chrome,
+                }}
+              >
                 <View
                   style={{
                     width: EMP_COL_W,
-                    paddingVertical: 8,
-                    paddingHorizontal: 8,
-                    backgroundColor: '#F8FAFC',
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
                     borderRightWidth: 1,
-                    borderColor: '#E5E7EB',
+                    borderColor: C.border,
                     justifyContent: 'center',
                   }}
                 >
-                  <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    {L('Mitarbeiter', 'Employee')}
+                  <Text
+                    style={{
+                      fontSize: 9,
+                      fontWeight: '900',
+                      letterSpacing: 1.4,
+                      textTransform: 'uppercase',
+                      color: C.textFaint,
+                    }}
+                  >
+                    {L('Mitarbeiter', 'User')} · {filteredEmployees.length}
                   </Text>
                 </View>
                 {days.map((d) => {
@@ -481,119 +571,435 @@ export default function DashboardScreen() {
                         paddingVertical: 8,
                         paddingHorizontal: 6,
                         alignItems: 'center',
-                        backgroundColor: today ? '#EFF6FF' : '#F8FAFC',
+                        backgroundColor: today ? C.todayBg : C.chrome,
                         borderRightWidth: 1,
-                        borderColor: '#E5E7EB',
+                        borderColor: C.border,
                       }}
                     >
                       <Text
                         style={{
+                          fontSize: 13,
+                          fontWeight: '900',
+                          color: today ? C.todayText : C.text,
+                          letterSpacing: -0.2,
+                        }}
+                      >
+                        {format(d, 'dd.MM.')}
+                      </Text>
+                      <Text
+                        style={{
                           fontSize: 10,
                           fontWeight: '900',
-                          letterSpacing: 1.2,
+                          letterSpacing: 1,
                           textTransform: 'uppercase',
-                          color: today ? '#0064E0' : '#94A3B8',
+                          color: today ? C.todayText : C.textMuted,
+                          marginTop: 2,
                         }}
                       >
                         {format(d, 'EEE', { locale: dateLocale })}
                       </Text>
-                      <Text
+                      {/* Time tick row — 00:00 · 08:00 · 16:00 — Wilson's
+                          time-subdivision markers. Slightly larger so they
+                          stay legible at 130px column width. */}
+                      <View
                         style={{
-                          fontSize: 14,
-                          fontWeight: '900',
-                          color: today ? '#0064E0' : '#0F172A',
-                          marginTop: 2,
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          width: '100%',
+                          marginTop: 6,
                         }}
                       >
-                        {format(d, 'd.')}
-                      </Text>
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            color: today ? C.todayText : C.textMuted,
+                            fontWeight: '700',
+                          }}
+                        >
+                          00:00
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            color: today ? C.todayText : C.textMuted,
+                            fontWeight: '700',
+                          }}
+                        >
+                          08:00
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            color: today ? C.todayText : C.textMuted,
+                            fontWeight: '700',
+                          }}
+                        >
+                          16:00
+                        </Text>
+                      </View>
                     </View>
                   )
                 })}
               </View>
 
-              {/* Employee rows */}
+              {/* Employee rows — empty state needs to distinguish three cases:
+                   1) profile has no organization_id (broken account)
+                   2) org has zero members (fresh org, hint at invites)
+                   3) search filtered everyone out (just say so) */}
               {filteredEmployees.length === 0 && !loadingProfiles ? (
-                <View style={{ padding: 24, alignItems: 'center' }}>
-                  <Text className="text-[13px] text-gray-400">
-                    {L('Keine Mitarbeiter gefunden.', 'No employees found.')}
-                  </Text>
+                <View style={{ padding: 24, alignItems: 'center', gap: 6 }}>
+                  {profilesError?.kind === 'missing_org' ? (
+                    <>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: C.warning,
+                          fontWeight: '900',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {L(
+                          'Ihr Konto ist keiner Organisation zugeordnet.',
+                          'Your account is not linked to an organization.',
+                        )}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: C.textMuted,
+                          textAlign: 'center',
+                          maxWidth: 320,
+                        }}
+                      >
+                        {profilesError.message}
+                      </Text>
+                    </>
+                  ) : search.trim().length > 0 ? (
+                    <Text style={{ fontSize: 13, color: C.textFaint }}>
+                      {L(
+                        `Keine Mitarbeiter passen zu „${search}".`,
+                        `No employees match "${search}".`,
+                      )}
+                    </Text>
+                  ) : profiles.length === 0 ? (
+                    <>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: C.textMuted,
+                          fontWeight: '800',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {L(
+                          'Noch keine Mitarbeiter in dieser Organisation.',
+                          'No employees in this organization yet.',
+                        )}
+                      </Text>
+                      <Pressable
+                        onPress={() => router.push('/users' as any)}
+                        style={({ pressed }: { pressed: boolean }) => ({
+                          marginTop: 4,
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 10,
+                          backgroundColor: '#0064E0',
+                          opacity: pressed ? 0.85 : 1,
+                        })}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>
+                          {L('Mitarbeiter einladen', 'Invite members')}
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Text style={{ fontSize: 13, color: C.textFaint }}>
+                      {L('Keine Mitarbeiter gefunden.', 'No employees found.')}
+                    </Text>
+                  )}
                 </View>
               ) : null}
 
-              {filteredEmployees.map((emp) => (
-                <View
-                  key={emp.id}
-                  style={{
-                    flexDirection: 'row',
-                    borderBottomWidth: 1,
-                    borderColor: '#F1F5F9',
-                  }}
-                >
+              {filteredEmployees.map((emp, rowIdx) => {
+                const initials = (emp.full_name ?? emp.email ?? '?')
+                  .split(' ')
+                  .map((w) => w[0])
+                  .slice(0, 2)
+                  .join('')
+                  .toUpperCase()
+                return (
                   <View
+                    key={emp.id}
                     style={{
-                      width: EMP_COL_W,
-                      height: ROW_H,
-                      paddingHorizontal: 8,
-                      justifyContent: 'center',
-                      backgroundColor: '#FFFFFF',
-                      borderRightWidth: 1,
-                      borderColor: '#E5E7EB',
+                      flexDirection: 'row',
+                      borderBottomWidth: 1,
+                      borderColor: C.borderSoft,
+                      // Wilson uses an alternating pale teal band so the eye
+                      // can track each employee's row across the seven-day
+                      // grid. Inactive members get desaturated.
+                      backgroundColor: !emp.is_active
+                        ? '#F8FAFC'
+                        : rowIdx % 2 === 0
+                          ? C.bg
+                          : '#F0FBF7',
+                      opacity: emp.is_active ? 1 : 0.75,
                     }}
                   >
-                    <Text
-                      className="text-[12px] font-black text-gray-900 dark:text-white"
-                      numberOfLines={1}
+                    <Pressable
+                      // Wilson-style: hover over the employee chip on web,
+                      // tap on mobile, to reveal a small info card with
+                      // email / phone / profession. On web we use the
+                      // onHoverIn/Out hooks that RNW exposes on Pressable.
+                      onPress={() => setHoveredEmployee(emp)}
+                      onHoverIn={() => {
+                        if (Platform.OS !== 'web') return
+                        if (hoverTimer.current) clearTimeout(hoverTimer.current)
+                        hoverTimer.current = setTimeout(
+                          () => setHoveredEmployee(emp),
+                          120,
+                        )
+                      }}
+                      onHoverOut={() => {
+                        if (Platform.OS !== 'web') return
+                        if (hoverTimer.current) clearTimeout(hoverTimer.current)
+                      }}
+                      style={{
+                        width: EMP_COL_W,
+                        height: ROW_H,
+                        paddingHorizontal: 10,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: 'transparent',
+                        borderRightWidth: 1,
+                        borderColor: C.border,
+                      }}
                     >
-                      {emp.full_name}
-                    </Text>
-                    <Text
-                      className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5"
-                      numberOfLines={1}
-                    >
-                      {emp.role}
-                    </Text>
+                      <View
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 999,
+                          backgroundColor: '#EEF2FF',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 8,
+                        }}
+                      >
+                        <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 11 }}>
+                          {initials}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={{ fontSize: 12, fontWeight: '900', color: C.text }}
+                          numberOfLines={1}
+                        >
+                          {emp.full_name}
+                        </Text>
+                        <Text
+                          style={{ fontSize: 10, color: C.textFaint, marginTop: 1 }}
+                          numberOfLines={1}
+                        >
+                          {emp.role}
+                        </Text>
+                      </View>
+                    </Pressable>
+                    {days.map((d) => {
+                      const cell = cellPlans(emp.id, d)
+                      const cellDate = format(d, 'yyyy-MM-dd')
+                      const todayCol = isToday(d)
+                      return (
+                        <DashboardCell
+                          key={`${emp.id}|${d.toISOString()}`}
+                          plans={cell}
+                          employeeId={emp.id}
+                          date={cellDate}
+                          isToday={todayCol}
+                          onTap={() => onCellTap(emp.id, d, cell)}
+                          onLongPress={() => onCellLongPress(cell)}
+                          isDragTarget={dragOverKey === `${emp.id}|${cellDate}`}
+                          onDragStart={handleDragStart}
+                          onDragOver={handleDragOver}
+                          onDragEnd={handleDragEnd}
+                          onDrop={handleDrop}
+                        />
+                      )
+                    })}
                   </View>
-                  {days.map((d) => {
-                    const cell = cellPlans(emp.id, d)
-                    const cellDate = format(d, 'yyyy-MM-dd')
-                    return (
-                      <DashboardCell
-                        key={`${emp.id}|${d.toISOString()}`}
-                        plans={cell}
-                        employeeId={emp.id}
-                        date={cellDate}
-                        onTap={() => onCellTap(emp.id, d, cell)}
-                        onLongPress={() => onCellLongPress(cell)}
-                        isDragTarget={dragOverKey === `${emp.id}|${cellDate}`}
-                        onDragStart={handleDragStart}
-                        onDragOver={handleDragOver}
-                        onDragEnd={handleDragEnd}
-                        onDrop={handleDrop}
-                      />
-                    )
-                  })}
-                </View>
-              ))}
+                )
+              })}
 
               {(loadingPlans || loadingProfiles) && filteredEmployees.length === 0 ? (
                 <View style={{ padding: 24, alignItems: 'center' }}>
                   <ActivityIndicator color="#0064E0" />
                 </View>
               ) : null}
+
+              {/* Per-day totals row (Wilson-style footer) */}
+              {filteredEmployees.length > 0 && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    borderTopWidth: 2,
+                    borderBottomWidth: 1,
+                    borderColor: C.border,
+                    backgroundColor: C.chrome,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: EMP_COL_W,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRightWidth: 1,
+                      borderColor: C.border,
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 9,
+                        fontWeight: '900',
+                        letterSpacing: 1.4,
+                        textTransform: 'uppercase',
+                        color: C.textFaint,
+                      }}
+                    >
+                      {L('Schichten / Tag', 'Shifts / day')}
+                    </Text>
+                  </View>
+                  {days.map((d) => {
+                    const key = format(d, 'yyyy-MM-dd')
+                    let count = 0
+                    for (const emp of filteredEmployees) {
+                      count += (byCell.get(`${emp.id}|${key}`) ?? []).filter(planMatchesFilter)
+                        .length
+                    }
+                    const todayCol = isToday(d)
+                    return (
+                      <View
+                        key={`total-${key}`}
+                        style={{
+                          width: DAY_COL_W,
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                          backgroundColor: todayCol ? C.todayBg : 'transparent',
+                          borderRightWidth: 1,
+                          borderColor: C.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 16,
+                            fontWeight: '900',
+                            color: count > 0 ? '#D97706' : C.textFaint,
+                          }}
+                        >
+                          {count}
+                        </Text>
+                      </View>
+                    )
+                  })}
+                </View>
+              )}
             </View>
           </ScrollView>
 
-          <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
-            <Text className="text-[11px] text-gray-400 dark:text-slate-500" numberOfLines={3}>
-              {L(
-                'Tippen Sie auf eine leere Zelle, um eine Schicht anzulegen. Tippen Sie auf eine bestehende Zelle für Details. Langes Drücken öffnet Verschieben / Übertragen / Löschen.',
-                'Tap an empty cell to assign a shift. Tap an existing cell for details. Long-press for move / reassign / delete.',
-              )}
-            </Text>
-            <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-2">
-              {range.startDate} – {range.endDate}
-            </Text>
+          {/* Summary strip + help text — Wilson's right-rail collapsed for mobile */}
+          <View
+            style={{
+              paddingHorizontal: 20,
+              paddingTop: 12,
+              paddingBottom: 24,
+              flexDirection: 'row',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}
+          >
+            <View
+              style={{
+                flex: 1,
+                minWidth: 140,
+                backgroundColor: C.chrome,
+                borderWidth: 1,
+                borderColor: C.border,
+                borderRadius: 14,
+                padding: 12,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: '900',
+                  letterSpacing: 1.4,
+                  textTransform: 'uppercase',
+                  color: C.textFaint,
+                }}
+              >
+                {range.startDate} – {range.endDate}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: C.textMuted,
+                  fontWeight: '700',
+                  marginTop: 4,
+                }}
+              >
+                {L('Sichtbarer Zeitraum', 'Visible period')}
+              </Text>
+            </View>
+            <View
+              style={{
+                flex: 1,
+                minWidth: 140,
+                backgroundColor: C.chrome,
+                borderWidth: 1,
+                borderColor: C.border,
+                borderRadius: 14,
+                padding: 12,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: '900',
+                  letterSpacing: 1.4,
+                  textTransform: 'uppercase',
+                  color: C.textFaint,
+                }}
+              >
+                {L('Schichten gesamt', 'Total shifts')}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 18,
+                  color: C.text,
+                  fontWeight: '900',
+                  marginTop: 2,
+                }}
+              >
+                {plans.filter(planMatchesFilter).length}
+              </Text>
+            </View>
+            <View
+              style={{
+                width: '100%',
+                marginTop: 6,
+                backgroundColor: '#FFFBEB',
+                borderWidth: 1,
+                borderColor: '#FEF3C7',
+                borderRadius: 14,
+                padding: 12,
+              }}
+            >
+              <Text style={{ fontSize: 11, color: '#92400E', lineHeight: 16 }} numberOfLines={4}>
+                {L(
+                  'Tippen Sie auf eine leere Zelle, um eine Schicht anzulegen. Tippen Sie auf eine bestehende für Details. Langes Drücken (oder Drag-and-Drop auf Web): Verschieben, Übertragen, Löschen.',
+                  'Tap an empty cell to assign a shift. Tap an existing cell for detail. Long-press (or drag on web): move, reassign, delete.',
+                )}
+              </Text>
+            </View>
           </View>
         </ScrollView>
       </Screen>
@@ -639,6 +1045,12 @@ export default function DashboardScreen() {
         }}
         onClose={() => setMoveDateOpen(false)}
       />
+
+      <EmployeeCard
+        profile={hoveredEmployee}
+        visible={!!hoveredEmployee}
+        onClose={() => setHoveredEmployee(null)}
+      />
     </View>
   )
 }
@@ -649,6 +1061,7 @@ function DashboardCell({
   plans,
   employeeId,
   date,
+  isToday: isTodayCol,
   onTap,
   onLongPress,
   isDragTarget,
@@ -660,6 +1073,7 @@ function DashboardCell({
   plans: Plan[]
   employeeId: string
   date: string
+  isToday: boolean
   onTap: () => void
   onLongPress: () => void
   isDragTarget: boolean
@@ -670,16 +1084,41 @@ function DashboardCell({
 }) {
   const has = plans.length > 0
   const first = plans[0]
-  const label =
-    first?.customer?.name ??
+  // Shift code (Wilson reference shows codes like "TB-KAW 70200"). Prefer
+  // an explicit start-location short_code; fall back to customer name; then
+  // free-text location.
+  const shiftCode =
     first?.start_location?.short_code ??
+    first?.customer?.name ??
     first?.location ??
     '—'
+  // Secondary location codes — start → destination short codes,
+  // e.g. "DE_K… → DE_R…". Falls back to free-text location.
+  const startLoc = first?.start_location?.short_code ?? ''
+  const destLoc = first?.destination_location?.short_code ?? ''
+  const locLine =
+    startLoc && destLoc && startLoc !== destLoc
+      ? `${startLoc} → ${destLoc}`
+      : startLoc || destLoc || first?.location || ''
   const time = first
     ? `${safeFormatTime(first.start_time)}–${safeFormatTime(first.end_time)}`
     : ''
   const status = first?.status ?? ''
   const isCancelled = status === 'cancelled' || status === 'rejected'
+  // Surface a quick conflict signal: overnight shift, missing location, or
+  // an "issue" tag on the plan. Drives the warning triangle.
+  const hasWarning = (() => {
+    if (!first) return false
+    if (isCancelled) return false
+    if (!first.start_location_id && !first.location) return true
+    // Heuristic: end before start without overnight flag → bad data.
+    try {
+      const s = new Date(first.start_time).getTime()
+      const e = new Date(first.end_time).getTime()
+      if (e <= s) return true
+    } catch {}
+    return false
+  })()
 
   // HTML5 drag-and-drop (web only). RNW forwards unrecognised props to the DOM.
   const webDragProps =
@@ -704,6 +1143,20 @@ function DashboardCell({
         }
       : {}
 
+  // Cell chrome colours derived from C palette. Today's column gets a
+  // faint sky tint when empty so the vertical "today" line stays visible
+  // even in rows with no shifts.
+  const cellBg = isDragTarget
+    ? C.dragTargetBg
+    : has
+      ? isCancelled
+        ? C.cancelledBg
+        : C.shiftBg
+      : isTodayCol
+        ? '#F0F9FF'
+        : C.bg
+  const cellBorder = isDragTarget ? C.dragTargetBorder : C.borderSoft
+
   return (
     <Pressable
       onPress={onTap}
@@ -713,56 +1166,140 @@ function DashboardCell({
       style={({ pressed }: { pressed: boolean }) => ({
         width: DAY_COL_W,
         height: ROW_H,
-        padding: 6,
-        backgroundColor: isDragTarget
-          ? '#BFDBFE'
-          : has
-          ? isCancelled
-            ? '#FEE2E2'
-            : '#EFF6FF'
-          : '#FFFFFF',
+        padding: 5,
+        backgroundColor: cellBg,
         borderRightWidth: 1,
-        borderColor: isDragTarget ? '#3B82F6' : '#F1F5F9',
-        opacity: pressed ? 0.7 : 1,
+        borderColor: cellBorder,
+        opacity: pressed ? 0.75 : 1,
       })}
     >
       {has ? (
+        // Wilson cell — top header bar with warning + shift code, then two
+        // location codes side-by-side, then start | end times row.
         <View
           style={{
             flex: 1,
-            backgroundColor: isCancelled ? '#FECACA' : '#DBEAFE',
-            borderRadius: 8,
-            paddingHorizontal: 6,
-            paddingVertical: 4,
-            justifyContent: 'center',
+            backgroundColor: isCancelled ? '#FECACA' : '#D1FAE5',
+            borderRadius: 6,
+            borderWidth: 1,
+            borderColor: isCancelled ? '#F87171' : '#6EE7B7',
+            overflow: 'hidden',
           }}
         >
-          <Text
+          {/* Header — warning triangle + shift code */}
+          <View
             style={{
-              fontSize: 11,
-              fontWeight: '900',
-              color: isCancelled ? '#7F1D1D' : '#1E3A8A',
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 4,
+              paddingTop: 3,
+              paddingBottom: 1,
+              gap: 3,
             }}
-            numberOfLines={1}
           >
-            {label}
-          </Text>
-          <Text
+            {hasWarning ? (
+              <AlertTriangle size={9} color={C.warning} fill={C.warning} />
+            ) : null}
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 10,
+                fontWeight: '900',
+                letterSpacing: -0.2,
+                color: isCancelled ? C.cancelledText : '#0F172A',
+                textDecorationLine: isCancelled ? 'line-through' : 'none',
+              }}
+              numberOfLines={1}
+            >
+              {shiftCode}
+            </Text>
+            {plans.length > 1 ? (
+              <View
+                style={{
+                  backgroundColor: C.shiftAccent,
+                  borderRadius: 999,
+                  paddingHorizontal: 4,
+                  paddingVertical: 0,
+                }}
+              >
+                <Text style={{ fontSize: 7, color: '#FFFFFF', fontWeight: '900' }}>
+                  +{plans.length - 1}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Two location codes side-by-side — the Wilson signature row */}
+          <View
             style={{
-              fontSize: 9,
-              fontWeight: '700',
-              color: isCancelled ? '#991B1B' : '#1E40AF',
+              flexDirection: 'row',
+              paddingHorizontal: 4,
+              gap: 4,
               marginTop: 1,
             }}
-            numberOfLines={1}
           >
-            {time}
-          </Text>
-          {plans.length > 1 ? (
-            <Text style={{ fontSize: 9, color: '#475569', fontWeight: '800', marginTop: 1 }}>
-              +{plans.length - 1}
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 8.5,
+                fontWeight: '800',
+                color: isCancelled ? '#991B1B' : '#0E7490',
+                letterSpacing: 0.1,
+              }}
+              numberOfLines={1}
+            >
+              {startLoc || '—'}
             </Text>
-          ) : null}
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 8.5,
+                fontWeight: '800',
+                color: isCancelled ? '#991B1B' : '#0E7490',
+                letterSpacing: 0.1,
+                textAlign: 'right',
+              }}
+              numberOfLines={1}
+            >
+              {destLoc || (startLoc ? '' : '—')}
+            </Text>
+          </View>
+
+          {/* Time row — start | end */}
+          <View
+            style={{
+              marginTop: 'auto',
+              flexDirection: 'row',
+              paddingHorizontal: 4,
+              paddingVertical: 2,
+              gap: 4,
+              backgroundColor: isCancelled ? '#FCA5A5' : '#A7F3D0',
+            }}
+          >
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 9,
+                fontWeight: '900',
+                color: isCancelled ? '#7F1D1D' : '#064E3B',
+              }}
+              numberOfLines={1}
+            >
+              {safeFormatTime(first!.start_time)}
+            </Text>
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 9,
+                fontWeight: '900',
+                color: isCancelled ? '#7F1D1D' : '#064E3B',
+                textAlign: 'right',
+              }}
+              numberOfLines={1}
+            >
+              {safeFormatTime(first!.end_time)}
+            </Text>
+          </View>
         </View>
       ) : (
         <View
@@ -773,10 +1310,11 @@ function DashboardCell({
             borderRadius: 8,
             borderWidth: 1,
             borderStyle: 'dashed',
-            borderColor: '#E5E7EB',
+            borderColor: C.border,
+            backgroundColor: '#FCFCFD',
           }}
         >
-          <Plus size={14} color="#CBD5E1" />
+          <Plus size={14} color={C.textFaint} />
         </View>
       )}
     </Pressable>
@@ -1078,5 +1616,237 @@ function MoveDateSheet({
         </Pressable>
       </Pressable>
     </Modal>
+  )
+}
+
+// ─── Employee hover card (Wilson-style popover) ───────────────────────────
+
+function EmployeeCard({
+  profile,
+  visible,
+  onClose,
+}: {
+  profile: Profile | null
+  visible: boolean
+  onClose: () => void
+}) {
+  const { locale } = useTranslation()
+  const L = (de: string, en: string) => (locale === 'de' ? de : en)
+  if (!profile) return null
+  const initials = (profile.full_name ?? profile.email ?? '?')
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const openLink = (url: string) => {
+    Linking.openURL(url).catch(() => {
+      /* no toast — Linking error means the device has no handler */
+    })
+  }
+  const roleLabel: Record<string, string> = {
+    admin: L('Administrator', 'Administrator'),
+    dispatcher: L('Disponent', 'Dispatcher'),
+    employee: L('Mitarbeiter', 'Employee'),
+  }
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(15,23,42,0.40)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 20,
+        }}
+      >
+        <Pressable
+          onPress={(e: any) => e.stopPropagation?.()}
+          style={{
+            width: '100%',
+            maxWidth: 360,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 16,
+            padding: 18,
+            shadowColor: '#0F172A',
+            shadowOpacity: 0.18,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 12 },
+            elevation: 10,
+          }}
+        >
+          {/* Header — avatar + name + close */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 999,
+                backgroundColor: '#EEF2FF',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 12,
+              }}
+            >
+              <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 16 }}>
+                {initials}
+              </Text>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={{ fontSize: 16, fontWeight: '900', color: '#0F172A' }}
+                numberOfLines={1}
+              >
+                {profile.full_name ?? '—'}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 10,
+                  color: '#64748B',
+                  fontWeight: '800',
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                  marginTop: 2,
+                }}
+              >
+                {roleLabel[profile.role] ?? profile.role}
+                {profile.is_active ? '' : ` · ${L('inaktiv', 'inactive')}`}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} style={{ padding: 4 }} hitSlop={8}>
+              <X size={20} color="#94A3B8" />
+            </Pressable>
+          </View>
+
+          {/* Email */}
+          {profile.email ? (
+            <EmployeeCardRow
+              icon={<Mail size={14} color="#64748B" />}
+              label={L('E-Mail', 'E-mail')}
+              value={profile.email}
+              onPress={() => openLink(`mailto:${profile.email}`)}
+            />
+          ) : null}
+
+          {/* Phone */}
+          {profile.phone ? (
+            <EmployeeCardRow
+              icon={<Phone size={14} color="#64748B" />}
+              label={L('Telefon', 'Phone')}
+              value={profile.phone}
+              onPress={() => openLink(`tel:${profile.phone}`)}
+            />
+          ) : null}
+
+          {/* Profession / role */}
+          <EmployeeCardRow
+            icon={<Briefcase size={14} color="#64748B" />}
+            label={L('Profession', 'Profession')}
+            value={roleLabel[profile.role] ?? profile.role}
+          />
+
+          {/* Badges — target hours + working-time model */}
+          {(profile.target_hours || profile.working_time_model_id) ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 6,
+                marginTop: 12,
+              }}
+            >
+              {profile.target_hours ? (
+                <Badge
+                  bg="#FEF3C7"
+                  fg="#92400E"
+                  label={`${profile.target_hours}h / ${L('Woche', 'week')}`}
+                />
+              ) : null}
+              {profile.working_time_model_id ? (
+                <Badge bg="#D1FAE5" fg="#065F46" label={L('Arbeitszeitmodell', 'Time model')} />
+              ) : null}
+              <Badge
+                bg={profile.is_active ? '#DBEAFE' : '#F1F5F9'}
+                fg={profile.is_active ? '#1E3A8A' : '#475569'}
+                label={profile.is_active ? L('aktiv', 'active') : L('inaktiv', 'inactive')}
+              />
+            </View>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+function EmployeeCardRow({
+  icon,
+  label,
+  value,
+  onPress,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  onPress?: () => void
+}) {
+  const interactive = !!onPress
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!interactive}
+      style={({ pressed }: { pressed: boolean }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderColor: '#F1F5F9',
+        opacity: pressed && interactive ? 0.6 : 1,
+      })}
+    >
+      <View style={{ width: 22 }}>{icon}</View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text
+          style={{
+            fontSize: 9,
+            color: '#94A3B8',
+            fontWeight: '900',
+            letterSpacing: 1.2,
+            textTransform: 'uppercase',
+          }}
+        >
+          {label}
+        </Text>
+        <Text
+          style={{
+            fontSize: 13,
+            color: interactive ? '#0064E0' : '#0F172A',
+            fontWeight: '700',
+            marginTop: 1,
+          }}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+      </View>
+      {interactive ? <ExternalLink size={12} color="#94A3B8" /> : null}
+    </Pressable>
+  )
+}
+
+function Badge({ bg, fg, label }: { bg: string; fg: string; label: string }) {
+  return (
+    <View
+      style={{
+        backgroundColor: bg,
+        paddingHorizontal: 9,
+        paddingVertical: 4,
+        borderRadius: 999,
+      }}
+    >
+      <Text style={{ fontSize: 10, fontWeight: '900', color: fg }} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
   )
 }
