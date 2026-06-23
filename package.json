@@ -1,6 +1,6 @@
 {
   "name": "locshift-mobile",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -12,9 +12,15 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "prebuild": "expo prebuild",
-    "build:ios": "eas build --platform ios",
-    "build:android": "eas build --platform android",
-    "build:all": "eas build --platform all"
+    "doctor": "npx expo-doctor",
+    "build:ios": "eas build --platform ios --profile production",
+    "build:android": "eas build --platform android --profile production",
+    "build:all": "eas build --platform all --profile production",
+    "build:preview:ios": "eas build --platform ios --profile preview",
+    "build:preview:android": "eas build --platform android --profile preview",
+    "build:staging": "eas build --platform all --profile staging",
+    "submit:ios": "eas submit --platform ios --latest",
+    "submit:android": "eas submit --platform android --latest"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -26,6 +32,7 @@
     "expo": "~54.0.34",
     "expo-audio": "~1.1.1",
     "expo-blur": "^56.0.3",
+    "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.13",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.22",
@@ -42,6 +49,7 @@
     "expo-status-bar": "~3.0.9",
     "expo-system-ui": "~6.0.9",
     "expo-task-manager": "~14.0.9",
+    "expo-updates": "~29.0.18",
     "expo-web-browser": "~15.0.11",
     "leaflet": "^1.9.4",
     "lucide-react-native": "^1.16.0",

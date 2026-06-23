@@ -46,7 +46,7 @@ export function useCalendarEvents(filterFromIso?: string, filterToIso?: string) 
   const [loading, setLoading] = useState(true)
 
   const fetchEvents = useCallback(
-    async (silent = false) => {
+    async (silent = false) => { 
       if (!orgId || !myId) return
       if (!silent) setLoading(true)
       let query = supabase

@@ -176,16 +176,23 @@ export default function SettingsScreen() {
   )
 
   const information: RowItem[] = useMemo(() => {
-    if (!webappUrl) {
-      // Without a configured web base URL these links go nowhere; hide
-      // the section instead of showing dead rows.
-      return []
-    }
-    return [
-      { key: 'help', label: L('Feedback & Hilfe', 'Feedback & help'), icon: HelpCircle, external: `${webappUrl}/help` },
-      { key: 'privacy', label: L('Datenschutz', 'Privacy policy'), icon: ShieldIcon, external: `${webappUrl}/privacy` },
-      { key: 'imprint', label: L('Impressum', 'Imprint'), icon: Info, external: `${webappUrl}/impressum` },
+    // Legal screens are bundled in-app (required for store review even
+    // when a web URL exists). "Feedback & Hilfe" still links out to web
+    // when configured; otherwise hidden.
+    const rows: RowItem[] = [
+      { key: 'privacy', label: L('Datenschutz', 'Privacy policy'), icon: ShieldIcon, href: '/legal/datenschutz' as any },
+      { key: 'imprint', label: L('Impressum', 'Imprint'), icon: Info, href: '/legal/impressum' as any },
+      { key: 'terms', label: L('Nutzungsbedingungen', 'Terms of Service'), icon: Info, href: '/legal/agb' as any },
     ]
+    if (webappUrl) {
+      rows.unshift({
+        key: 'help',
+        label: L('Feedback & Hilfe', 'Feedback & help'),
+        icon: HelpCircle,
+        external: `${webappUrl}/help`,
+      })
+    }
+    return rows
   }, [webappUrl, locale])
 
   const themeValue =

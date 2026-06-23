@@ -45,3 +45,8 @@ yarn-error.*
 
 expo-env.d.ts
 # @end expo-cli
+# Production secrets — never commit
+.env.production
+.env.staging
+google-play-service-account.json
+ios/Certificates.p12
