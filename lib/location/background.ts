@@ -111,7 +111,7 @@ export async function startTracking(userId: string): Promise<boolean> {
     deferredUpdatesInterval: 5 * 60 * 1000,
     showsBackgroundLocationIndicator: true,
     foregroundService: {
-      notificationTitle: 'Lokshift Schicht aktiv',
+      notificationTitle: 'LokShift Schicht aktiv',
       notificationBody:
         'Standort wird zur Anzeige in der Live-Einsatzkarte aktualisiert.',
       notificationColor: '#0064E0',

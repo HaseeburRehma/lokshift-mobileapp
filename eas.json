@@ -8,10 +8,7 @@
     "base": {
       "node": "20.18.0",
       "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "$EXPO_PUBLIC_SUPABASE_URL",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "$EXPO_PUBLIC_SUPABASE_ANON_KEY",
-        "EXPO_PUBLIC_WEBAPP_URL": "$EXPO_PUBLIC_WEBAPP_URL",
-        "EXPO_PUBLIC_SENTRY_DSN": "$EXPO_PUBLIC_SENTRY_DSN"
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "development": {
@@ -32,6 +29,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "preview",
+      "environment": "production",
       "ios": {
         "resourceClass": "m-medium",
         "simulator": true
@@ -44,6 +42,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "staging",
+      "environment": "production",
       "autoIncrement": true,
       "ios": {
         "resourceClass": "m-medium"
@@ -56,6 +55,7 @@
       "extends": "base",
       "autoIncrement": true,
       "channel": "production",
+      "environment": "production",
       "ios": {
         "resourceClass": "m-medium"
       },
@@ -67,17 +67,13 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "REPLACE-WITH-APP-STORE-CONNECT-APP-ID",
-        "appleId": "REPLACE-WITH-APPLE-ID-EMAIL",
-        "appleTeamId": "REPLACE-WITH-APPLE-TEAM-ID",
+        "ascAppId": "6783844374",
+        "appleId": "dev@tylotech.de",
+        "appleTeamId": "GZHXFBK7SP",
         "sku": "lokshift-mobile-1",
         "language": "en-US",
         "bundleIdentifier": "app.lokshift.mobile",
-        "companyName": "LokShift",
-        "firstName": "REPLACE",
-        "lastName": "REPLACE",
-        "email": "REPLACE-WITH-CONTACT-EMAIL",
-        "phone": "REPLACE-WITH-CONTACT-PHONE"
+        "companyName": "LokShift"
       },
       "android": {
         "serviceAccountKeyPath": "./google-play-service-account.json",

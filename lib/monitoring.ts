@@ -77,20 +77,7 @@ export function initMonitoring(): void {
       dsn,
       release: `locshift-mobile@${getAppVersion()}`,
       environment: __DEV__ ? 'development' : 'production',
-      // Performance traces are opt-in and noisy by default. Start at
-      // 10% sample so the client doesn't get billed for chatter; tune
-      // once we know what the real volume looks like.
       tracesSampleRate: __DEV__ ? 0 : 0.1,
-      // Avoid sending breadcrumbs for every console.log — too noisy.
-      enableAutoSessionTracking: true,
-      // Never ship the raw error message verbatim if it contains PII.
-      // The `beforeSend` hook lets us scrub. For now we just pass through
-      // — wire in scrubbing if the privacy review flags anything.
-      beforeSend: (event: any) => event,
-      // Don't initialise in Expo Go — the native pieces aren't linked
-      // there so errors fall back to the JS layer anyway, and the SDK
-      // logs warnings every render. `enableNative` defaults to true on
-      // standalone builds.
       enableNative: !__DEV__,
     })
     _initialized = true

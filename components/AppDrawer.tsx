@@ -212,7 +212,7 @@ export function AppDrawer() {
         >
           <View>
             <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 22, letterSpacing: -0.5 }}>
-              Lokshift
+              LokShift
             </Text>
             <Text style={{ color: '#94A3B8', fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 2, marginTop: 2 }}>
               {L('Einsatzzentrale', 'Operations Center')}

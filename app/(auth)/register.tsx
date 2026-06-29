@@ -109,7 +109,7 @@ export default function RegisterScreen() {
       } catch (e) {
         console.warn('[Register] profile update failed (non-fatal):', e)
       }
-      toast.success(L('Willkommen bei Lokshift!', 'Welcome to Lokshift!'))
+      toast.success(L('Willkommen bei LokShift!', 'Welcome to LokShift!'))
     } catch (err: any) {
       toast.error(err?.message || L('Einrichtung fehlgeschlagen.', 'Setup failed.'))
     } finally { setLoading(false) }

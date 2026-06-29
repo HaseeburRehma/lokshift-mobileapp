@@ -10,10 +10,18 @@ import {
   Platform,
   Pressable,
   Keyboard,
+  View,
+  useWindowDimensions,
   type ViewStyle,
   type StyleProp,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+
+// Phone-width cap. On iPad / Mac Catalyst / iOS-on-Mac the window can be
+// 1024+px wide; content rendered full-width looks stretched and hard to scan.
+// Capping at ~540px keeps a phone-style reading column on wide displays and
+// is a no-op on real phones.
+const PHONE_MAX_WIDTH = 540
 
 interface ScreenProps {
   children: React.ReactNode
@@ -33,19 +41,25 @@ export function Screen({
   noTapToDismiss,
   style,
 }: ScreenProps) {
+  const { width } = useWindowDimensions()
+  const isWide = width > PHONE_MAX_WIDTH
+
   const inner = (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       className={`flex-1 ${className}`}
       style={style}
     >
-      {children}
+      {isWide ? (
+        <View style={{ flex: 1, width: PHONE_MAX_WIDTH, alignSelf: 'center' }}>
+          {children}
+        </View>
+      ) : (
+        children
+      )}
     </KeyboardAvoidingView>
   )
 
-  // Only apply top safe-area when no AppHeader sits above us (auth screens,
-  // change-password, onboarding). The (tabs) layout renders its own header
-  // which already accounts for the inset.
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['left', 'right']}>
       {noTapToDismiss ? inner : (

@@ -2,9 +2,9 @@
  * Supabase client for React Native.
  *
  * Key differences from the webapp client:
- *   1. Session storage lives in expo-secure-store (Keychain on iOS,
- *      Keystore on Android) rather than localStorage. Auth tokens never
- *      touch unencrypted disk.
+ *   1. Session storage uses AsyncStorage (per-app sandbox on iOS/Android,
+ *      localStorage on web). Tokens are NOT in the OS Keychain — see the
+ *      inline comment above SupabaseStorage for the Mac Catalyst reason.
  *   2. URL polyfill is loaded before supabase-js — RN's stock URL is
  *      missing pieces the Supabase auth code expects.
  *   3. detectSessionInUrl is disabled (no browser callback flow).
@@ -15,98 +15,16 @@
 
 import 'react-native-url-polyfill/auto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import * as SecureStore from 'expo-secure-store'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import Constants from 'expo-constants'
-import { Platform } from 'react-native'
 
-// expo-secure-store has a 2KB per-key limit. Supabase auth payloads
-// occasionally exceed that on first sign-in (with all the JWT claims),
-// so we split anything oversized across multiple keys transparently.
-// This is the documented pattern from the supabase-js + Expo guide.
-const CHUNK_SIZE = 1800
-
-// expo-secure-store is native-only — on web it ships a stub whose API
-// doesn't match the iOS/Android version, which crashed the auth bootstrap
-// with "ExpoSecureStore.default.getValueWithKeyAsync is not a function".
-// Branch on Platform.OS so web uses localStorage instead.
-const WebLocalStorageAdapter = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      if (typeof window === 'undefined') return null
-      return window.localStorage.getItem(key)
-    } catch { return null }
-  },
-  setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      if (typeof window === 'undefined') return
-      window.localStorage.setItem(key, value)
-    } catch { /* quota-exceeded etc. — swallow */ }
-  },
-  removeItem: async (key: string): Promise<void> => {
-    try {
-      if (typeof window === 'undefined') return
-      window.localStorage.removeItem(key)
-    } catch { /* swallow */ }
-  },
-}
-
-const ExpoSecureStorageAdapter = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      const head = await SecureStore.getItemAsync(key)
-      if (!head) return null
-      // Non-chunked value — return as-is.
-      if (!head.startsWith('@@chunked:')) return head
-      const count = parseInt(head.slice('@@chunked:'.length), 10)
-      const parts: string[] = []
-      for (let i = 0; i < count; i++) {
-        const part = await SecureStore.getItemAsync(`${key}::${i}`)
-        if (part === null) return null
-        parts.push(part)
-      }
-      return parts.join('')
-    } catch (err) {
-      console.warn('[SupabaseStorage] getItem failed:', err)
-      return null
-    }
-  },
-  setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      if (value.length <= CHUNK_SIZE) {
-        // Clear any prior chunks so we don't strand orphan keys.
-        await ExpoSecureStorageAdapter.removeItem(key)
-        await SecureStore.setItemAsync(key, value)
-        return
-      }
-      const count = Math.ceil(value.length / CHUNK_SIZE)
-      await SecureStore.setItemAsync(key, `@@chunked:${count}`)
-      for (let i = 0; i < count; i++) {
-        await SecureStore.setItemAsync(
-          `${key}::${i}`,
-          value.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
-        )
-      }
-    } catch (err) {
-      console.warn('[SupabaseStorage] setItem failed:', err)
-    }
-  },
-  removeItem: async (key: string): Promise<void> => {
-    try {
-      const head = await SecureStore.getItemAsync(key)
-      if (head?.startsWith('@@chunked:')) {
-        const count = parseInt(head.slice('@@chunked:'.length), 10)
-        for (let i = 0; i < count; i++) {
-          await SecureStore.deleteItemAsync(`${key}::${i}`)
-        }
-      }
-      await SecureStore.deleteItemAsync(key)
-    } catch (err) {
-      console.warn('[SupabaseStorage] removeItem failed:', err)
-    }
-  },
-}
-
-const SupabaseStorage = Platform.OS === 'web' ? WebLocalStorageAdapter : ExpoSecureStorageAdapter
+// Session storage uses AsyncStorage across all platforms — iOS, Android,
+// Mac Catalyst, and web. expo-secure-store would be more "secure" (OS
+// keychain) on native, but it errors with `errSecDuplicateItem` on Mac
+// Catalyst, breaking sign-in for testers running TestFlight builds on
+// Apple Silicon Macs. AsyncStorage works identically everywhere; tokens
+// live in the app sandbox which is already access-controlled per-app.
+const SupabaseStorage = AsyncStorage
 
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl
   ?? process.env.EXPO_PUBLIC_SUPABASE_URL

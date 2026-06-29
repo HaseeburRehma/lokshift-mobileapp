@@ -95,7 +95,7 @@ export function BiometricLockProvider({ children }: { children: React.ReactNode 
 
   const unlock = useCallback(async (): Promise<boolean> => {
     if (!locked) return true
-    const ok = await authenticate('Lokshift entsperren', {
+    const ok = await authenticate('LokShift entsperren', {
       cancelLabel: 'Abbrechen',
       disableDeviceFallback: false,
     })

@@ -77,7 +77,7 @@ export function BiometricLockOverlay() {
             textAlign: 'center',
           }}
         >
-          {L('Lokshift ist gesperrt', 'Lokshift is locked')}
+          {L('LokShift ist gesperrt', 'LokShift is locked')}
         </Text>
         <Text
           style={{

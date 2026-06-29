@@ -22,7 +22,7 @@ const STORAGE_KEY = 'lokshift.locale'
 
 const DICTIONARY: Record<Locale, Record<string, string>> = {
   de: {
-    'auth.welcome':         'Willkommen bei Lokshift',
+    'auth.welcome':         'Willkommen bei LokShift',
     'auth.signin':          'Anmelden',
     'auth.signup':          'Registrieren',
     'auth.login':           'Anmelden',
@@ -68,7 +68,7 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     'onboarding.slide3.title': 'Ihre Schichten — immer aktuell',
     'onboarding.slide3.body':  'Tagesplan einsehen, bestätigen und Arbeitszeiten erfassen — von überall.',
     'onboarding.permissions.title': 'Berechtigungen',
-    'onboarding.permissions.body':  'Damit Lokshift funktioniert, benötigen wir einige Berechtigungen.',
+    'onboarding.permissions.body':  'Damit LokShift funktioniert, benötigen wir einige Berechtigungen.',
     'onboarding.permissions.notifications': 'Benachrichtigungen',
     'onboarding.permissions.notifications_body': 'Erhalten Sie Updates zu neuen Schichten.',
     'onboarding.permissions.location': 'Standort',
@@ -130,7 +130,7 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     'common.ok':            'OK',
   },
   en: {
-    'auth.welcome':         'Welcome to Lokshift',
+    'auth.welcome':         'Welcome to LokShift',
     'auth.signin':          'Sign in',
     'auth.signup':          'Sign up',
     'auth.login':           'Log in',
@@ -176,7 +176,7 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     'onboarding.slide3.title': 'Your shifts, always up to date',
     'onboarding.slide3.body':  'View your Tagesplan, confirm assignments, log times from anywhere.',
     'onboarding.permissions.title': 'Permissions',
-    'onboarding.permissions.body':  'For Lokshift to work, we need a few permissions.',
+    'onboarding.permissions.body':  'For LokShift to work, we need a few permissions.',
     'onboarding.permissions.notifications': 'Notifications',
     'onboarding.permissions.notifications_body': 'Get pinged when new shifts are assigned.',
     'onboarding.permissions.location': 'Location',

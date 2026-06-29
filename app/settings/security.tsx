@@ -388,8 +388,8 @@ export default function SecuritySettingsScreen() {
           </View>
           <Text className="text-[12px] text-gray-500 dark:text-slate-400 mb-4">
             {L(
-              'Aktuell in der Web-App einrichtbar. Sobald aktiviert, fragt Lokshift mobile beim nächsten Login automatisch nach dem Code.',
-              'Currently set up in the web app. Once enabled, Lokshift mobile will ask for the code on the next sign-in automatically.',
+              'Aktuell in der Web-App einrichtbar. Sobald aktiviert, fragt LokShift mobile beim nächsten Login automatisch nach dem Code.',
+              'Currently set up in the web app. Once enabled, LokShift mobile will ask for the code on the next sign-in automatically.',
             )}
           </Text>
           <Pressable

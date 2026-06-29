@@ -79,7 +79,7 @@ async function ensureAndroidChannel() {
   if (Platform.OS !== 'android') return
   try {
     await Notifications.setNotificationChannelAsync('default', {
-      name: 'Lokshift',
+      name: 'LokShift',
       importance: Notifications.AndroidImportance.HIGH,
       sound: 'default',
       lightColor: '#0064E0',
