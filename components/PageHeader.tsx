@@ -40,7 +40,19 @@ export function PageHeader({ title, subtitle, showBack, onBack, rightSlot }: Pag
   return (
     <View style={{ marginBottom: 24 }}>
       {showBack && (
-        <Pressable onPress={goBack} style={{ marginLeft: -8, marginBottom: 8, padding: 8, alignSelf: 'flex-start' }}>
+        <Pressable
+          onPress={goBack}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 24 }}
+          style={{
+            marginLeft: -8,
+            marginBottom: 8,
+            width: 44,
+            height: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+            alignSelf: 'flex-start',
+          }}
+        >
           <ChevronLeft size={26} color="#0064E0" />
         </Pressable>
       )}

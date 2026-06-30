@@ -576,25 +576,27 @@ function ExportChip({
   disabled?: boolean
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={({ pressed }: { pressed: boolean }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        backgroundColor: '#FFFFFF',
-        opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
-      })}
-    >
-      {icon}
-      <Text className="text-[12px] font-black text-gray-700 dark:text-white ml-1.5">
-        {loading ? '…' : label}
-      </Text>
+    <Pressable onPress={onPress} disabled={disabled || loading}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
+          backgroundColor: '#FFFFFF',
+          marginRight: 8,
+          marginBottom: 8,
+          opacity: disabled ? 0.5 : 1,
+        }}
+      >
+        {icon}
+        <Text style={{ fontSize: 12, fontWeight: '900', color: '#374151', marginLeft: 6 }}>
+          {loading ? '…' : label}
+        </Text>
+      </View>
     </Pressable>
   )
 }

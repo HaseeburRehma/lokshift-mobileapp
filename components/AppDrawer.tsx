@@ -286,48 +286,59 @@ export function AppDrawer() {
                   const active = isActive(item.href)
                   const Icon = item.icon
                   return (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => navigate(item.href)}
-                      style={({ pressed }: { pressed: boolean }) => ({
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 12,
-                        height: 44,
-                        marginBottom: 2,
-                        borderRadius: 10,
-                        paddingHorizontal: 14,
-                        backgroundColor: active
-                          ? '#EFF6FF'
-                          : pressed
-                          ? '#F8FAFC'
-                          : 'transparent',
-                      })}
-                    >
-                      <View style={{
-                        width: 32, height: 32, borderRadius: 8,
-                        backgroundColor: active ? '#DBEAFE' : '#F1F5F9',
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Icon size={16} color={active ? '#2563EB' : '#64748B'} strokeWidth={active ? 2.5 : 2} />
+                    <Pressable key={item.id} onPress={() => navigate(item.href)}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          width: '100%',
+                          height: 44,
+                          marginBottom: 2,
+                          borderRadius: 10,
+                          paddingHorizontal: 14,
+                          backgroundColor: active ? '#EFF6FF' : 'transparent',
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            backgroundColor: active ? '#DBEAFE' : '#F1F5F9',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: 12,
+                          }}
+                        >
+                          <Icon size={16} color={active ? '#2563EB' : '#64748B'} strokeWidth={active ? 2.5 : 2} />
+                        </View>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            flex: 1,
+                            fontSize: 13,
+                            fontWeight: active ? '800' : '600',
+                            color: active ? '#1D4ED8' : '#334155',
+                            letterSpacing: -0.1,
+                          }}
+                        >
+                          {L(item.labelDe, item.labelEn)}
+                        </Text>
+                        <View style={{ width: 14, alignItems: 'center', justifyContent: 'center', marginLeft: 8 }}>
+                          {active ? (
+                            <View
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: 999,
+                                backgroundColor: '#2563EB',
+                              }}
+                            />
+                          ) : (
+                            <ChevronRight size={14} color="#CBD5E1" />
+                          )}
+                        </View>
                       </View>
-                      <Text style={{
-                        flex: 1,
-                        fontSize: 13,
-                        fontWeight: active ? '800' : '600',
-                        color: active ? '#1D4ED8' : '#334155',
-                        letterSpacing: -0.1,
-                      }}>
-                        {L(item.labelDe, item.labelEn)}
-                      </Text>
-                      {active ? (
-                        <View style={{
-                          width: 6, height: 6, borderRadius: 999,
-                          backgroundColor: '#2563EB',
-                        }} />
-                      ) : (
-                        <ChevronRight size={14} color="#CBD5E1" />
-                      )}
                     </Pressable>
                   )
                 })}

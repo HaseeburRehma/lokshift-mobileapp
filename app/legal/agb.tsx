@@ -56,7 +56,7 @@ export default function AgbScreen() {
         <Section title="§ 5 Datenverarbeitung">
           Die Datenverarbeitung erfolgt im Rahmen der Datenschutzerklärung sowie eines
           gesonderten Auftragsverarbeitungsvertrags zwischen dem Arbeitgeber und der
-          [PLATZHALTER FIRMA].
+          Rhein Maas Rail GmbH.
         </Section>
 
         <Section title="§ 6 Haftung">
@@ -77,7 +77,7 @@ export default function AgbScreen() {
 
         <Section title="§ 9 Anwendbares Recht">
           Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist
-          [PLATZHALTER GERICHTSSTAND], sofern der Nutzer Kaufmann ist.
+          Aachen, sofern der Nutzer Kaufmann ist.
         </Section>
 
         <View style={{ marginTop: 12 }}>

@@ -35,9 +35,9 @@ export default function DatenschutzScreen() {
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
         <Section title="1. Verantwortlicher">
-          [PLATZHALTER FIRMA]{'\n'}
-          [PLATZHALTER ADRESSE]{'\n'}
-          E-Mail: datenschutz@lokshift.app
+          Rhein Maas Rail GmbH{'\n'}
+          Josefstraße 157, 52080 Aachen{'\n'}
+          E-Mail: lokshiftapp@gmail.com
         </Section>
 
         <Section title="2. Welche Daten wir verarbeiten">
@@ -96,7 +96,8 @@ export default function DatenschutzScreen() {
         </Section>
 
         <Section title="9. Datenschutzbeauftragter">
-          [PLATZHALTER DATENSCHUTZBEAUFTRAGTER NAME, E-MAIL]
+          Ein Datenschutzbeauftragter ist gesetzlich nicht erforderlich.
+          Bei Fragen zum Datenschutz wenden Sie sich an: lokshiftapp@gmail.com
         </Section>
 
         <Section title="10. Beschwerderecht">
@@ -107,7 +108,7 @@ export default function DatenschutzScreen() {
 
         <Section title="11. Änderungen dieser Erklärung">
           Wir behalten uns vor, diese Datenschutzerklärung an geänderte Rechtslagen
-          oder Funktionen anzupassen. Stand: [PLATZHALTER DATUM].
+          oder Funktionen anzupassen. Stand: 30. Juni 2026.
         </Section>
 
         <View style={{ marginTop: 12 }}>

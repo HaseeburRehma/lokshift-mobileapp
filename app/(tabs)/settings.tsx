@@ -225,7 +225,10 @@ export default function SettingsScreen() {
 
   return (
     <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 140 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 140 }}
+      >
         {/* Identity — centered avatar + name + email */}
         <Pressable onPress={() => router.push('/profile')} style={{ alignItems: 'center', marginBottom: 28 }}>
           {profile.avatar_url ? (
@@ -287,26 +290,25 @@ export default function SettingsScreen() {
         <Section title={L('Darstellung', 'Display')} items={display} onRow={openRow} />
 
         {/* Sign out — red, full-width, mirrors the web button */}
-        <Pressable
-          onPress={signOut}
-          style={({ pressed }: { pressed: boolean }) => ({
-            marginTop: 8,
-            backgroundColor: '#FFFFFF',
-            borderRadius: 16,
-            borderWidth: 1.5,
-            borderColor: '#FCA5A5',
-            paddingVertical: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <LogOut size={18} color="#DC2626" />
-          <Text style={{ color: '#DC2626', fontWeight: '900', fontSize: 13, letterSpacing: 1.2 }}>
-            {L('ABMELDEN', 'SIGN OUT')}
-          </Text>
+        <Pressable onPress={signOut}>
+          <View
+            style={{
+              marginTop: 8,
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: '#FCA5A5',
+              paddingVertical: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <LogOut size={18} color="#DC2626" style={{ marginRight: 8 }} />
+            <Text style={{ color: '#DC2626', fontWeight: '900', fontSize: 13, letterSpacing: 1.2 }}>
+              {L('ABMELDEN', 'SIGN OUT')}
+            </Text>
+          </View>
         </Pressable>
 
         <Text className="text-[10px] text-gray-300 dark:text-slate-700 text-center mt-6 font-mono">
@@ -337,45 +339,83 @@ function Section({
           const Icon = r.icon
           const isLast = i === items.length - 1
           return (
-            <Pressable
-              key={r.key}
-              onPress={() => onRow(r)}
-              style={({ pressed }: { pressed: boolean }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderBottomWidth: isLast ? 0 : 1,
-                borderBottomColor: '#F1F5F9',
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <Icon size={18} color="#0064E0" />
-              <Text
-                className="text-[14px] font-bold text-gray-900 dark:text-white ml-3 flex-1"
-                numberOfLines={1}
+            <Pressable key={r.key} onPress={() => onRow(r)}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  width: '100%',
+                  minHeight: 52,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderBottomWidth: isLast ? 0 : 1,
+                  borderBottomColor: '#F1F5F9',
+                }}
               >
-                {r.label}
-              </Text>
-              {r.toggle !== undefined && r.onToggle ? (
-                <Switch
-                  value={r.toggle}
-                  onValueChange={r.onToggle}
-                  trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
-                />
-              ) : r.value ? (
                 <View
-                  className="px-2 py-0.5 rounded-full"
-                  style={{ backgroundColor: '#EFF6FF', marginRight: 6 }}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
                 >
-                  <Text className="text-[10px] font-black tracking-widest text-brand">
-                    {r.value}
+                  <Icon size={18} color="#0064E0" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '700',
+                      color: '#0F172A',
+                    }}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {r.label}
                   </Text>
                 </View>
-              ) : null}
-              {r.toggle === undefined && (
-                <ChevronRight size={16} color="#CBD5E1" />
-              )}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginLeft: 8,
+                  }}
+                >
+                  {r.toggle !== undefined && r.onToggle ? (
+                    <Switch
+                      value={r.toggle}
+                      onValueChange={r.onToggle}
+                      trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
+                    />
+                  ) : r.value ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: 999,
+                        backgroundColor: '#EFF6FF',
+                        marginRight: 6,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '900',
+                          letterSpacing: 1,
+                          color: '#0064E0',
+                        }}
+                      >
+                        {r.value}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {r.toggle === undefined && (
+                    <ChevronRight size={16} color="#CBD5E1" />
+                  )}
+                </View>
+              </View>
             </Pressable>
           )
         })}

@@ -270,45 +270,49 @@ export default function TimesScreen() {
           </Text>
 
           {/* Export + add row */}
-          <View className="flex-row flex-wrap gap-2 mb-3">
-            <Pressable
-              onPress={onExportPdf}
-              disabled={exporting}
-              style={({ pressed }: { pressed: boolean }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: '#E5E7EB',
-                backgroundColor: '#FFFFFF',
-                opacity: exporting ? 0.6 : pressed ? 0.85 : 1,
-              })}
-            >
-              <Download size={14} color="#0064E0" />
-              <Text className="text-[12px] font-black text-gray-700 dark:text-white ml-1.5">
-                {exporting ? '…' : L('PDF exportieren', 'Export PDF')}
-              </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
+            <Pressable onPress={onExportPdf} disabled={exporting}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: '#E5E7EB',
+                  backgroundColor: '#FFFFFF',
+                  marginRight: 8,
+                  marginBottom: 8,
+                  opacity: exporting ? 0.6 : 1,
+                }}
+              >
+                <Download size={14} color="#0064E0" />
+                <Text style={{ fontSize: 12, fontWeight: '900', color: '#374151', marginLeft: 6 }}>
+                  {exporting ? '…' : L('PDF exportieren', 'Export PDF')}
+                </Text>
+              </View>
             </Pressable>
-            <Pressable
-              onPress={onStundenzettel}
-              style={({ pressed }: { pressed: boolean }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: '#E5E7EB',
-                backgroundColor: '#FFFFFF',
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <FileText size={14} color="#0064E0" />
-              <Text className="text-[12px] font-black text-gray-700 dark:text-white ml-1.5">
-                {L('Stundenzettel', 'Stundenzettel')}
-              </Text>
+            <Pressable onPress={onStundenzettel}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: '#E5E7EB',
+                  backgroundColor: '#FFFFFF',
+                  marginRight: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <FileText size={14} color="#0064E0" />
+                <Text style={{ fontSize: 12, fontWeight: '900', color: '#374151', marginLeft: 6 }}>
+                  {L('Stundenzettel', 'Stundenzettel')}
+                </Text>
+              </View>
             </Pressable>
             <Pressable
               onPress={() => { setEditing(null); setSheetOpen(true) }}

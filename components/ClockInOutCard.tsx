@@ -193,34 +193,38 @@ export function ClockInOutCard() {
         </View>
       )}
 
-      <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+      <View style={{ flexDirection: 'row', marginTop: 14 }}>
         {!isActive ? (
           <Pressable
             onPress={onStart}
             disabled={busy}
-            style={({ pressed }: { pressed: boolean }) => ({
-              flex: 1,
-              height: 44,
-              borderRadius: 12,
-              backgroundColor: '#2563EB',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'row',
-              opacity: pressed || busy ? 0.7 : 1,
-            })}
+            style={{ flex: 1 }}
           >
-            <Play size={14} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text
+            <View
               style={{
-                color: '#FFFFFF',
-                fontSize: 10,
-                fontWeight: '900',
-                letterSpacing: 1.6,
-                textTransform: 'uppercase',
+                flex: 1,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: '#2563EB',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                opacity: busy ? 0.7 : 1,
               }}
             >
-              {busy ? L('Wird gestartet…', 'Starting…') : L('Schicht starten', 'Begin shift')}
-            </Text>
+              <Play size={14} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 8 }} />
+              <Text
+                style={{
+                  color: '#FFFFFF',
+                  fontSize: 10,
+                  fontWeight: '900',
+                  letterSpacing: 1.6,
+                  textTransform: 'uppercase',
+                }}
+              >
+                {busy ? L('Wird gestartet…', 'Starting…') : L('Schicht starten', 'Begin shift')}
+              </Text>
+            </View>
           </Pressable>
         ) : (
           <>
@@ -236,6 +240,7 @@ export function ClockInOutCard() {
                 justifyContent: 'center',
                 flexDirection: 'row',
                 opacity: pressed ? 0.85 : 1,
+                marginRight: 10,
               })}
             >
               {isOnBreak ? (

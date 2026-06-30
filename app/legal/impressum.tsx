@@ -40,11 +40,11 @@ export default function ImpressumScreen() {
             {L('Anbieter', 'Provider')}
           </Text>
           <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-            [PLATZHALTER FIRMA]
+            Rhein Maas Rail GmbH
           </Text>
           <Text className="text-[13px] text-gray-600 dark:text-slate-400 mt-1">
-            [PLATZHALTER STRASSE HAUSNUMMER]{'\n'}
-            [PLATZHALTER PLZ ORT]{'\n'}
+            Josefstraße 157{'\n'}
+            52080 Aachen{'\n'}
             Deutschland
           </Text>
         </Card>
@@ -53,8 +53,7 @@ export default function ImpressumScreen() {
           <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">
             {L('Kontakt', 'Contact')}
           </Text>
-          <Row label="E-Mail" value="kontakt@lokshift.app" link="mailto:kontakt@lokshift.app" />
-          <Row label="Telefon" value="[PLATZHALTER TELEFON]" />
+          <Row label="E-Mail" value="lokshiftapp@gmail.com" link="mailto:lokshiftapp@gmail.com" />
           <Row label="Web" value="https://lokshift.app" link="https://lokshift.app" />
         </Card>
 
@@ -62,11 +61,11 @@ export default function ImpressumScreen() {
           <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">
             {L('Registereintrag', 'Registry')}
           </Text>
-          <Row label={L('Handelsregister', 'Trade register')} value="[PLATZHALTER HRB]" />
-          <Row label={L('Registergericht', 'Court')} value="[PLATZHALTER AMTSGERICHT]" />
+          <Row label={L('Handelsregister', 'Trade register')} value="HRB 28426" />
+          <Row label={L('Registergericht', 'Court')} value="Amtsgericht Aachen" />
           <Row
             label={L('Vertretungsberechtigt', 'Authorised representatives')}
-            value="[PLATZHALTER GESCHÄFTSFÜHRER]"
+            value="Ali Adem Altay"
           />
         </Card>
 
@@ -76,7 +75,7 @@ export default function ImpressumScreen() {
           </Text>
           <Row
             label={L('Umsatzsteuer-ID', 'VAT ID')}
-            value="DE[PLATZHALTER]"
+            value="DE451905461"
           />
         </Card>
 
@@ -85,7 +84,7 @@ export default function ImpressumScreen() {
             {L('Inhaltlich verantwortlich gem. § 18 Abs. 2 MStV', 'Editorially responsible per § 18 (2) MStV')}
           </Text>
           <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-            [PLATZHALTER NAME], [PLATZHALTER ADRESSE]
+            Ali Adem Altay, Josefstraße 157, 52080 Aachen
           </Text>
         </Card>
 

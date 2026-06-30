@@ -118,17 +118,34 @@ export default function RegisterScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 16 }}>
       {/* Top bar — back chip + cancel */}
-      <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 16, height: 48 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, height: 56 }}>
         <Pressable
           onPress={() => (step > 1 ? setStep((step - 1) as 1 | 2 | 3) : goBack())}
-          style={{ width: 40, height: 40, borderRadius: 999, backgroundColor: 'rgba(239,246,255,0.6)', alignItems: 'center', justifyContent: 'center' }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={({ pressed }) => ({
+            width: 44,
+            height: 44,
+            borderRadius: 999,
+            backgroundColor: 'rgba(239,246,255,0.6)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: pressed ? 0.6 : 1,
+          })}
           accessibilityLabel={L('Zurück', 'Back')}
         >
           <ChevronLeft size={22} color="#0064E0" />
         </Pressable>
         <Pressable
           onPress={() => router.replace('/(auth)/login')}
-          style={{ paddingHorizontal: 16, paddingVertical: 8 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: pressed ? 0.6 : 1,
+          })}
         >
           <Text style={{ color: '#0064E0', fontSize: 15, fontWeight: '600' }}>
             {L('Abbrechen', 'Cancel')}
