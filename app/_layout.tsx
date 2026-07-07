@@ -85,9 +85,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return
     const first = segments[0]
+    const last = segments[segments.length - 1]
     const inAuthGroup = first === '(auth)'
     const onPasswordChange = first === 'change-password'
     const onOnboarding = first === 'onboarding'
+    // Screens where the user MUST stay even after verifyOtp creates a
+    // session — recovery + signup finish setting a password inline, and
+    // an eager redirect to /home would strand them without a real password.
+    const onPasswordFlow = last === 'forgot-password' || last === 'register'
 
     if (!session) {
       // Unauthenticated — only the (auth) group is allowed. Defence-in-
@@ -119,7 +124,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
-    if (!mustChange && !needsOnboarding && (inAuthGroup || onPasswordChange || onOnboarding)) {
+    // Kick authenticated users out of stale auth screens — but NEVER out
+    // of a live password-setting flow (register/forgot-password), because
+    // those screens finish the login handshake with a password.
+    if (!mustChange && !needsOnboarding && !onPasswordFlow && (inAuthGroup || onPasswordChange || onOnboarding)) {
       router.replace('/(tabs)/home')
     }
   }, [

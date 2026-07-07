@@ -61,36 +61,17 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true)
     try {
-      // Try the webapp's dual-delivery endpoint first (sends both magic link
-      // AND 6-digit OTP). If it 404s or times out — e.g. because the app is
-      // hosted on Vercel and getWebappUrl() returned the marketing domain —
-      // fall through to Supabase's built-in resetPasswordForEmail so the
-      // user still gets a working recovery email.
-      let deliveredViaWebapp = false
-      if (webappUrl) {
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 8000)
-          const res = await fetch(`${webappUrl}/api/auth/send-recovery`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, locale }),
-            signal: controller.signal,
-          }).finally(() => clearTimeout(timer))
-          if (res.ok) {
-            deliveredViaWebapp = true
-          } else {
-            console.warn('[forgot-password] webapp endpoint returned', res.status, '— falling back to Supabase')
-          }
-        } catch (e: any) {
-          console.warn('[forgot-password] webapp endpoint failed:', e?.message, '— falling back to Supabase')
-        }
-      }
-
-      if (!deliveredViaWebapp) {
-        const { error } = await getSupabase().auth.resetPasswordForEmail(email)
-        if (error) throw error
-      }
+      // Use Supabase's built-in reset directly. The webapp's custom
+      // /api/auth/send-recovery endpoint is currently broken (returns 200
+      // but silently fails at Resend because of a stale sender domain),
+      // and Supabase's own SMTP is already routed through Resend for the
+      // magic-link emails that work. So we skip the webapp entirely.
+      const redirectTo = webappUrl ? `${webappUrl}/change-password` : undefined
+      const { error } = await getSupabase().auth.resetPasswordForEmail(
+        email,
+        redirectTo ? { redirectTo } : undefined,
+      )
+      if (error) throw error
 
       toast.success(L('Code gesendet', 'Code sent'))
       if (step === 1) setStep(2)
