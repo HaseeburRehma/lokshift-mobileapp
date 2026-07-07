@@ -13,6 +13,7 @@
 
 import React, { useState } from 'react'
 import { View, Text, Pressable, TextInput, ScrollView } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Eye, EyeOff } from 'lucide-react-native'
 
 import { toast } from '@/components/Toast'
@@ -24,6 +25,7 @@ export default function ChangePasswordScreen() {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { refreshProfile } = useUser()
+  const insets = useSafeAreaInsets()
 
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -70,7 +72,7 @@ export default function ChangePasswordScreen() {
       <View pointerEvents="none" style={{ position: 'absolute', top: '-10%', left: '-10%', width: '50%', height: '40%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999 }} />
       <View pointerEvents="none" style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '50%', height: '40%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999 }} />
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 48 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingTop: insets.top + 48, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: 384, alignSelf: 'center' }}>
           {/* Heading */}
           <View style={{ marginBottom: 32 }}>

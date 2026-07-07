@@ -55,6 +55,13 @@ interface UserContextValue {
   isEmployee: boolean
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  /**
+   * Permanently deletes the authenticated user's account.
+   * Calls the `delete_my_account` Supabase RPC (SECURITY DEFINER) that
+   * removes the auth row and cascades related profile/data. On success,
+   * signs the user out locally.
+   */
+  deleteAccount: () => Promise<void>
 }
 
 const UserContext = createContext<UserContextValue | null>(null)
@@ -259,6 +266,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await loadProfileWithCache(session.user.id)
   }, [session?.user?.id, loadProfileWithCache])
 
+  const deleteAccount = useCallback(async () => {
+    // Server-side deletion. The RPC must exist as SECURITY DEFINER on the
+    // Supabase side because auth.users can only be mutated by service-role
+    // or by a function that owns that privilege. On success, sign out
+    // locally so all cached state is dropped.
+    const { error } = await supabase.rpc('delete_my_account')
+    if (error) throw error
+    await signOut()
+  }, [supabase, signOut])
+
   // "Ready" = session check finished AND (no session OR profile is valid).
   // Only when this is true should the AuthGuard route into authed tabs.
   const ready = !loading && (!session || profileValidated)
@@ -275,7 +292,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     isEmployee: role === 'employee',
     signOut,
     refreshProfile,
-  }), [loading, profileLoading, ready, session, profile, role, signOut, refreshProfile])
+    deleteAccount,
+  }), [loading, profileLoading, ready, session, profile, role, signOut, refreshProfile, deleteAccount])
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>
 }

@@ -168,11 +168,12 @@ export default function ChatScreen() {
                         />
                       )}
                     </View>
-                    <View className="flex-1">
+                    <View className="flex-1" style={{ minWidth: 0 }}>
                       <View className="flex-row items-center justify-between">
                         <Text
                           className="text-[14px] font-black text-gray-900 dark:text-white flex-1"
                           numberOfLines={1}
+                          style={{ minWidth: 0 }}
                         >
                           {name}
                         </Text>
@@ -182,7 +183,7 @@ export default function ChatScreen() {
                         <Text
                           className="text-[12px] text-gray-500 dark:text-slate-400 flex-1"
                           numberOfLines={1}
-                          style={{ fontWeight: unread > 0 ? '700' : '400' }}
+                          style={{ fontWeight: unread > 0 ? '700' : '400', minWidth: 0 }}
                         >
                           {preview}
                         </Text>

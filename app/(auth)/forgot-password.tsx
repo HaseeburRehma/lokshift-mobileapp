@@ -24,6 +24,7 @@
 
 import React, { useState } from 'react'
 import { View, Text, Image, Pressable, ScrollView, TextInput, Modal } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { ChevronLeft, ChevronRight, Mail, Eye, EyeOff, CheckCircle2 } from 'lucide-react-native'
 import Constants from 'expo-constants'
@@ -40,6 +41,7 @@ export default function ForgotPasswordScreen() {
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const router = useRouter()
   const goBack = useSafeBack('/(auth)/login')
+  const insets = useSafeAreaInsets()
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [email, setEmail] = useState('')
@@ -59,20 +61,37 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true)
     try {
-      if (!webappUrl) {
-        const { error } = await getSupabase().auth.resetPasswordForEmail(email)
-        if (error) throw error
-      } else {
-        const res = await fetch(`${webappUrl}/api/auth/send-recovery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, locale }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(data.error || 'Failed to send recovery email')
+      // Try the webapp's dual-delivery endpoint first (sends both magic link
+      // AND 6-digit OTP). If it 404s or times out — e.g. because the app is
+      // hosted on Vercel and getWebappUrl() returned the marketing domain —
+      // fall through to Supabase's built-in resetPasswordForEmail so the
+      // user still gets a working recovery email.
+      let deliveredViaWebapp = false
+      if (webappUrl) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 8000)
+          const res = await fetch(`${webappUrl}/api/auth/send-recovery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, locale }),
+            signal: controller.signal,
+          }).finally(() => clearTimeout(timer))
+          if (res.ok) {
+            deliveredViaWebapp = true
+          } else {
+            console.warn('[forgot-password] webapp endpoint returned', res.status, '— falling back to Supabase')
+          }
+        } catch (e: any) {
+          console.warn('[forgot-password] webapp endpoint failed:', e?.message, '— falling back to Supabase')
         }
       }
+
+      if (!deliveredViaWebapp) {
+        const { error } = await getSupabase().auth.resetPasswordForEmail(email)
+        if (error) throw error
+      }
+
       toast.success(L('Code gesendet', 'Code sent'))
       if (step === 1) setStep(2)
     } catch (err: any) {
@@ -134,7 +153,7 @@ export default function ForgotPasswordScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       {/* Top bar */}
-      <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 8, paddingTop: 16, paddingBottom: 24 }}>
+      <View className="flex-row items-center justify-between" style={{ paddingHorizontal: 8, paddingTop: insets.top + 8, paddingBottom: 24 }}>
         <Pressable
           onPress={() => (step > 1 && step < 4 ? setStep((step - 1) as 1 | 2 | 3) : goBack())}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}

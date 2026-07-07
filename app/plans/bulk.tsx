@@ -202,33 +202,37 @@ export default function BulkPlansScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
-        <Pressable
-          onPress={() => router.push('/plans/csv-import')}
-          style={({ pressed }: { pressed: boolean }) => ({
-            flexDirection: 'row', alignItems: 'center',
-            backgroundColor: '#EFF6FF', borderRadius: 12,
-            paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12,
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
+        <Pressable onPress={() => router.push('/plans/csv-import')}>
           <View
             style={{
-              width: 36, height: 36, borderRadius: 10, backgroundColor: '#0064E0',
-              alignItems: 'center', justifyContent: 'center', marginRight: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#EFF6FF',
+              borderRadius: 12,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              marginBottom: 12,
             }}
           >
-            <FileUp size={18} color="#FFFFFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text className="text-[13px] font-black text-gray-900 dark:text-white">
-              {L('CSV importieren', 'Import from CSV')}
-            </Text>
-            <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-              {L(
-                'Eine Datei für viele Schichten gleichzeitig.',
-                'One file for many shifts at once.',
-              )}
-            </Text>
+            <View
+              style={{
+                width: 36, height: 36, borderRadius: 10, backgroundColor: '#0064E0',
+                alignItems: 'center', justifyContent: 'center', marginRight: 10,
+              }}
+            >
+              <FileUp size={18} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text className="text-[13px] font-black text-gray-900 dark:text-white">
+                {L('CSV importieren', 'Import from CSV')}
+              </Text>
+              <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+                {L(
+                  'Eine Datei für viele Schichten gleichzeitig.',
+                  'One file for many shifts at once.',
+                )}
+              </Text>
+            </View>
           </View>
         </Pressable>
 

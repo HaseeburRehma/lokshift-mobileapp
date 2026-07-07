@@ -23,6 +23,8 @@ import * as Location from 'expo-location'
 import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
+import { safeParseISO } from '@/lib/safe-format'
+import { toast } from '@/components/Toast'
 import {
   startTrackingIfEnabled,
   stopTracking,
@@ -146,7 +148,13 @@ export function useTimeTracking() {
       setBreakSeconds(0)
       return
     }
-    const startMs = new Date(activeEntry.start_time).getTime()
+    const startDate = safeParseISO(activeEntry.start_time)
+    if (!startDate) {
+      setElapsedSeconds(0)
+      setBreakSeconds(0)
+      return
+    }
+    const startMs = startDate.getTime()
     const accumBreak = activeEntry.total_break_seconds ?? 0
 
     tickerRef.current = setInterval(() => {
@@ -154,9 +162,10 @@ export function useTimeTracking() {
       const total = Math.floor((now - startMs) / 1000)
       let currentBreak = 0
       if (activeEntry.is_on_break && activeEntry.current_break_start) {
-        currentBreak = Math.floor(
-          (now - new Date(activeEntry.current_break_start).getTime()) / 1000,
-        )
+        const breakStart = safeParseISO(activeEntry.current_break_start)
+        if (breakStart) {
+          currentBreak = Math.floor((now - breakStart.getTime()) / 1000)
+        }
       }
       setElapsedSeconds(Math.max(0, total - (accumBreak + currentBreak)))
       setBreakSeconds(accumBreak + currentBreak)
@@ -237,21 +246,26 @@ export function useTimeTracking() {
   const startBreak = useCallback(async () => {
     if (!activeEntry || activeEntry.is_on_break) return
     const now = new Date().toISOString()
-    await supabase
+    const { error } = await supabase
       .from('time_entries')
       .update({ is_on_break: true, current_break_start: now } as any)
       .eq('id', activeEntry.id)
+    if (error) {
+      console.warn('[useTimeTracking] startBreak failed:', error.message)
+      toast.error('Pause konnte nicht gestartet werden')
+      return
+    }
     setActiveEntry({ ...activeEntry, is_on_break: true, current_break_start: now })
   }, [supabase, activeEntry])
 
   const endBreak = useCallback(async () => {
     if (!activeEntry || !activeEntry.is_on_break || !activeEntry.current_break_start) return
+    const breakStart = safeParseISO(activeEntry.current_break_start)
+    if (!breakStart) return
     const now = new Date()
-    const extraBreak = Math.floor(
-      (now.getTime() - new Date(activeEntry.current_break_start).getTime()) / 1000,
-    )
+    const extraBreak = Math.floor((now.getTime() - breakStart.getTime()) / 1000)
     const newTotal = (activeEntry.total_break_seconds ?? 0) + extraBreak
-    await supabase
+    const { error } = await supabase
       .from('time_entries')
       .update({
         is_on_break: false,
@@ -259,6 +273,11 @@ export function useTimeTracking() {
         total_break_seconds: newTotal,
       } as any)
       .eq('id', activeEntry.id)
+    if (error) {
+      console.warn('[useTimeTracking] endBreak failed:', error.message)
+      toast.error('Pause konnte nicht beendet werden')
+      return
+    }
     setActiveEntry({
       ...activeEntry,
       is_on_break: false,
@@ -273,13 +292,17 @@ export function useTimeTracking() {
       const now = new Date()
       let totalBreak = activeEntry.total_break_seconds ?? 0
       if (activeEntry.is_on_break && activeEntry.current_break_start) {
-        totalBreak += Math.floor(
-          (now.getTime() - new Date(activeEntry.current_break_start).getTime()) / 1000,
-        )
+        const breakStart = safeParseISO(activeEntry.current_break_start)
+        if (breakStart) {
+          totalBreak += Math.floor((now.getTime() - breakStart.getTime()) / 1000)
+        }
       }
-      const grossSeconds = Math.floor(
-        (now.getTime() - new Date(activeEntry.start_time).getTime()) / 1000,
-      )
+      const startDate = safeParseISO(activeEntry.start_time)
+      if (!startDate) {
+        console.warn('[useTimeTracking] clockOut: invalid start_time')
+        return false
+      }
+      const grossSeconds = Math.floor((now.getTime() - startDate.getTime()) / 1000)
       const netHours = Math.max(0, (grossSeconds - totalBreak) / 3600)
       const breakMinutes = Math.round(totalBreak / 60)
 

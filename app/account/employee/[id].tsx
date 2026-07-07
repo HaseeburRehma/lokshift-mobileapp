@@ -89,22 +89,23 @@ export default function EmployeeOverviewScreen() {
       >
         <Pressable
           onPress={goBack}
-          style={({ pressed }: { pressed: boolean }) => ({
-            position: 'absolute',
-            left: 16,
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: '#E5E7EB',
-            backgroundColor: '#FFFFFF',
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: pressed ? 0.8 : 1,
-          })}
+          style={{ position: 'absolute', left: 16 }}
           accessibilityLabel={L('Zurück', 'Back')}
         >
-          <ChevronLeft size={16} color="#2563EB" />
+          <View
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: '#E5E7EB',
+              backgroundColor: '#FFFFFF',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <ChevronLeft size={16} color="#2563EB" />
+          </View>
         </Pressable>
         <Text className="text-[15px] font-bold text-gray-900 dark:text-white tracking-tight" numberOfLines={1}>
           {displayName}

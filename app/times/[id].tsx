@@ -176,19 +176,19 @@ export default function TimeDetailScreen() {
         {/* Navigation Header */}
         <View className="px-6 pt-4 pb-2 flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <Pressable
-              onPress={goBack}
-              style={({ pressed }: { pressed: boolean }) => ({
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: pressed ? '#F3F4F6' : 'transparent',
-              })}
-              accessibilityLabel={L('Zurück', 'Back')}
-            >
-              <ChevronLeft size={24} color="#111827" />
+            <Pressable onPress={goBack} accessibilityLabel={L('Zurück', 'Back')}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'transparent',
+                }}
+              >
+                <ChevronLeft size={24} color="#111827" />
+              </View>
             </Pressable>
             <Text
               className="text-gray-900 dark:text-white ml-2"
@@ -206,20 +206,19 @@ export default function TimeDetailScreen() {
             </Text>
           </View>
           {canEdit && (
-            <Pressable
-              onPress={() => setSheetOpen(true)}
-              style={({ pressed }: { pressed: boolean }) => ({
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#EFF6FF',
-                opacity: pressed ? 0.85 : 1,
-              })}
-              accessibilityLabel={L('Bearbeiten', 'Edit')}
-            >
-              <Edit2 size={18} color="#0064E0" />
+            <Pressable onPress={() => setSheetOpen(true)} accessibilityLabel={L('Bearbeiten', 'Edit')}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#EFF6FF',
+                }}
+              >
+                <Edit2 size={18} color="#0064E0" />
+              </View>
             </Pressable>
           )}
         </View>
@@ -375,34 +374,37 @@ export default function TimeDetailScreen() {
             <Pressable
               onPress={onVerify}
               disabled={verifying}
-              style={({ pressed }: { pressed: boolean }) => ({
-                height: 60,
-                borderRadius: 24,
-                backgroundColor: '#059669',
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: '#10B981',
-                shadowOpacity: 0.25,
-                shadowRadius: 18,
-                shadowOffset: { width: 0, height: 10 },
-                elevation: 6,
-                opacity: verifying ? 0.7 : pressed ? 0.9 : 1,
-              })}
               accessibilityLabel={L('Eintrag genehmigen', 'Verify entry')}
             >
-              <Text
+              <View
                 style={{
-                  color: '#FFFFFF',
-                  fontSize: 12,
-                  fontWeight: '900',
-                  letterSpacing: 2,
-                  textTransform: 'uppercase',
+                  height: 60,
+                  borderRadius: 24,
+                  backgroundColor: '#059669',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#10B981',
+                  shadowOpacity: 0.25,
+                  shadowRadius: 18,
+                  shadowOffset: { width: 0, height: 10 },
+                  elevation: 6,
+                  opacity: verifying ? 0.7 : 1,
                 }}
               >
-                {verifying
-                  ? L('Wird genehmigt…', 'Verifying…')
-                  : L('Diesen Eintrag genehmigen', 'Verify this entry')}
-              </Text>
+                <Text
+                  style={{
+                    color: '#FFFFFF',
+                    fontSize: 12,
+                    fontWeight: '900',
+                    letterSpacing: 2,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {verifying
+                    ? L('Wird genehmigt…', 'Verifying…')
+                    : L('Diesen Eintrag genehmigen', 'Verify this entry')}
+                </Text>
+              </View>
             </Pressable>
           </View>
         )}
@@ -410,17 +412,12 @@ export default function TimeDetailScreen() {
         {/* Delete affordance (admin only) */}
         {canVerify && (
           <View className="px-6 mt-3">
-            <Pressable
-              onPress={onDelete}
-              style={({ pressed }: { pressed: boolean }) => ({
-                paddingVertical: 14,
-                alignItems: 'center',
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <Text className="text-[12px] font-black uppercase tracking-widest text-red-500">
-                {L('Eintrag löschen', 'Delete entry')}
-              </Text>
+            <Pressable onPress={onDelete}>
+              <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                <Text className="text-[12px] font-black uppercase tracking-widest text-red-500">
+                  {L('Eintrag löschen', 'Delete entry')}
+                </Text>
+              </View>
             </Pressable>
           </View>
         )}

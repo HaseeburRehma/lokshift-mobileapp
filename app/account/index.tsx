@@ -176,25 +176,25 @@ function PersonnelView() {
               returnKeyType="search"
             />
           </View>
-          <Pressable
-            onPress={onExportPdf}
-            disabled={exporting}
-            style={({ pressed }: { pressed: boolean }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 14,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: '#E5E7EB',
-              backgroundColor: '#FFFFFF',
-              height: 44,
-              opacity: exporting ? 0.6 : pressed ? 0.85 : 1,
-            })}
-          >
-            <Download size={14} color="#0064E0" />
-            <Text className="text-[12px] font-black text-gray-700 dark:text-white ml-1.5">
-              {exporting ? '…' : 'PDF'}
-            </Text>
+          <Pressable onPress={onExportPdf} disabled={exporting}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 14,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                backgroundColor: '#FFFFFF',
+                height: 44,
+                opacity: exporting ? 0.6 : 1,
+              }}
+            >
+              <Download size={14} color="#0064E0" />
+              <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: '900', color: '#374151' }}>
+                {exporting ? '…' : 'PDF'}
+              </Text>
+            </View>
           </Pressable>
         </View>
 
@@ -541,22 +541,23 @@ function EmployeeMonthlyPanel({
         </View>
         <Pressable
           onPress={onViewFull}
-          style={({ pressed }: { pressed: boolean }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 10,
-            paddingVertical: 6,
-            borderRadius: 10,
-            backgroundColor: '#EFF6FF',
-            opacity: pressed ? 0.85 : 1,
-            flexShrink: 0,
-            marginLeft: 8,
-          })}
+          style={{ flexShrink: 0, marginLeft: 8 }}
         >
-          <Text className="text-[11px] font-black text-blue-600 mr-1">
-            {L('Details', 'View')}
-          </Text>
-          <ArrowRight size={12} color="#2563EB" />
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 10,
+              backgroundColor: '#EFF6FF',
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '900', color: '#2563EB', marginRight: 4 }}>
+              {L('Details', 'View')}
+            </Text>
+            <ArrowRight size={12} color="#2563EB" />
+          </View>
         </Pressable>
       </View>
 
@@ -581,68 +582,70 @@ function EmployeeMonthlyPanel({
             <Pressable
               key={month.key}
               onPress={() => router.push(`/account/${month.key}?employeeId=${employeeId}` as any)}
-              style={({ pressed }: { pressed: boolean }) => ({
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderTopWidth: 1,
-                borderColor: '#F1F5F9',
-                flexDirection: 'row',
-                alignItems: 'center',
-                opacity: pressed ? 0.7 : 1,
-              })}
             >
-              <View className="flex-1" style={{ minWidth: 0 }}>
-                <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
-                  {month.label}
-                </Text>
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderTopWidth: 1,
+                  borderColor: '#F1F5F9',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
+                    {month.label}
+                  </Text>
+                  <Text
+                    className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
+                    numberOfLines={1}
+                  >
+                    {month.workingDays} {L('Tage', 'days')} · {safeNumber(month.actualHours, 1)}
+                    {hr} {L('tatsächlich', 'actual')}
+                  </Text>
+                </View>
                 <Text
-                  className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
+                  style={{
+                    fontSize: 14,
+                    fontWeight: '800',
+                    color: positive ? '#10B981' : '#EF4444',
+                    flexShrink: 0,
+                    marginLeft: 8,
+                  }}
                   numberOfLines={1}
                 >
-                  {month.workingDays} {L('Tage', 'days')} · {safeNumber(month.actualHours, 1)}
-                  {hr} {L('tatsächlich', 'actual')}
+                  {positive ? '+' : ''}
+                  {safeNumber(month.difference, 1)}
+                  {hr}
                 </Text>
               </View>
-              <Text
-                style={{
-                  fontSize: 14,
-                  fontWeight: '800',
-                  color: positive ? '#10B981' : '#EF4444',
-                  flexShrink: 0,
-                  marginLeft: 8,
-                }}
-                numberOfLines={1}
-              >
-                {positive ? '+' : ''}
-                {safeNumber(month.difference, 1)}
-                {hr}
-              </Text>
             </Pressable>
           )
         })
       )}
 
       {hasMore && (
-        <Pressable
-          onPress={onViewFull}
-          style={({ pressed }: { pressed: boolean }) => ({
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            borderTopWidth: 1,
-            borderColor: '#F1F5F9',
-            backgroundColor: '#F8FAFC',
-            flexDirection: 'row',
-            alignItems: 'center',
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text className="text-[12px] font-black text-blue-600">
-            {L(
-              `Alle ${monthlyData.length} Monate anzeigen`,
-              `View all ${monthlyData.length} months`,
-            )}
-          </Text>
-          <ArrowRight size={12} color="#2563EB" style={{ marginLeft: 6 }} />
+        <Pressable onPress={onViewFull}>
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderTopWidth: 1,
+              borderColor: '#F1F5F9',
+              backgroundColor: '#F8FAFC',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '900', color: '#2563EB' }}>
+              {L(
+                `Alle ${monthlyData.length} Monate anzeigen`,
+                `View all ${monthlyData.length} months`,
+              )}
+            </Text>
+            <ArrowRight size={12} color="#2563EB" style={{ marginLeft: 6 }} />
+          </View>
         </Pressable>
       )}
     </View>
@@ -818,46 +821,46 @@ function FilterChip({
   const bgSelected = variant === 'all' ? '#0F172A' : '#0064E0'
   const borderSelected = variant === 'all' ? '#0F172A' : '#0064E0'
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: selected ? borderSelected : '#E5E7EB',
-        backgroundColor: selected ? bgSelected : '#FFFFFF',
-        opacity: pressed ? 0.85 : 1,
-        maxWidth: 240,
-      })}
-    >
-      {leadingIcon ? <View style={{ marginRight: 6 }}>{leadingIcon}</View> : null}
-      <Text
+    <Pressable onPress={onPress}>
+      <View
         style={{
-          fontSize: 12,
-          fontWeight: '700',
-          color: selected ? '#FFFFFF' : '#475569',
-          flexShrink: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: selected ? borderSelected : '#E5E7EB',
+          backgroundColor: selected ? bgSelected : '#FFFFFF',
+          maxWidth: 240,
         }}
-        numberOfLines={1}
       >
-        {label}
-      </Text>
-      {value ? (
+        {leadingIcon ? <View style={{ marginRight: 6 }}>{leadingIcon}</View> : null}
         <Text
           style={{
-            fontSize: 11,
-            fontWeight: '800',
-            marginLeft: 6,
-            color: selected ? '#BFDBFE' : positive ? '#10B981' : '#EF4444',
+            fontSize: 12,
+            fontWeight: '700',
+            color: selected ? '#FFFFFF' : '#475569',
+            flexShrink: 1,
           }}
           numberOfLines={1}
         >
-          {value}
+          {label}
         </Text>
-      ) : null}
+        {value ? (
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: '800',
+              marginLeft: 6,
+              color: selected ? '#BFDBFE' : positive ? '#10B981' : '#EF4444',
+            }}
+            numberOfLines={1}
+          >
+            {value}
+          </Text>
+        ) : null}
+      </View>
     </Pressable>
   )
 }

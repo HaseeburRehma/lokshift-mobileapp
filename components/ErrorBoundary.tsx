@@ -100,18 +100,20 @@ export class ErrorBoundary extends React.Component<Props, State> {
         </Text>
         <Pressable
           onPress={this.reset}
-          style={({ pressed }) => ({
-            backgroundColor: '#0064E0',
-            paddingHorizontal: 24,
-            paddingVertical: 14,
-            borderRadius: 16,
-            opacity: pressed ? 0.85 : 1,
-          })}
           accessibilityLabel="Erneut versuchen"
         >
-          <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14 }}>
-            Erneut versuchen
-          </Text>
+          <View
+            style={{
+              backgroundColor: '#0064E0',
+              paddingHorizontal: 24,
+              paddingVertical: 14,
+              borderRadius: 16,
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14 }}>
+              Erneut versuchen
+            </Text>
+          </View>
         </Pressable>
         {__DEV__ && (
           <Text

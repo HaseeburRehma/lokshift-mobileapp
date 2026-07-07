@@ -169,19 +169,22 @@ export default function CalendarScreen() {
             also get a "Plan" pill. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
           {canCreate && (
-            <Pressable
-              onPress={() => router.push('/plans/new')}
-              style={({ pressed }: { pressed: boolean }) => ({
-                backgroundColor: '#0064E0', borderRadius: 999,
-                paddingHorizontal: 16, paddingVertical: 9,
-                flexDirection: 'row', alignItems: 'center', gap: 6,
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <Plus size={14} color="#FFFFFF" />
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
-                {L('Plan', 'Plan')}
-              </Text>
+            <Pressable onPress={() => router.push('/plans/new')}>
+              <View
+                style={{
+                  backgroundColor: '#0064E0',
+                  borderRadius: 999,
+                  paddingHorizontal: 16,
+                  paddingVertical: 9,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <Plus size={14} color="#FFFFFF" />
+                <Text style={{ marginLeft: 6, color: '#FFFFFF', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
+                  {L('Plan', 'Plan')}
+                </Text>
+              </View>
             </Pressable>
           )}
           <Pressable
@@ -190,17 +193,24 @@ export default function CalendarScreen() {
                 `/calendar-events/new?date=${format(selectedDay, 'yyyy-MM-dd')}` as any,
               )
             }
-            style={({ pressed }: { pressed: boolean }) => ({
-              backgroundColor: '#FFFFFF', borderRadius: 999, borderWidth: 1.5, borderColor: '#0064E0',
-              paddingHorizontal: 16, paddingVertical: 9,
-              flexDirection: 'row', alignItems: 'center', gap: 6,
-              opacity: pressed ? 0.85 : 1,
-            })}
           >
-            <CalendarPlus size={14} color="#0064E0" />
-            <Text style={{ color: '#0064E0', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
-              {L('Termin', 'Event')}
-            </Text>
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: '#0064E0',
+                paddingHorizontal: 16,
+                paddingVertical: 9,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <CalendarPlus size={14} color="#0064E0" />
+              <Text style={{ marginLeft: 6, color: '#0064E0', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
+                {L('Termin', 'Event')}
+              </Text>
+            </View>
           </Pressable>
         </View>
 

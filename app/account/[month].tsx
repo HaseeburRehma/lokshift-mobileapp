@@ -188,19 +188,19 @@ export default function MonthlyDetailScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Navigation Header */}
         <View className="px-6 pt-4 pb-2 flex-row items-center">
-          <Pressable
-            onPress={goBack}
-            style={({ pressed }: { pressed: boolean }) => ({
-              width: 44,
-              height: 44,
-              borderRadius: 14,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: pressed ? '#F3F4F6' : 'transparent',
-            })}
-            accessibilityLabel={L('Zurück', 'Back')}
-          >
-            <ChevronLeft size={24} color="#111827" />
+          <Pressable onPress={goBack} accessibilityLabel={L('Zurück', 'Back')}>
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <ChevronLeft size={24} color="#111827" />
+            </View>
           </Pressable>
           <Text
             className="text-gray-900 dark:text-white ml-2"

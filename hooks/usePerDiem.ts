@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
+import { safeNumber, safeParseISO } from '@/lib/safe-format'
 import type { PerDiem, PerDiemStatus } from '@/lib/types'
 
 export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
@@ -44,8 +45,14 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
   const ytdTotal = useMemo(() => {
     const year = new Date().getFullYear()
     return items
-      .filter((p) => new Date(p.created_at).getFullYear() === year && p.status === 'approved')
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+      .filter((p) => {
+        const created = safeParseISO(p.created_at)
+        return created?.getFullYear() === year && p.status === 'approved'
+      })
+      .reduce((s, p) => {
+        const n = Number(p.amount)
+        return s + (Number.isFinite(n) ? n : 0)
+      }, 0)
   }, [items])
 
   const submit = async (payload: Partial<PerDiem>) => {
@@ -85,7 +92,7 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
           status === 'approved' ? '✅ Spesen genehmigt'
           : status === 'rejected' ? '❌ Spesen abgelehnt'
           : '⏳ Spesen aktualisiert',
-        body: `€${perDiem.amount.toFixed(2)} · ${perDiem.country}`,
+        body: `€${safeNumber(perDiem.amount)} · ${perDiem.country}`,
         type: 'per_diem',
         is_read: false,
       } as any)

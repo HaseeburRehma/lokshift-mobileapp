@@ -2,7 +2,7 @@
   "expo": {
     "name": "LokShift",
     "slug": "locshift-mobile",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lokshift",
@@ -40,10 +40,8 @@
         "NSPhotoLibraryAddUsageDescription": "LokShift speichert ausgewählte Stundenzettel-PDFs und Excel-Berichte über das Teilen-Menü auch in Ihrer Mediathek, wenn Sie das wünschen.",
         "NSCameraUsageDescription": "LokShift verwendet die Kamera, um Fotos direkt aus dem Chat aufzunehmen.",
         "NSFaceIDUsageDescription": "LokShift schützt Ihr Konto mit Face ID. Sie können die biometrische Sperre in den Sicherheitseinstellungen deaktivieren.",
-        "NSLocationWhenInUseUsageDescription": "LokShift erfasst Ihren Standort beim Ein-/Ausstempeln und für die Live-Einsatzkarte.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Während einer aktiven Schicht aktualisiert LokShift Ihren Standort regelmäßig im Hintergrund, damit die Disposition Sie auf der Live-Karte sehen kann. Die Standortübertragung wird automatisch beendet, sobald Sie ausstempeln.",
+        "NSLocationWhenInUseUsageDescription": "LokShift erfasst Ihren Standort beim Ein- und Ausstempeln, damit die Zeiterfassung mit dem Einsatzort verknüpft werden kann.",
         "UIBackgroundModes": [
-          "location",
           "fetch",
           "remote-notification"
         ],
@@ -179,9 +177,6 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.WAKE_LOCK",
@@ -224,10 +219,9 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "LokShift erfasst Ihren Standort beim Ein-/Ausstempeln und für die Live-Einsatzkarte.",
-          "locationAlwaysAndWhenInUsePermission": "Während einer aktiven Schicht aktualisiert LokShift Ihren Standort regelmäßig im Hintergrund, damit die Disposition Sie auf der Live-Karte sehen kann.",
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
+          "locationWhenInUsePermission": "LokShift erfasst Ihren Standort beim Ein- und Ausstempeln, damit die Zeiterfassung mit dem Einsatzort verknüpft werden kann.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
         }
       ],
       [

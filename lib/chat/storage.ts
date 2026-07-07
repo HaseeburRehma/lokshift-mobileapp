@@ -29,6 +29,16 @@ export interface ChatAttachmentUploaded {
   type: ChatAttachmentType
 }
 
+async function fetchWithTimeout(uri: string, ms = 15000): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(uri, { signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function extFromName(name: string): string | null {
   const i = name.lastIndexOf('.')
   if (i < 0 || i === name.length - 1) return null
@@ -76,7 +86,10 @@ export async function uploadChatAttachment(
 
   // Read the local URI into binary. RN's fetch handles file://, content://
   // and the in-memory URIs that expo-audio returns.
-  const res = await fetch(source.uri)
+  const res = await fetchWithTimeout(source.uri).catch((e) => {
+    if (e?.name === 'AbortError') throw new Error('Datei-Lesezeit überschritten')
+    throw e
+  })
   if (!res.ok) throw new Error(`Cannot read file (${res.status})`)
   const arrayBuffer = await res.arrayBuffer()
 

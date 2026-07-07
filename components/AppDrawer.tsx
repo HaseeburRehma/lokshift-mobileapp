@@ -46,6 +46,7 @@ import { useDrawer } from '@/lib/drawer-context'
 import { useUser } from '@/lib/user-context'
 import { useTranslation } from '@/lib/i18n'
 import { ROLE_LABELS, ROLE_COLORS } from '@/lib/rbac/permissions'
+import { useDrawerBadges, type DrawerBadges } from '@/hooks/useDrawerBadges'
 
 interface NavItem {
   id: string
@@ -55,6 +56,8 @@ interface NavItem {
   icon: any
   /** Highlight badge — shown as a small colored dot when true */
   badge?: boolean
+  /** Which DrawerBadges count to render, if any. */
+  badgeKey?: keyof DrawerBadges
 }
 
 interface NavSection {
@@ -73,9 +76,9 @@ const SECTIONS: NavSection[] = [
     labelEn: 'Overview',
     items: [
       { id: 'home',     href: '/(tabs)/home',     labelDe: 'Dashboard',       labelEn: 'Dashboard',       icon: LayoutDashboard },
-      { id: 'live',     href: '/(tabs)/live',     labelDe: 'Live',            labelEn: 'Live',            icon: Activity },
-      { id: 'calendar', href: '/(tabs)/calendar', labelDe: 'Kalender',        labelEn: 'Calendar',        icon: Calendar },
-      { id: 'chat',     href: '/(tabs)/chat',     labelDe: 'Chat',            labelEn: 'Chat',            icon: MessageSquare },
+      { id: 'live',     href: '/(tabs)/live',     labelDe: 'Live',            labelEn: 'Live',            icon: Activity,       badgeKey: 'live' },
+      { id: 'calendar', href: '/(tabs)/calendar', labelDe: 'Kalender',        labelEn: 'Calendar',        icon: Calendar,       badgeKey: 'events' },
+      { id: 'chat',     href: '/(tabs)/chat',     labelDe: 'Chat',            labelEn: 'Chat',            icon: MessageSquare,  badgeKey: 'chat' },
     ],
   },
   {
@@ -94,11 +97,11 @@ const SECTIONS: NavSection[] = [
     labelDe: 'Zeiten',
     labelEn: 'Times',
     items: [
-      { id: 'times',     href: '/times',      labelDe: 'Zeiterfassung',   labelEn: 'Times',         icon: Clock },
+      { id: 'times',     href: '/times',      labelDe: 'Zeiterfassung',   labelEn: 'Times',         icon: Clock,           badgeKey: 'times' },
       { id: 'account',   href: '/account',    labelDe: 'Zeitkonto',       labelEn: 'Time Account',  icon: BarChart3 },
-      { id: 'per-diem',  href: '/per-diem',   labelDe: 'Spesen',          labelEn: 'Per Diem',      icon: Wallet },
+      { id: 'per-diem',  href: '/per-diem',   labelDe: 'Spesen',          labelEn: 'Per Diem',      icon: Wallet,          badgeKey: 'perDiem' },
       { id: 'bonuses',   href: '/bonuses',    labelDe: 'Urlaubsgeld',     labelEn: 'Holiday Bonus', icon: Star },
-      { id: 'absences',  href: '/absences',   labelDe: 'Anträge',         labelEn: 'Requests',      icon: PalmtreeIcon },
+      { id: 'absences',  href: '/absences',   labelDe: 'Anträge',         labelEn: 'Requests',      icon: PalmtreeIcon,    badgeKey: 'requests' },
       { id: 'reports',   href: '/reports',    labelDe: 'Berichte',        labelEn: 'Reports',       icon: ClipboardList },
     ],
   },
@@ -119,7 +122,7 @@ const SECTIONS: NavSection[] = [
     labelEn: 'Members',
     roles: ['admin'],
     items: [
-      { id: 'users',          href: '/users',          labelDe: 'Mitarbeiterliste',  labelEn: 'Members',        icon: ShieldAlert },
+      { id: 'users',          href: '/users',          labelDe: 'Mitarbeiterliste',  labelEn: 'Members',        icon: ShieldAlert, badgeKey: 'pendingUsers' },
       { id: 'qualifications', href: '/qualifications', labelDe: 'Qualifikationen',   labelEn: 'Qualifications', icon: Briefcase },
     ],
   },
@@ -150,6 +153,7 @@ export function AppDrawer() {
   const router = useRouter()
   const segments = useSegments()
   const insets = useSafeAreaInsets()
+  const badges = useDrawerBadges()
 
   const slide = useRef(new Animated.Value(-320)).current
   useEffect(() => {
@@ -285,6 +289,10 @@ export function AppDrawer() {
                 {section.items.map((item) => {
                   const active = isActive(item.href)
                   const Icon = item.icon
+                  const count = item.badgeKey ? badges[item.badgeKey] : 0
+                  const showBadge = count > 0
+                  // Live shifts get a green pill; everything else red.
+                  const badgeBg = item.badgeKey === 'live' ? '#10B981' : '#EF4444'
                   return (
                     <Pressable key={item.id} onPress={() => navigate(item.href)}>
                       <View
@@ -320,10 +328,36 @@ export function AppDrawer() {
                             fontWeight: active ? '800' : '600',
                             color: active ? '#1D4ED8' : '#334155',
                             letterSpacing: -0.1,
+                            minWidth: 0,
                           }}
                         >
                           {L(item.labelDe, item.labelEn)}
                         </Text>
+                        {showBadge && (
+                          <View
+                            style={{
+                              minWidth: 20,
+                              height: 20,
+                              borderRadius: 999,
+                              backgroundColor: badgeBg,
+                              paddingHorizontal: 6,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginLeft: 8,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: '#FFFFFF',
+                                fontSize: 10,
+                                fontWeight: '900',
+                                letterSpacing: 0.2,
+                              }}
+                            >
+                              {count > 99 ? '99+' : count}
+                            </Text>
+                          </View>
+                        )}
                         <View style={{ width: 14, alignItems: 'center', justifyContent: 'center', marginLeft: 8 }}>
                           {active ? (
                             <View
@@ -354,16 +388,23 @@ export function AppDrawer() {
         }}>
           <Pressable
             onPress={async () => { close(); await signOut() }}
-            style={({ pressed }: { pressed: boolean }) => ({
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-              paddingVertical: 11, borderRadius: 10,
-              backgroundColor: pressed ? '#FEF2F2' : 'transparent',
-              borderWidth: 1, borderColor: '#FECACA',
-            })}
           >
-            <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 13 }}>
-              {L('Abmelden', 'Sign out')}
-            </Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 11,
+                borderRadius: 10,
+                backgroundColor: 'transparent',
+                borderWidth: 1,
+                borderColor: '#FECACA',
+              }}
+            >
+              <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 13 }}>
+                {L('Abmelden', 'Sign out')}
+              </Text>
+            </View>
           </Pressable>
         </View>
       </Animated.View>

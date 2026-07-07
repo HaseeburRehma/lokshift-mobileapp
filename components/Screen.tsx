@@ -61,7 +61,7 @@ export function Screen({
   )
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['left', 'right']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top', 'left', 'right']}>
       {noTapToDismiss ? inner : (
         <Pressable onPress={Keyboard.dismiss} className="flex-1">
           {inner}

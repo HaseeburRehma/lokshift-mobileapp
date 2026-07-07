@@ -38,11 +38,15 @@ export function useMessages(conversationId: string | null) {
 
   const markAsRead = useCallback(async () => {
     if (!conversationId || !myIdRef.current) return
-    await supabase
-      .from('chat_members')
-      .update({ last_read_at: new Date().toISOString() } as any)
-      .eq('conversation_id', conversationId)
-      .eq('user_id', myIdRef.current)
+    try {
+      await supabase
+        .from('chat_members')
+        .update({ last_read_at: new Date().toISOString() } as any)
+        .eq('conversation_id', conversationId)
+        .eq('user_id', myIdRef.current)
+    } catch (e) {
+      console.warn('[useMessages] markAsRead failed (non-fatal):', e)
+    }
   }, [supabase, conversationId])
 
   const addOrReplace = useCallback((msg: ChatMessage) => {

@@ -68,32 +68,41 @@ export function UserMenu({ visible, onClose }: UserMenuProps) {
           {/* Settings */}
           <Pressable
             onPress={() => { onClose(); router.push('/(tabs)/settings') }}
-            style={({ pressed }: { pressed: boolean }) => ({
-              paddingHorizontal: 16, paddingVertical: 14,
-              flexDirection: 'row', alignItems: 'center', gap: 12,
-              backgroundColor: pressed ? '#F8FAFC' : 'transparent',
-            })}
           >
-            <Settings size={16} color="#64748B" />
-            <Text style={{ fontSize: 12, fontWeight: '900', color: '#0F172A', letterSpacing: 1, textTransform: 'uppercase' }}>
-              {L('Einstellungen', 'Settings')}
-            </Text>
+            <View
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <Settings size={16} color="#64748B" />
+              <Text style={{ marginLeft: 12, fontSize: 12, fontWeight: '900', color: '#0F172A', letterSpacing: 1, textTransform: 'uppercase' }}>
+                {L('Einstellungen', 'Settings')}
+              </Text>
+            </View>
           </Pressable>
 
           {/* Sign out */}
-          <Pressable
-            onPress={handleSignOut}
-            style={({ pressed }: { pressed: boolean }) => ({
-              paddingHorizontal: 16, paddingVertical: 14,
-              flexDirection: 'row', alignItems: 'center', gap: 12,
-              backgroundColor: pressed ? '#FEF2F2' : 'transparent',
-              borderTopWidth: 1, borderTopColor: '#F1F5F9',
-            })}
-          >
-            <LogOut size={16} color="#DC2626" />
-            <Text style={{ fontSize: 12, fontWeight: '900', color: '#DC2626', letterSpacing: 1, textTransform: 'uppercase' }}>
-              {L('Abmelden', 'Sign out')}
-            </Text>
+          <Pressable onPress={handleSignOut}>
+            <View
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: 'transparent',
+                borderTopWidth: 1,
+                borderTopColor: '#F1F5F9',
+              }}
+            >
+              <LogOut size={16} color="#DC2626" />
+              <Text style={{ marginLeft: 12, fontSize: 12, fontWeight: '900', color: '#DC2626', letterSpacing: 1, textTransform: 'uppercase' }}>
+                {L('Abmelden', 'Sign out')}
+              </Text>
+            </View>
           </Pressable>
         </Pressable>
       </Pressable>

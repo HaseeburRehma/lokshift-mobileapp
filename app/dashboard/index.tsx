@@ -370,20 +370,22 @@ export default function DashboardScreen() {
               >
                 <Pressable
                   onPress={onPrev}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: C.border,
-                    backgroundColor: C.bg,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: pressed ? 0.7 : 1,
-                  })}
                   accessibilityLabel={L('Vorherige Woche', 'Previous week')}
                 >
-                  <ChevronLeft size={16} color={C.textMuted} />
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      backgroundColor: C.bg,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ChevronLeft size={16} color={C.textMuted} />
+                  </View>
                 </Pressable>
 
                 <View style={{ flex: 1 }}>
@@ -407,37 +409,39 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
 
-                <Pressable
-                  onPress={onToday}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 10,
-                    backgroundColor: '#0064E0',
-                    opacity: pressed ? 0.8 : 1,
-                  })}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '900', color: '#FFFFFF' }}>
-                    {L('Heute', 'Today')}
-                  </Text>
+                <Pressable onPress={onToday}>
+                  <View
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 10,
+                      backgroundColor: '#0064E0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '900', color: '#FFFFFF' }}>
+                      {L('Heute', 'Today')}
+                    </Text>
+                  </View>
                 </Pressable>
 
                 <Pressable
                   onPress={onNext}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: C.border,
-                    backgroundColor: C.bg,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: pressed ? 0.7 : 1,
-                  })}
                   accessibilityLabel={L('Nächste Woche', 'Next week')}
                 >
-                  <ChevronRight size={16} color={C.textMuted} />
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      backgroundColor: C.bg,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ChevronRight size={16} color={C.textMuted} />
+                  </View>
                 </Pressable>
               </View>
 
@@ -466,34 +470,34 @@ export default function DashboardScreen() {
                     autoCapitalize="none"
                   />
                 </View>
-                <Pressable
-                  onPress={() => setCustomerPickerOpen((v) => !v)}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: customerFilter === 'all' ? '#E5E7EB' : '#0064E0',
-                    backgroundColor: customerFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
-                    height: 40,
-                    opacity: pressed ? 0.85 : 1,
-                  })}
-                >
-                  <UsersIcon size={12} color={customerFilter === 'all' ? '#475569' : '#0064E0'} />
-                  <Text
-                    className="ml-1.5"
+                <Pressable onPress={() => setCustomerPickerOpen((v) => !v)}>
+                  <View
                     style={{
-                      fontSize: 11,
-                      fontWeight: '800',
-                      color: customerFilter === 'all' ? '#475569' : '#0064E0',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: customerFilter === 'all' ? '#E5E7EB' : '#0064E0',
+                      backgroundColor: customerFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                      height: 40,
                     }}
-                    numberOfLines={1}
                   >
-                    {customerFilter === 'all'
-                      ? L('Alle Kunden', 'All customers')
-                      : (customerOptions.find((c) => c.id === customerFilter)?.name ?? '—').split(' ')[0]}
-                  </Text>
+                    <UsersIcon size={12} color={customerFilter === 'all' ? '#475569' : '#0064E0'} />
+                    <Text
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color: customerFilter === 'all' ? '#475569' : '#0064E0',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {customerFilter === 'all'
+                        ? L('Alle Kunden', 'All customers')
+                        : (customerOptions.find((c) => c.id === customerFilter)?.name ?? '—').split(' ')[0]}
+                    </Text>
+                  </View>
                 </Pressable>
               </View>
 
@@ -696,20 +700,20 @@ export default function DashboardScreen() {
                           'No employees in this organization yet.',
                         )}
                       </Text>
-                      <Pressable
-                        onPress={() => router.push('/users' as any)}
-                        style={({ pressed }: { pressed: boolean }) => ({
-                          marginTop: 4,
-                          paddingHorizontal: 14,
-                          paddingVertical: 8,
-                          borderRadius: 10,
-                          backgroundColor: '#0064E0',
-                          opacity: pressed ? 0.85 : 1,
-                        })}
-                      >
-                        <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>
-                          {L('Mitarbeiter einladen', 'Invite members')}
-                        </Text>
+                      <Pressable onPress={() => router.push('/users' as any)}>
+                        <View
+                          style={{
+                            marginTop: 4,
+                            paddingHorizontal: 14,
+                            paddingVertical: 8,
+                            borderRadius: 10,
+                            backgroundColor: '#0064E0',
+                          }}
+                        >
+                          <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>
+                            {L('Mitarbeiter einladen', 'Invite members')}
+                          </Text>
+                        </View>
                       </Pressable>
                     </>
                   ) : (
@@ -1163,16 +1167,18 @@ function DashboardCell({
       onLongPress={onLongPress}
       delayLongPress={350}
       {...(webDragProps as any)}
-      style={({ pressed }: { pressed: boolean }) => ({
-        width: DAY_COL_W,
-        height: ROW_H,
-        padding: 5,
-        backgroundColor: cellBg,
-        borderRightWidth: 1,
-        borderColor: cellBorder,
-        opacity: pressed ? 0.75 : 1,
-      })}
+      style={{ width: DAY_COL_W, height: ROW_H }}
     >
+      <View
+        style={{
+          width: DAY_COL_W,
+          height: ROW_H,
+          padding: 5,
+          backgroundColor: cellBg,
+          borderRightWidth: 1,
+          borderColor: cellBorder,
+        }}
+      >
       {has ? (
         // Wilson cell — top header bar with warning + shift code, then two
         // location codes side-by-side, then start | end times row.
@@ -1317,6 +1323,7 @@ function DashboardCell({
           <Plus size={14} color={C.textFaint} />
         </View>
       )}
+      </View>
     </Pressable>
   )
 }
@@ -1333,29 +1340,29 @@ function FilterPill({
   onPress: () => void
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => ({
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? '#0064E0' : '#E5E7EB',
-        backgroundColor: active ? '#0064E0' : '#FFFFFF',
-        opacity: pressed ? 0.85 : 1,
-        maxWidth: 220,
-      })}
-    >
-      <Text
+    <Pressable onPress={onPress}>
+      <View
         style={{
-          fontSize: 11,
-          fontWeight: '700',
-          color: active ? '#FFFFFF' : '#475569',
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: active ? '#0064E0' : '#E5E7EB',
+          backgroundColor: active ? '#0064E0' : '#FFFFFF',
+          maxWidth: 220,
         }}
-        numberOfLines={1}
       >
-        {label}
-      </Text>
+        <Text
+          style={{
+            fontSize: 11,
+            fontWeight: '700',
+            color: active ? '#FFFFFF' : '#475569',
+          }}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   )
 }
@@ -1453,29 +1460,29 @@ function SheetAction({
   destructive?: boolean
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 14,
-        paddingHorizontal: 4,
-        borderBottomWidth: 1,
-        borderColor: '#F1F5F9',
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      {icon}
-      <Text
-        className="ml-3"
+    <Pressable onPress={onPress}>
+      <View
         style={{
-          fontSize: 14,
-          fontWeight: '700',
-          color: destructive ? '#DC2626' : '#0F172A',
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 14,
+          paddingHorizontal: 4,
+          borderBottomWidth: 1,
+          borderColor: '#F1F5F9',
         }}
       >
-        {label}
-      </Text>
+        {icon}
+        <Text
+          style={{
+            marginLeft: 12,
+            fontSize: 14,
+            fontWeight: '700',
+            color: destructive ? '#DC2626' : '#0F172A',
+          }}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   )
 }
@@ -1518,31 +1525,33 @@ function ReassignSheet({
                 <Pressable
                   key={e.id}
                   onPress={() => onPick(e.id)}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    paddingVertical: 12,
-                    paddingHorizontal: 4,
-                    borderBottomWidth: 1,
-                    borderColor: '#F1F5F9',
-                    opacity: pressed ? 0.7 : 1,
-                    backgroundColor: active ? '#EFF6FF' : 'transparent',
-                  })}
                 >
-                  <Text
+                  <View
                     style={{
-                      fontSize: 14,
-                      fontWeight: active ? '900' : '700',
-                      color: active ? '#0064E0' : '#0F172A',
+                      paddingVertical: 12,
+                      paddingHorizontal: 4,
+                      borderBottomWidth: 1,
+                      borderColor: '#F1F5F9',
+                      backgroundColor: active ? '#EFF6FF' : 'transparent',
                     }}
-                    numberOfLines={1}
                   >
-                    {e.full_name ?? '—'}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 11, color: '#94A3B8', fontWeight: '600', marginTop: 2 }}
-                    numberOfLines={1}
-                  >
-                    {e.role}
-                  </Text>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: active ? '900' : '700',
+                        color: active ? '#0064E0' : '#0F172A',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {e.full_name ?? '—'}
+                    </Text>
+                    <Text
+                      style={{ fontSize: 11, color: '#94A3B8', fontWeight: '600', marginTop: 2 }}
+                      numberOfLines={1}
+                    >
+                      {e.role}
+                    </Text>
+                  </View>
                 </Pressable>
               )
             })}
@@ -1591,25 +1600,27 @@ function MoveDateSheet({
               <Pressable
                 key={d.toISOString()}
                 onPress={() => onPick(d)}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  paddingVertical: 14,
-                  paddingHorizontal: 4,
-                  borderBottomWidth: 1,
-                  borderColor: '#F1F5F9',
-                  opacity: pressed ? 0.7 : 1,
-                  backgroundColor: active ? '#EFF6FF' : 'transparent',
-                })}
               >
-                <Text
+                <View
                   style={{
-                    fontSize: 14,
-                    fontWeight: active ? '900' : '700',
-                    color: active ? '#0064E0' : '#0F172A',
+                    paddingVertical: 14,
+                    paddingHorizontal: 4,
+                    borderBottomWidth: 1,
+                    borderColor: '#F1F5F9',
+                    backgroundColor: active ? '#EFF6FF' : 'transparent',
                   }}
                 >
-                  {format(d, 'EEEE, dd. MMMM', { locale: dateLocale })}
-                  {active ? ` · ${L('aktuell', 'current')}` : ''}
-                </Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: active ? '900' : '700',
+                      color: active ? '#0064E0' : '#0F172A',
+                    }}
+                  >
+                    {format(d, 'EEEE, dd. MMMM', { locale: dateLocale })}
+                    {active ? ` · ${L('aktuell', 'current')}` : ''}
+                  </Text>
+                </View>
               </Pressable>
             )
           })}
@@ -1792,44 +1803,43 @@ function EmployeeCardRow({
 }) {
   const interactive = !!onPress
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={!interactive}
-      style={({ pressed }: { pressed: boolean }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderColor: '#F1F5F9',
-        opacity: pressed && interactive ? 0.6 : 1,
-      })}
-    >
-      <View style={{ width: 22 }}>{icon}</View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text
-          style={{
-            fontSize: 9,
-            color: '#94A3B8',
-            fontWeight: '900',
-            letterSpacing: 1.2,
-            textTransform: 'uppercase',
-          }}
-        >
-          {label}
-        </Text>
-        <Text
-          style={{
-            fontSize: 13,
-            color: interactive ? '#0064E0' : '#0F172A',
-            fontWeight: '700',
-            marginTop: 1,
-          }}
-          numberOfLines={1}
-        >
-          {value}
-        </Text>
+    <Pressable onPress={onPress} disabled={!interactive}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 10,
+          borderBottomWidth: 1,
+          borderColor: '#F1F5F9',
+        }}
+      >
+        <View style={{ width: 22 }}>{icon}</View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{
+              fontSize: 9,
+              color: '#94A3B8',
+              fontWeight: '900',
+              letterSpacing: 1.2,
+              textTransform: 'uppercase',
+            }}
+          >
+            {label}
+          </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              color: interactive ? '#0064E0' : '#0F172A',
+              fontWeight: '700',
+              marginTop: 1,
+            }}
+            numberOfLines={1}
+          >
+            {value}
+          </Text>
+        </View>
+        {interactive ? <ExternalLink size={12} color="#94A3B8" /> : null}
       </View>
-      {interactive ? <ExternalLink size={12} color="#94A3B8" /> : null}
     </Pressable>
   )
 }

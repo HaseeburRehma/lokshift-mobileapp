@@ -17,6 +17,16 @@ export interface AvatarUploadResult {
   path: string
 }
 
+async function fetchWithTimeout(uri: string, ms = 15000): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(uri, { signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function extFromContentType(mime: string): string {
   if (mime === 'image/png') return 'png'
   if (mime === 'image/webp') return 'webp'
@@ -36,7 +46,10 @@ export async function uploadAvatar(opts: {
 
   // Read the local URI into binary. RN's fetch handles file:// and the
   // content:// URIs that expo-image-picker returns.
-  const res = await fetch(opts.uri)
+  const res = await fetchWithTimeout(opts.uri).catch((e) => {
+    if (e?.name === 'AbortError') throw new Error('Bild-Lesezeit überschritten')
+    throw e
+  })
   if (!res.ok) throw new Error(`Cannot read picked image (${res.status})`)
   const arrayBuffer = await res.arrayBuffer()
 

@@ -120,12 +120,13 @@ export default function ImpressumScreen() {
 }
 
 function Row({ label, value, link }: { label: string; value: string; link?: string }) {
+  const safeLink = link && /^(https:|mailto:|tel:)/i.test(link) ? link : undefined
   return (
     <View className="flex-row items-start py-2 border-b border-gray-50 dark:border-slate-800">
       <Text className="text-[12px] text-gray-500 dark:text-slate-400 w-28">{label}</Text>
       <View className="flex-1">
-        {link ? (
-          <Pressable onPress={() => Linking.openURL(link).catch(() => {})}>
+        {safeLink ? (
+          <Pressable onPress={() => Linking.openURL(safeLink).catch(() => {})}>
             <Text className="text-[13px] font-bold text-brand">{value}</Text>
           </Pressable>
         ) : (

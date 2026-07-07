@@ -11,7 +11,7 @@ Answers ready to paste into Play Console → App content → Data safety.
 ✅ Yes (TLS to Supabase; HTTPS for OpenStreetMap tiles; APNs/FCM for push)
 
 **Do you provide a way for users to request that their data be deleted?**
-✅ Yes — via the in-app data export, and at any time via support@lokshift.app
+✅ Yes — via the in-app data export, and at any time via lokshiftapp@gmail.com
 
 ## Data types collected
 

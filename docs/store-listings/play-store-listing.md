@@ -39,10 +39,10 @@ Play Store treats the description the same way, no separate fields.
 
 ## Contact details
 
-- **Email:** support@lokshift.app
-- **Website:** https://lokshift.app
+- **Email:** lokshiftapp@gmail.com
+- **Website:** https://lokshift.de
 - **Phone:** [optional]
-- **Privacy policy:** https://lokshift.app/privacy
+- **Privacy policy:** https://lokshift.de/datenschutz
 
 ## Data Safety
 

@@ -95,6 +95,31 @@ export default function ChatThreadScreen() {
       .filter(Boolean)
   }, [typingUserIds, conv?.members])
 
+  // Precompute read-receipts ONCE per render instead of per message.
+  // Map message.id → { readers, total } so the render loop is O(1) lookup.
+  const readReceiptsByMsgId = useMemo(() => {
+    const out = new Map<string, { readers: number; total: number }>()
+    const otherMembers = (conv?.members ?? []).filter((mb) => mb.user_id !== myId)
+    const total = otherMembers.length
+    if (total === 0) return out
+    const readerTimes: number[] = otherMembers
+      .map((mb) => {
+        if (!mb.last_read_at) return null
+        const d = safeParseISO(mb.last_read_at)
+        return d ? d.getTime() : null
+      })
+      .filter((t): t is number => t !== null)
+    for (const m of messages) {
+      if (m.sender_id !== myId || m.id.startsWith('optimistic-')) continue
+      const msgD = safeParseISO(m.created_at)
+      const msgTs = msgD ? msgD.getTime() : 0
+      let readers = 0
+      for (const rt of readerTimes) if (rt >= msgTs) readers++
+      out.set(m.id, { readers, total })
+    }
+    return out
+  }, [conv?.members, messages, myId])
+
   const onSend = async () => {
     const content = draft.trim()
     if (!content) return
@@ -287,25 +312,18 @@ export default function ChatThreadScreen() {
                         {safeFormatTime(m.created_at)}
                       </Text>
                       {mine && !m.id.startsWith('optimistic-') && (() => {
-                        const otherMembers = (conv?.members ?? []).filter(
-                          (mb) => mb.user_id !== myId,
-                        )
-                        const msgD = safeParseISO(m.created_at)
-                        const msgTs = msgD ? msgD.getTime() : 0
-                        const readers = otherMembers.filter((mb) => {
-                          if (!mb.last_read_at) return false
-                          const d = safeParseISO(mb.last_read_at)
-                          return d ? d.getTime() >= msgTs : false
-                        }).length
-                        const allRead = otherMembers.length > 0 && readers === otherMembers.length
+                        const r = readReceiptsByMsgId.get(m.id)
+                        if (!r) return <Check size={12} color="#BFDBFE" />
+                        const { readers, total } = r
+                        const allRead = total > 0 && readers === total
                         const someRead = readers > 0
                         const tint = allRead ? '#7FB6FF' : '#BFDBFE'
-                        if (conv?.is_group && otherMembers.length > 1 && someRead) {
+                        if (conv?.is_group && total > 1 && someRead) {
                           return (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                               <CheckCheck size={12} color={tint} />
                               <Text style={{ color: tint, fontSize: 9, fontWeight: '700' }}>
-                                {readers}/{otherMembers.length}
+                                {readers}/{total}
                               </Text>
                             </View>
                           )

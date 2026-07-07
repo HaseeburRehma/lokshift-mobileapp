@@ -12,6 +12,7 @@
 
 import React, { useMemo, useState } from 'react'
 import { View, Text, ScrollView, Pressable, Image, TextInput } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { ChevronLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react-native'
 // Local shape — see lib/user-context.tsx for why we don't import from supabase-js.
@@ -28,6 +29,7 @@ export default function RegisterScreen() {
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const router = useRouter()
   const goBack = useSafeBack('/(auth)/login')
+  const insets = useSafeAreaInsets()
   const supabase = getSupabase()
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
@@ -116,7 +118,7 @@ export default function RegisterScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 16 }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: insets.top + 8 }}>
       {/* Top bar — back chip + cancel */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, height: 56 }}>
         <Pressable

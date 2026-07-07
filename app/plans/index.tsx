@@ -8,6 +8,7 @@
 
 import React, { useState } from 'react'
 import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Calendar,
   MapPin,
@@ -54,6 +55,7 @@ export default function PlansScreen() {
   const { plans, grouped, loading, fetchPlans } = usePlans()
   const dateLocale = locale === 'de' ? deLocale : enUS
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const showCreate = canCreatePlans(role)
   const showExports = isAdmin || isDispatcher
 
@@ -170,48 +172,50 @@ export default function PlansScreen() {
               {/* Wilson-style unified shift dashboard — admin entry point */}
               <Pressable
                 onPress={() => router.push('/dashboard' as any)}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: '#0F172A',
-                  borderRadius: 16,
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  marginBottom: 12,
-                  opacity: pressed ? 0.85 : 1,
-                  shadowColor: '#0F172A',
-                  shadowOpacity: 0.18,
-                  shadowRadius: 16,
-                  shadowOffset: { width: 0, height: 6 },
-                  elevation: 4,
-                })}
                 accessibilityLabel={L('Schicht-Dashboard öffnen', 'Open shift dashboard')}
               >
                 <View
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 12,
-                    backgroundColor: '#0064E0',
+                    flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
+                    backgroundColor: '#0F172A',
+                    borderRadius: 16,
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    marginBottom: 12,
+                    shadowColor: '#0F172A',
+                    shadowOpacity: 0.18,
+                    shadowRadius: 16,
+                    shadowOffset: { width: 0, height: 6 },
+                    elevation: 4,
                   }}
                 >
-                  <CalendarDays size={18} color="#FFFFFF" />
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: '#0064E0',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                    }}
+                  >
+                    <CalendarDays size={18} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text className="text-[13px] font-black text-white" numberOfLines={1}>
+                      {L('Wochenübersicht (Dashboard)', 'Weekly dashboard')}
+                    </Text>
+                    <Text className="text-[11px] text-slate-300 mt-0.5" numberOfLines={1}>
+                      {L(
+                        'Alle Mitarbeiter, alle Schichten, eine Ansicht',
+                        'All employees, all shifts, one view',
+                      )}
+                    </Text>
+                  </View>
+                  <ArrowRight size={16} color="#FFFFFF" />
                 </View>
-                <View className="flex-1">
-                  <Text className="text-[13px] font-black text-white" numberOfLines={1}>
-                    {L('Wochenübersicht (Dashboard)', 'Weekly dashboard')}
-                  </Text>
-                  <Text className="text-[11px] text-slate-300 mt-0.5" numberOfLines={1}>
-                    {L(
-                      'Alle Mitarbeiter, alle Schichten, eine Ansicht',
-                      'All employees, all shifts, one view',
-                    )}
-                  </Text>
-                </View>
-                <ArrowRight size={16} color="#FFFFFF" />
               </Pressable>
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 20 }}>
@@ -311,7 +315,8 @@ export default function PlansScreen() {
         {showCreate && (
           <Pressable
             onPress={() => router.push('/plans/new' as any)}
-            className="absolute bottom-24 right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+            className="absolute right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+            style={{ bottom: insets.bottom + 96 }}
           >
             <Plus size={28} color="#fff" />
           </Pressable>

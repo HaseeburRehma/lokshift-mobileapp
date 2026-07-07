@@ -12,6 +12,7 @@ import {
   RefreshControl,
   TextInput,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Plus,
   Clock,
@@ -69,6 +70,7 @@ export default function TimesScreen() {
   const dateLocale = locale === 'de' ? deLocale : enUS
   const params = useLocalSearchParams<{ action?: string }>()
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const isManagerial = isAdmin || isDispatcher
 
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -316,18 +318,20 @@ export default function TimesScreen() {
             </Pressable>
             <Pressable
               onPress={() => { setEditing(null); setSheetOpen(true) }}
-              style={({ pressed }: { pressed: boolean }) => ({
-                width: 40,
-                height: 40,
-                borderRadius: 14,
-                backgroundColor: '#0064E0',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: pressed ? 0.85 : 1,
-              })}
               accessibilityLabel={L('Eintrag hinzufügen', 'Add entry')}
             >
-              <Plus size={20} color="#fff" />
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 14,
+                  backgroundColor: '#0064E0',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Plus size={20} color="#fff" />
+              </View>
             </Pressable>
           </View>
 
@@ -348,28 +352,27 @@ export default function TimesScreen() {
             ] as [StatusFilter, string][]).map(([id, label]) => {
               const active = statusFilter === id
               return (
-                <Pressable
-                  key={id}
-                  onPress={() => setStatusFilter(id)}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? '#0064E0' : '#E5E7EB',
-                    backgroundColor: active ? '#0064E0' : '#FFFFFF',
-                    opacity: pressed ? 0.85 : 1,
-                  })}
-                >
-                  <Text
+                <Pressable key={id} onPress={() => setStatusFilter(id)}>
+                  <View
                     style={{
-                      fontSize: 12,
-                      fontWeight: '700',
-                      color: active ? '#FFFFFF' : '#475569',
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? '#0064E0' : '#E5E7EB',
+                      backgroundColor: active ? '#0064E0' : '#FFFFFF',
                     }}
                   >
-                    {label}
-                  </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '700',
+                        color: active ? '#FFFFFF' : '#475569',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </View>
                 </Pressable>
               )
             })}
@@ -401,33 +404,33 @@ export default function TimesScreen() {
               />
             </View>
             {isManagerial && (
-              <Pressable
-                onPress={() => setEmployeePickerOpen((v) => !v)}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingHorizontal: 12,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
-                  backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
-                  height: 42,
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
-                <Text
-                  className="ml-1.5"
+              <Pressable onPress={() => setEmployeePickerOpen((v) => !v)}>
+                <View
                   style={{
-                    fontSize: 12,
-                    fontWeight: '800',
-                    color: employeeFilter === 'all' ? '#475569' : '#0064E0',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 12,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
+                    backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                    height: 42,
                   }}
                 >
-                  {employeeFilter === 'all'
-                    ? L('Alle', 'All')
-                    : (selectedEmployeeName ?? '—').split(' ')[0]}
-                </Text>
+                  <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 12,
+                      fontWeight: '800',
+                      color: employeeFilter === 'all' ? '#475569' : '#0064E0',
+                    }}
+                  >
+                    {employeeFilter === 'all'
+                      ? L('Alle', 'All')
+                      : (selectedEmployeeName ?? '—').split(' ')[0]}
+                  </Text>
+                </View>
               </Pressable>
             )}
           </View>
@@ -439,25 +442,27 @@ export default function TimesScreen() {
                   setEmployeeFilter('all')
                   setEmployeePickerOpen(false)
                 }}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: employeeFilter === 'all' ? '#0064E0' : '#E5E7EB',
-                  backgroundColor: employeeFilter === 'all' ? '#0064E0' : '#FFFFFF',
-                  opacity: pressed ? 0.85 : 1,
-                })}
               >
-                <Text
+                <View
                   style={{
-                    fontSize: 11,
-                    fontWeight: '700',
-                    color: employeeFilter === 'all' ? '#FFFFFF' : '#475569',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: employeeFilter === 'all' ? '#0064E0' : '#E5E7EB',
+                    backgroundColor: employeeFilter === 'all' ? '#0064E0' : '#FFFFFF',
                   }}
                 >
-                  {L('Alle Mitarbeiter', 'All employees')}
-                </Text>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '700',
+                      color: employeeFilter === 'all' ? '#FFFFFF' : '#475569',
+                    }}
+                  >
+                    {L('Alle Mitarbeiter', 'All employees')}
+                  </Text>
+                </View>
               </Pressable>
               {employeeOptions.map((e) => {
                 const active = employeeFilter === e.id
@@ -468,25 +473,27 @@ export default function TimesScreen() {
                       setEmployeeFilter(e.id)
                       setEmployeePickerOpen(false)
                     }}
-                    style={({ pressed }: { pressed: boolean }) => ({
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: active ? '#0064E0' : '#E5E7EB',
-                      backgroundColor: active ? '#0064E0' : '#FFFFFF',
-                      opacity: pressed ? 0.85 : 1,
-                    })}
                   >
-                    <Text
+                    <View
                       style={{
-                        fontSize: 11,
-                        fontWeight: '700',
-                        color: active ? '#FFFFFF' : '#475569',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: active ? '#0064E0' : '#E5E7EB',
+                        backgroundColor: active ? '#0064E0' : '#FFFFFF',
                       }}
                     >
-                      {e.name}
-                    </Text>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: '700',
+                          color: active ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        {e.name}
+                      </Text>
+                    </View>
                   </Pressable>
                 )
               })}
@@ -495,30 +502,34 @@ export default function TimesScreen() {
         </Card>
 
         {(isAdmin || isDispatcher) && (
-          <Pressable
-            onPress={() => router.push('/times/verify')}
-            style={({ pressed }: { pressed: boolean }) => ({
-              flexDirection: 'row', alignItems: 'center',
-              backgroundColor: '#EFF6FF', borderRadius: 12,
-              paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12,
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
+          <Pressable onPress={() => router.push('/times/verify')}>
             <View
               style={{
-                width: 36, height: 36, borderRadius: 10, backgroundColor: '#0064E0',
-                alignItems: 'center', justifyContent: 'center', marginRight: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#EFF6FF',
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginBottom: 12,
               }}
             >
-              <ShieldCheck size={18} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text className="text-[13px] font-black text-gray-900 dark:text-white">
-                {L('Zeiten bestätigen', 'Verify time entries')}
-              </Text>
-              <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                {L('Offene Einträge prüfen und freigeben.', 'Review pending entries.')}
-              </Text>
+              <View
+                style={{
+                  width: 36, height: 36, borderRadius: 10, backgroundColor: '#0064E0',
+                  alignItems: 'center', justifyContent: 'center', marginRight: 10,
+                }}
+              >
+                <ShieldCheck size={18} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text className="text-[13px] font-black text-gray-900 dark:text-white">
+                  {L('Zeiten bestätigen', 'Verify time entries')}
+                </Text>
+                <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+                  {L('Offene Einträge prüfen und freigeben.', 'Review pending entries.')}
+                </Text>
+              </View>
             </View>
           </Pressable>
         )}
@@ -566,17 +577,18 @@ export default function TimesScreen() {
                         <Text
                           className="text-[12px] text-gray-500 dark:text-slate-400 mr-2"
                           numberOfLines={1}
-                          style={{ maxWidth: '60%' }}
+                          style={{ flexShrink: 1, minWidth: 0 }}
                         >
                           {entry.customer.name}
                         </Text>
                       )}
                       {entry.location && (
-                        <View className="flex-row items-center" style={{ maxWidth: '70%' }}>
+                        <View className="flex-row items-center" style={{ flexShrink: 1, minWidth: 0 }}>
                           <MapPin size={11} color="#9CA3AF" />
                           <Text
                             className="text-[11px] text-gray-400 dark:text-slate-500 ml-1"
                             numberOfLines={1}
+                            style={{ flexShrink: 1, minWidth: 0 }}
                           >
                             {entry.location}
                           </Text>
@@ -609,7 +621,8 @@ export default function TimesScreen() {
       {/* Floating add */}
       <Pressable
         onPress={openAdd}
-        className="absolute bottom-24 right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+        className="absolute right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+        style={{ bottom: insets.bottom + 96 }}
       >
         <Plus size={28} color="#fff" />
       </Pressable>

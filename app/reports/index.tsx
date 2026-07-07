@@ -826,27 +826,29 @@ export default function ReportsScreen() {
                     <Pressable
                       key={id}
                       onPress={() => applyPreset(id)}
-                      style={({ pressed }: { pressed: boolean }) => ({
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingHorizontal: 14,
-                        paddingVertical: 8,
-                        borderRadius: 14,
-                        borderWidth: 1,
-                        borderColor: active ? '#0F172A' : '#E5E7EB',
-                        backgroundColor: active ? '#0F172A' : '#FFFFFF',
-                        opacity: pressed ? 0.85 : 1,
-                      })}
                     >
-                      <Text
+                      <View
                         style={{
-                          fontSize: 12,
-                          fontWeight: '700',
-                          color: active ? '#FFFFFF' : '#475569',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: active ? '#0F172A' : '#E5E7EB',
+                          backgroundColor: active ? '#0F172A' : '#FFFFFF',
                         }}
                       >
-                        {label}
-                      </Text>
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: '700',
+                            color: active ? '#FFFFFF' : '#475569',
+                          }}
+                        >
+                          {label}
+                        </Text>
+                      </View>
                     </Pressable>
                   )
                 })}
@@ -886,37 +888,37 @@ export default function ReportsScreen() {
               <Text className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2">
                 {L('Mitarbeiter', 'Employee')}
               </Text>
-              <Pressable
-                onPress={() => setEmployeePickerOpen((v) => !v)}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: globalEmployeeId === 'all' ? '#E5E7EB' : '#0064E0',
-                  backgroundColor: globalEmployeeId === 'all' ? '#FFFFFF' : '#EFF6FF',
-                  opacity: pressed ? 0.85 : 1,
-                })}
-              >
-                <View className="flex-row items-center">
-                  <UsersIcon size={14} color={globalEmployeeId === 'all' ? '#475569' : '#0064E0'} />
-                  <Text
-                    className="ml-2"
-                    style={{
-                      fontSize: 13,
-                      fontWeight: '700',
-                      color: globalEmployeeId === 'all' ? '#475569' : '#0064E0',
-                    }}
-                  >
-                    {selectedEmployeeName}
+              <Pressable onPress={() => setEmployeePickerOpen((v) => !v)}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: globalEmployeeId === 'all' ? '#E5E7EB' : '#0064E0',
+                    backgroundColor: globalEmployeeId === 'all' ? '#FFFFFF' : '#EFF6FF',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <UsersIcon size={14} color={globalEmployeeId === 'all' ? '#475569' : '#0064E0'} />
+                    <Text
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 13,
+                        fontWeight: '700',
+                        color: globalEmployeeId === 'all' ? '#475569' : '#0064E0',
+                      }}
+                    >
+                      {selectedEmployeeName}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#9CA3AF' }}>
+                    {employeePickerOpen ? '▲' : '▼'}
                   </Text>
                 </View>
-                <Text className="text-[10px] font-black text-gray-400">
-                  {employeePickerOpen ? '▲' : '▼'}
-                </Text>
               </Pressable>
 
               {employeePickerOpen && (
@@ -926,25 +928,27 @@ export default function ReportsScreen() {
                       setGlobalEmployeeId('all')
                       setEmployeePickerOpen(false)
                     }}
-                    style={({ pressed }: { pressed: boolean }) => ({
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: globalEmployeeId === 'all' ? '#0064E0' : '#E5E7EB',
-                      backgroundColor: globalEmployeeId === 'all' ? '#0064E0' : '#FFFFFF',
-                      opacity: pressed ? 0.85 : 1,
-                    })}
                   >
-                    <Text
+                    <View
                       style={{
-                        fontSize: 11,
-                        fontWeight: '700',
-                        color: globalEmployeeId === 'all' ? '#FFFFFF' : '#475569',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: globalEmployeeId === 'all' ? '#0064E0' : '#E5E7EB',
+                        backgroundColor: globalEmployeeId === 'all' ? '#0064E0' : '#FFFFFF',
                       }}
                     >
-                      {L('Alle Mitarbeiter', 'All employees')}
-                    </Text>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: '700',
+                          color: globalEmployeeId === 'all' ? '#FFFFFF' : '#475569',
+                        }}
+                      >
+                        {L('Alle Mitarbeiter', 'All employees')}
+                      </Text>
+                    </View>
                   </Pressable>
                   {employeeOptions.map((e) => {
                     const active = globalEmployeeId === e.id
@@ -955,25 +959,27 @@ export default function ReportsScreen() {
                           setGlobalEmployeeId(e.id)
                           setEmployeePickerOpen(false)
                         }}
-                        style={({ pressed }: { pressed: boolean }) => ({
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: active ? '#0064E0' : '#E5E7EB',
-                          backgroundColor: active ? '#0064E0' : '#FFFFFF',
-                          opacity: pressed ? 0.85 : 1,
-                        })}
                       >
-                        <Text
+                        <View
                           style={{
-                            fontSize: 11,
-                            fontWeight: '700',
-                            color: active ? '#FFFFFF' : '#475569',
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: active ? '#0064E0' : '#E5E7EB',
+                            backgroundColor: active ? '#0064E0' : '#FFFFFF',
                           }}
                         >
-                          {e.name}
-                        </Text>
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '700',
+                              color: active ? '#FFFFFF' : '#475569',
+                            }}
+                          >
+                            {e.name}
+                          </Text>
+                        </View>
                       </Pressable>
                     )
                   })}

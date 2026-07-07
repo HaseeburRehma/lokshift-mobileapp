@@ -8,7 +8,7 @@ import React, { useState, useMemo, useCallback } from 'react'
 import { View, Text, ScrollView, Pressable, Image, Linking, RefreshControl } from 'react-native'
 import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
-import { ChevronLeft, Users as UsersIcon, Info, ExternalLink } from 'lucide-react-native'
+import { ChevronLeft, Users as UsersIcon, Info, ExternalLink, UserPlus } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
@@ -18,6 +18,7 @@ import { canManageUsers, ROLE_LABELS, ROLE_COLORS } from '@/lib/rbac/permissions
 import { useProfiles } from '@/hooks/useProfiles'
 import { useSafeBack } from '@/lib/use-safe-back'
 import { webappPath } from '@/lib/webapp-url'
+import { toast } from '@/components/Toast'
 import { AlertTriangle } from 'lucide-react-native'
 
 export default function UsersScreen() {
@@ -26,9 +27,23 @@ export default function UsersScreen() {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
-  const { profiles, loading, error, fetchProfiles } = useProfiles()
+  const { profiles, pending, loading, error, fetchProfiles, claimUser } = useProfiles()
   const [showInactive, setShowInactive] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [claiming, setClaiming] = useState<string | null>(null)
+
+  const onClaim = async (id: string, label: string) => {
+    if (claiming) return
+    setClaiming(id)
+    try {
+      await claimUser(id)
+      toast.success(L(`${label} zur Organisation hinzugefügt`, `${label} added to organisation`))
+    } catch (e: any) {
+      toast.error(e?.message || L('Konnte nicht hinzugefügt werden', 'Could not add user'))
+    } finally {
+      setClaiming(null)
+    }
+  }
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
@@ -180,6 +195,80 @@ export default function UsersScreen() {
             </View>
           </Card>
         ) : null}
+
+        {/* Pending users — signed up via mobile but have no organization_id
+            yet. Admin taps "Add" to claim them into the current org. */}
+        {pending.length > 0 && (
+          <View className="mb-4">
+            <Text className="text-[11px] font-black uppercase tracking-widest text-gray-500 dark:text-slate-400 mb-2 ml-1">
+              {L(`Ausstehend (${pending.length})`, `Pending (${pending.length})`)}
+            </Text>
+            <View className="space-y-2">
+              {pending.map((p) => {
+                const label = p.full_name ?? p.email ?? '—'
+                const initials = (p.full_name ?? p.email ?? 'U')
+                  .split(' ')
+                  .map((w) => w[0])
+                  .slice(0, 2)
+                  .join('')
+                  .toUpperCase()
+                const busy = claiming === p.id
+                return (
+                  <Card key={p.id} style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', borderWidth: 1 } as any}>
+                    <View className="flex-row items-center">
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 999,
+                          backgroundColor: '#FEF3C7',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 12,
+                        }}
+                      >
+                        <Text style={{ color: '#B45309', fontWeight: '900' }}>{initials}</Text>
+                      </View>
+                      <View className="flex-1" style={{ minWidth: 0 }}>
+                        <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
+                          {label}
+                        </Text>
+                        {p.email && p.full_name && (
+                          <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5" numberOfLines={1}>
+                            {p.email}
+                          </Text>
+                        )}
+                        <Text className="text-[10px] font-black uppercase tracking-widest mt-1" style={{ color: '#B45309' }}>
+                          {L('Keine Organisation', 'No organisation')}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => onClaim(p.id, label)}
+                        disabled={busy}
+                        style={{
+                          marginLeft: 8,
+                          paddingHorizontal: 12,
+                          height: 36,
+                          borderRadius: 999,
+                          backgroundColor: '#0064E0',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'row',
+                          opacity: busy ? 0.6 : 1,
+                        }}
+                      >
+                        <UserPlus size={14} color="#fff" />
+                        <Text className="text-[11px] font-black text-white ml-1.5 uppercase tracking-widest">
+                          {busy ? L('…', '…') : L('Hinzufügen', 'Add')}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </Card>
+                )
+              })}
+            </View>
+          </View>
+        )}
 
         {loading ? (
           <Card>

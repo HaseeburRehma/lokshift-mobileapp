@@ -12,7 +12,7 @@
 
 import Constants from 'expo-constants'
 
-const FALLBACK_URL = 'https://locshift-w5rv.vercel.app'
+const FALLBACK_URL = 'https://lokshift.de'
 
 function isUsable(raw: string | null | undefined): raw is string {
   if (!raw) return false

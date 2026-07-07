@@ -166,7 +166,7 @@ export default function QualificationsScreen() {
                                   </Text>
                                 </View>
                               )}
-                              {q.document_url && (
+                              {q.document_url && /^https:\/\//i.test(q.document_url) && (
                                 <Pressable onPress={() => Linking.openURL(q.document_url!).catch(() => {})}>
                                   <View className="flex-row items-center" style={{ gap: 4 }}>
                                     <ExternalLink size={11} color="#0064E0" />

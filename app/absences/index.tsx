@@ -630,54 +630,58 @@ function AbsenceRow({
           ) : null}
 
           {canDecide ? (
-            <View className="flex-row gap-2 mt-3">
+            <View style={{ flexDirection: 'row', marginTop: 12 }}>
               <Pressable
                 onPress={onApprove}
                 disabled={acting}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  flex: 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#DCFCE7',
-                  borderWidth: 1,
-                  borderColor: '#10B981',
-                  borderRadius: 12,
-                  paddingVertical: 8,
-                  opacity: acting ? 0.5 : pressed ? 0.85 : 1,
-                })}
+                style={{ flex: 1, marginRight: 8 }}
               >
-                <Check size={14} color="#059669" />
-                <Text
-                  className="ml-1.5"
-                  style={{ color: '#065F46', fontSize: 12, fontWeight: '800' }}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#DCFCE7',
+                    borderWidth: 1,
+                    borderColor: '#10B981',
+                    borderRadius: 12,
+                    paddingVertical: 8,
+                    opacity: acting ? 0.5 : 1,
+                  }}
                 >
-                  {L('Genehmigen', 'Approve')}
-                </Text>
+                  <Check size={14} color="#059669" />
+                  <Text
+                    style={{ marginLeft: 6, color: '#065F46', fontSize: 12, fontWeight: '800' }}
+                  >
+                    {L('Genehmigen', 'Approve')}
+                  </Text>
+                </View>
               </Pressable>
               <Pressable
                 onPress={onReject}
                 disabled={acting}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  flex: 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#FEE2E2',
-                  borderWidth: 1,
-                  borderColor: '#EF4444',
-                  borderRadius: 12,
-                  paddingVertical: 8,
-                  opacity: acting ? 0.5 : pressed ? 0.85 : 1,
-                })}
+                style={{ flex: 1 }}
               >
-                <XIcon size={14} color="#DC2626" />
-                <Text
-                  className="ml-1.5"
-                  style={{ color: '#7F1D1D', fontSize: 12, fontWeight: '800' }}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#FEE2E2',
+                    borderWidth: 1,
+                    borderColor: '#EF4444',
+                    borderRadius: 12,
+                    paddingVertical: 8,
+                    opacity: acting ? 0.5 : 1,
+                  }}
                 >
-                  {L('Ablehnen', 'Reject')}
-                </Text>
+                  <XIcon size={14} color="#DC2626" />
+                  <Text
+                    style={{ marginLeft: 6, color: '#7F1D1D', fontSize: 12, fontWeight: '800' }}
+                  >
+                    {L('Ablehnen', 'Reject')}
+                  </Text>
+                </View>
               </Pressable>
             </View>
           ) : null}

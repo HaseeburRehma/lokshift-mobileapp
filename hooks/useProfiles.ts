@@ -41,6 +41,7 @@ export function useProfiles(includeInactive = true) {
   const supabase = getSupabase()
   const { profile: me } = useUser()
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [pending, setPending] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ProfilesError | null>(null)
 
@@ -123,6 +124,26 @@ export function useProfiles(includeInactive = true) {
         setProfiles(normalized)
         setError(null)
       }
+
+      // Also fetch un-orged users so admins can claim mobile signups whose
+      // handle_new_lokshift_user trigger failed to assign organization_id.
+      // Silently degrades to [] if RLS blocks the read.
+      const { data: pendingData, error: pendingError } = await supabase
+        .from('profiles')
+        .select('id, organization_id, full_name, email, role, avatar_url, is_active, created_at')
+        .is('organization_id', null)
+        .order('created_at', { ascending: false })
+      if (pendingError) {
+        console.warn('[useProfiles] pending fetch failed (RLS?):', pendingError.message)
+        setPending([])
+      } else {
+        const normalizedPending = (pendingData ?? []).map((p: any) => ({
+          ...p,
+          role: normalizeRole(p.role),
+        })) as Profile[]
+        setPending(normalizedPending)
+      }
+
       setLoading(false)
     },
     [supabase, me?.organization_id, includeInactive],
@@ -179,6 +200,28 @@ export function useProfiles(includeInactive = true) {
     }
   }
 
+  /**
+   * Assigns an un-orged profile to the current admin's organization.
+   * Used for mobile signups whose handle_new_lokshift_user trigger did
+   * not set organization_id. On success the row disappears from
+   * `pending` and appears in `profiles` on the next fetch.
+   */
+  const claimUser = async (id: string): Promise<void> => {
+    if (!me?.organization_id) throw new Error('No organization on your account')
+    const previous = pending
+    setPending((prev) => prev.filter((p) => p.id !== id))
+    const { error } = await supabase
+      .from('profiles')
+      .update({ organization_id: me.organization_id } as any)
+      .eq('id', id)
+      .is('organization_id', null)
+    if (error) {
+      setPending(previous)
+      throw error
+    }
+    await fetchProfiles(true)
+  }
+
   const updateProfile = async (id: string, patch: Partial<Profile>) => {
     const previous = profiles
     setProfiles((prev) =>
@@ -214,6 +257,7 @@ export function useProfiles(includeInactive = true) {
 
   return {
     profiles,
+    pending,
     loading,
     error,
     fetchProfiles,
@@ -221,5 +265,6 @@ export function useProfiles(includeInactive = true) {
     toggleActive,
     updateProfile,
     resetPassword,
+    claimUser,
   }
 }

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
+import { safeNumber, safeParseISO } from '@/lib/safe-format'
 import type { HolidayBonus } from '@/lib/types'
 
 export function useHolidayBonus() {
@@ -38,8 +39,11 @@ export function useHolidayBonus() {
   const ytdTotal = useMemo(() => {
     const year = new Date().getFullYear()
     return items
-      .filter((b) => new Date(b.created_at).getFullYear() === year)
-      .reduce((s, b) => s + (Number(b.amount) || 0), 0)
+      .filter((b) => safeParseISO(b.created_at)?.getFullYear() === year)
+      .reduce((s, b) => {
+        const n = Number(b.amount)
+        return s + (Number.isFinite(n) ? n : 0)
+      }, 0)
   }, [items])
 
   const grantBonus = async (payload: Partial<HolidayBonus>) => {
@@ -63,7 +67,7 @@ export function useHolidayBonus() {
         await supabase.from('notifications').insert({
           user_id: (data as HolidayBonus).employee_id,
           title: '🎁 Bonus erhalten',
-          body: `€${Number((data as HolidayBonus).amount).toFixed(2)}`,
+          body: `€${safeNumber((data as HolidayBonus).amount)}`,
           type: 'holiday_bonus',
           is_read: false,
         } as any)

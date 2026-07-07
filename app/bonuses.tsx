@@ -18,6 +18,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Plus,
   Gift,
@@ -57,6 +58,7 @@ export default function HolidayBonusScreen() {
   const { role } = useUser()
   const canGrant = canApproveTimes(role)
   const dateLocale = locale === 'de' ? deLocale : enUS
+  const insets = useSafeAreaInsets()
 
   const { items, loading, fetchItems, grantBonus, deleteBonus, ytdTotal } = useHolidayBonus()
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -346,31 +348,31 @@ export default function HolidayBonusScreen() {
                     autoCapitalize="none"
                   />
                 </View>
-                <Pressable
-                  onPress={() => setEmployeePickerOpen((v) => !v)}
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingHorizontal: 14,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
-                    backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
-                    height: 44,
-                    opacity: pressed ? 0.85 : 1,
-                  })}
-                >
-                  <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
-                  <Text
-                    className="ml-1.5"
+                <Pressable onPress={() => setEmployeePickerOpen((v) => !v)}>
+                  <View
                     style={{
-                      fontSize: 12,
-                      fontWeight: '800',
-                      color: employeeFilter === 'all' ? '#475569' : '#0064E0',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 14,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
+                      backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                      height: 44,
                     }}
                   >
-                    {employeeFilter === 'all' ? L('Alle', 'All') : (selectedEmployeeName ?? '—').split(' ')[0]}
-                  </Text>
+                    <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
+                    <Text
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 12,
+                        fontWeight: '800',
+                        color: employeeFilter === 'all' ? '#475569' : '#0064E0',
+                      }}
+                    >
+                      {employeeFilter === 'all' ? L('Alle', 'All') : (selectedEmployeeName ?? '—').split(' ')[0]}
+                    </Text>
+                  </View>
                 </Pressable>
               </View>
 
@@ -450,19 +452,21 @@ export default function HolidayBonusScreen() {
                   onPress={() =>
                     confirmDelete(b.id, Number(b.amount) || 0, b.employee?.full_name ?? undefined)
                   }
-                  style={({ pressed }: { pressed: boolean }) => ({
-                    width: 36,
-                    height: 36,
-                    borderRadius: 12,
-                    backgroundColor: '#FEE2E2',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: pressed ? 0.7 : 1,
-                    marginLeft: 8,
-                  })}
                   accessibilityLabel={L('Löschen', 'Delete')}
                 >
-                  <Trash2 size={16} color="#DC2626" />
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: '#FEE2E2',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginLeft: 8,
+                    }}
+                  >
+                    <Trash2 size={16} color="#DC2626" />
+                  </View>
                 </Pressable>
               )}
             </Card>
@@ -473,22 +477,25 @@ export default function HolidayBonusScreen() {
               <Pressable
                 onPress={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  backgroundColor: '#FFFFFF',
-                  opacity: page === 1 ? 0.4 : pressed ? 0.85 : 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                })}
               >
-                <ChevronLeft size={14} color="#475569" />
-                <Text className="text-[12px] font-bold text-gray-600 ml-1">
-                  {L('Zurück', 'Prev')}
-                </Text>
+                <View
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                    backgroundColor: '#FFFFFF',
+                    opacity: page === 1 ? 0.4 : 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <ChevronLeft size={14} color="#475569" />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#4B5563', marginLeft: 4 }}>
+                    {L('Zurück', 'Prev')}
+                  </Text>
+                </View>
               </Pressable>
               <Text className="text-[12px] font-black text-gray-700">
                 {page} / {totalPages}
@@ -496,22 +503,25 @@ export default function HolidayBonusScreen() {
               <Pressable
                 onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                style={({ pressed }: { pressed: boolean }) => ({
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  backgroundColor: '#FFFFFF',
-                  opacity: page === totalPages ? 0.4 : pressed ? 0.85 : 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                })}
               >
-                <Text className="text-[12px] font-bold text-gray-600 mr-1">
-                  {L('Weiter', 'Next')}
-                </Text>
-                <ChevronRight size={14} color="#475569" />
+                <View
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#E5E7EB',
+                    backgroundColor: '#FFFFFF',
+                    opacity: page === totalPages ? 0.4 : 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#4B5563', marginRight: 4 }}>
+                    {L('Weiter', 'Next')}
+                  </Text>
+                  <ChevronRight size={14} color="#475569" />
+                </View>
               </Pressable>
             </View>
           )}
@@ -520,7 +530,8 @@ export default function HolidayBonusScreen() {
         {canGrant && (
           <Pressable
             onPress={() => setSheetOpen(true)}
-            className="absolute bottom-24 right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+            className="absolute right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
+            style={{ bottom: insets.bottom + 96 }}
           >
             <Plus size={28} color="#fff" />
           </Pressable>
@@ -611,27 +622,27 @@ function FilterPill({
   onPress: () => void
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => ({
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? '#0064E0' : '#E5E7EB',
-        backgroundColor: active ? '#0064E0' : '#FFFFFF',
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <Text
+    <Pressable onPress={onPress}>
+      <View
         style={{
-          fontSize: 12,
-          fontWeight: '700',
-          color: active ? '#FFFFFF' : '#475569',
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: active ? '#0064E0' : '#E5E7EB',
+          backgroundColor: active ? '#0064E0' : '#FFFFFF',
         }}
       >
-        {label}
-      </Text>
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: '700',
+            color: active ? '#FFFFFF' : '#475569',
+          }}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   )
 }

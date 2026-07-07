@@ -23,6 +23,7 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, Image, Pressable, AppState, ScrollView, TextInput } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Link, useRouter } from 'expo-router'
 import { Globe, Eye, EyeOff } from 'lucide-react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -56,6 +57,7 @@ export default function LoginScreen() {
   const { t, locale, setLocale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const router = useRouter()
+  const insets = useSafeAreaInsets()
 
   const [showSplash, setShowSplash] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -182,7 +184,7 @@ export default function LoginScreen() {
       <View pointerEvents="none" style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '50%', height: '40%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999 }} />
 
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, paddingTop: 56, paddingBottom: 32, paddingHorizontal: 24 }}
+        contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 24, paddingBottom: 32, paddingHorizontal: 24 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Header: logo + language toggle (matches webapp lines 79-102) */}

@@ -231,61 +231,65 @@ export function ClockInOutCard() {
             <Pressable
               onPress={isOnBreak ? endBreak : startBreak}
               disabled={busy}
-              style={({ pressed }: { pressed: boolean }) => ({
-                flex: 1,
-                height: 44,
-                borderRadius: 12,
-                backgroundColor: isOnBreak ? '#FFFFFF' : 'rgba(255,255,255,0.12)',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'row',
-                opacity: pressed ? 0.85 : 1,
-                marginRight: 10,
-              })}
+              style={{ flex: 1, marginRight: 10 }}
             >
-              {isOnBreak ? (
-                <Play size={14} color="#2563EB" style={{ marginRight: 8 }} />
-              ) : (
-                <Coffee size={14} color="#FFFFFF" style={{ marginRight: 8 }} />
-              )}
-              <Text
+              <View
                 style={{
-                  color: isOnBreak ? '#2563EB' : '#FFFFFF',
-                  fontSize: 10,
-                  fontWeight: '900',
-                  letterSpacing: 1.6,
-                  textTransform: 'uppercase',
+                  height: 44,
+                  borderRadius: 12,
+                  backgroundColor: isOnBreak ? '#FFFFFF' : 'rgba(255,255,255,0.12)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
                 }}
               >
-                {isOnBreak ? L('Fortsetzen', 'Resume') : L('Pause machen', 'Pause')}
-              </Text>
+                {isOnBreak ? (
+                  <Play size={14} color="#2563EB" style={{ marginRight: 8 }} />
+                ) : (
+                  <Coffee size={14} color="#FFFFFF" style={{ marginRight: 8 }} />
+                )}
+                <Text
+                  style={{
+                    color: isOnBreak ? '#2563EB' : '#FFFFFF',
+                    fontSize: 10,
+                    fontWeight: '900',
+                    letterSpacing: 1.6,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {isOnBreak ? L('Fortsetzen', 'Resume') : L('Pause machen', 'Pause')}
+                </Text>
+              </View>
             </Pressable>
             <Pressable
               onPress={onEnd}
               disabled={busy}
-              style={({ pressed }: { pressed: boolean }) => ({
-                flex: 1,
-                height: 44,
-                borderRadius: 12,
-                backgroundColor: '#DC2626',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'row',
-                opacity: pressed || busy ? 0.7 : 1,
-              })}
+              style={{ flex: 1 }}
             >
-              <Square size={14} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text
+              <View
                 style={{
-                  color: '#FFFFFF',
-                  fontSize: 10,
-                  fontWeight: '900',
-                  letterSpacing: 1.6,
-                  textTransform: 'uppercase',
+                  height: 44,
+                  borderRadius: 12,
+                  backgroundColor: '#DC2626',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  opacity: busy ? 0.7 : 1,
                 }}
               >
-                {busy ? L('Wird beendet…', 'Ending…') : L('Beenden', 'End')}
-              </Text>
+                <Square size={14} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text
+                  style={{
+                    color: '#FFFFFF',
+                    fontSize: 10,
+                    fontWeight: '900',
+                    letterSpacing: 1.6,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {busy ? L('Wird beendet…', 'Ending…') : L('Beenden', 'End')}
+                </Text>
+              </View>
             </Pressable>
           </>
         )}

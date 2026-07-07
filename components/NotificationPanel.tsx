@@ -112,16 +112,22 @@ export function NotificationPanel({ visible, onClose }: NotificationPanelProps) 
                     key={n.id}
                     onPress={() => !n.is_read && markAsRead(n.id)}
                     onLongPress={() => deleteNotification(n.id)}
-                    style={({ pressed }: { pressed: boolean }) => ({
-                      flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-                      paddingHorizontal: 20, paddingVertical: 14,
-                      backgroundColor: pressed ? '#F8FAFC' : 'transparent',
-                      borderBottomWidth: 1, borderBottomColor: '#F8FAFC',
-                    })}
                   >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'flex-start',
+                        paddingHorizontal: 20,
+                        paddingVertical: 14,
+                        backgroundColor: 'transparent',
+                        borderBottomWidth: 1,
+                        borderBottomColor: '#F8FAFC',
+                      }}
+                    >
                     <View style={{
                       width: 36, height: 36, borderRadius: 10, backgroundColor: bg,
                       alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      marginRight: 12,
                     }}>
                       <Icon size={16} color={color} />
                     </View>
@@ -151,6 +157,7 @@ export function NotificationPanel({ visible, onClose }: NotificationPanelProps) 
                       }}>
                         {L('Vor', '')} {formatDistanceToNow(new Date(n.created_at), { locale: dateLocale })}
                       </Text>
+                    </View>
                     </View>
                   </Pressable>
                 )

@@ -16,13 +16,14 @@
  *   - Footer: app version
  */
 
-import React, { useMemo } from 'react'
-import { View, Text, Pressable, ScrollView, Image, Switch, Linking } from 'react-native'
+import React, { useMemo, useState } from 'react'
+import { View, Text, Pressable, ScrollView, Image, Switch, Linking, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
 import {
   ChevronRight,
   LogOut,
+  Trash2,
   Globe,
   Lock,
   Database,
@@ -49,6 +50,7 @@ import {
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
+import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { useTheme } from '@/lib/theme'
@@ -75,7 +77,36 @@ interface RowItem {
 export default function SettingsScreen() {
   const { t, locale, setLocale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const { profile, role, signOut } = useUser()
+  const { profile, role, signOut, deleteAccount } = useUser()
+  const [deleting, setDeleting] = useState(false)
+
+  const confirmDelete = () => {
+    if (deleting) return
+    Alert.alert(
+      L('Konto löschen?', 'Delete account?'),
+      L(
+        'Diese Aktion ist endgültig. Ihr Konto und alle damit verbundenen Daten (Profil, Zeiterfassung, Chat-Nachrichten, Anträge) werden dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.',
+        'This action is permanent. Your account and all associated data (profile, time entries, chat messages, requests) will be permanently deleted. This cannot be undone.',
+      ),
+      [
+        { text: L('Abbrechen', 'Cancel'), style: 'cancel' },
+        {
+          text: L('Endgültig löschen', 'Delete permanently'),
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true)
+            try {
+              await deleteAccount()
+              toast.success(L('Konto gelöscht', 'Account deleted'))
+            } catch (err: any) {
+              toast.error(err?.message || L('Löschen fehlgeschlagen', 'Deletion failed'))
+              setDeleting(false)
+            }
+          },
+        },
+      ],
+    )
+  }
   const { pref: themePref } = useTheme()
   const { unreadCount } = useNotifications()
   const router = useRouter()
@@ -310,6 +341,40 @@ export default function SettingsScreen() {
             </Text>
           </View>
         </Pressable>
+
+        {/* Delete account — required by Apple guideline 5.1.1(v). Permanent,
+            server-side. Kicks off the delete_my_account Supabase RPC. */}
+        <Pressable onPress={confirmDelete} disabled={deleting}>
+          <View
+            style={{
+              marginTop: 10,
+              backgroundColor: '#DC2626',
+              borderRadius: 16,
+              paddingVertical: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: deleting ? 0.6 : 1,
+            }}
+          >
+            <Trash2 size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+            <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 13, letterSpacing: 1.2 }}>
+              {deleting
+                ? L('WIRD GELÖSCHT…', 'DELETING…')
+                : L('KONTO LÖSCHEN', 'DELETE ACCOUNT')}
+            </Text>
+          </View>
+        </Pressable>
+
+        <Text
+          className="text-[11px] text-gray-400 dark:text-slate-500 mt-3"
+          style={{ textAlign: 'center', paddingHorizontal: 12, lineHeight: 16 }}
+        >
+          {L(
+            'Wird das Konto gelöscht, werden alle Ihre Daten unwiderruflich entfernt.',
+            'Deleting the account permanently removes all your data.',
+          )}
+        </Text>
 
         <Text className="text-[10px] text-gray-300 dark:text-slate-700 text-center mt-6 font-mono">
           v0.1.0

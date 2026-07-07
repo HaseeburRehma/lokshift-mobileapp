@@ -33,7 +33,6 @@ import {
   Smartphone,
   ExternalLink,
   Fingerprint,
-  MapPin,
 } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
@@ -53,12 +52,6 @@ import {
   setBiometricEnabled,
   type BiometricSupport,
 } from '@/lib/biometric'
-import {
-  getBackgroundLocationEnabled,
-  setBackgroundLocationEnabled,
-  startTracking as startBgLocation,
-  stopTracking as stopBgLocation,
-} from '@/lib/location/background'
 import { useSafeBack } from '@/lib/use-safe-back'
 
 export default function SecuritySettingsScreen() {
@@ -108,36 +101,6 @@ export default function SecuritySettingsScreen() {
 
   const bioReady = !!bioSupport?.hasHardware && !!bioSupport?.enrolled
   const bioLabel = bioSupport ? describeBiometric(bioSupport, locale) : ''
-
-  // Background location toggle
-  const [bgLocEnabled, setBgLocEnabledState] = useState(false)
-  useEffect(() => {
-    getBackgroundLocationEnabled().then(setBgLocEnabledState)
-  }, [])
-
-  const toggleBackgroundLocation = async (next: boolean) => {
-    if (next) {
-      const ok = await startBgLocation(session?.user?.id ?? '')
-      if (!ok) {
-        toast.error(
-          L(
-            'Hintergrund-Standort konnte nicht aktiviert werden.',
-            'Could not enable background location.',
-          ),
-        )
-        return
-      }
-    } else {
-      await stopBgLocation()
-    }
-    setBgLocEnabledState(next)
-    await setBackgroundLocationEnabled(next)
-    toast.success(
-      next
-        ? L('Hintergrund-Standort aktiviert', 'Background location enabled')
-        : L('Hintergrund-Standort deaktiviert', 'Background location disabled'),
-    )
-  }
 
   const webappUrl = getWebappUrl()
 
@@ -321,31 +284,6 @@ export default function SecuritySettingsScreen() {
               value={bioEnabled}
               onValueChange={toggleBiometric}
               disabled={!bioReady}
-              trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
-            />
-          </View>
-        </Card>
-
-        {/* Background location */}
-        <Card className="mb-3">
-          <View className="flex-row items-start justify-between">
-            <View className="flex-row items-start flex-1 pr-3">
-              <MapPin size={18} color="#0064E0" style={{ marginTop: 2 }} />
-              <View className="flex-1 ml-2">
-                <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-                  {L('Standort während Schicht', 'Location during shift')}
-                </Text>
-                <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-1">
-                  {L(
-                    'Aktualisiert Ihren Standort alle 5 Min., solange Sie eingestempelt sind. Die Disposition sieht Sie auf der Live-Karte.',
-                    'Updates your location every 5 min while you are clocked in. Dispatch sees you on the live map.',
-                  )}
-                </Text>
-              </View>
-            </View>
-            <Switch
-              value={bgLocEnabled}
-              onValueChange={toggleBackgroundLocation}
               trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
             />
           </View>
