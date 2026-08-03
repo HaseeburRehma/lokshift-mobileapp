@@ -44,42 +44,12 @@ export default function HomeScreen() {
   const dateLocale = locale === 'de' ? deLocale : enUS
   const hr = L('Std.', 'h')
 
-  if (userLoading) {
-    return (
-      <Screen background="#FFFFFF" noTapToDismiss>
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 dark:text-slate-500 text-[13px]">{t('common.loading')}</Text>
-        </View>
-      </Screen>
-    )
-  }
-
-  if (!profile) {
-    return (
-      <Screen background="#FFFFFF" noTapToDismiss>
-        <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-[20px] font-black text-gray-900 dark:text-white text-center mb-2">
-            {L('Profil nicht gefunden', 'Profile not found')}
-          </Text>
-          <Text className="text-[13px] text-gray-500 dark:text-slate-400 text-center leading-relaxed">
-            {L(
-              'Ihr Konto ist angemeldet, aber wir konnten kein Profil finden. Bitte kontaktieren Sie Ihren Admin.',
-              "You're signed in but no profile was found. Please ask your admin.",
-            )}
-          </Text>
-          {session?.user?.email && (
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-3 font-mono">{session.user.email}</Text>
-          )}
-        </View>
-      </Screen>
-    )
-  }
-
-  const firstName = profile.full_name?.split(' ')[0] ?? profile.email?.split('@')[0] ?? ''
-  const managerial = isAdmin || isDispatcher
-
-  // Live operations data — only used for managerial users; the hook is
-  // cheap to mount unconditionally because RLS filters server-side.
+  // IMPORTANT — hook order rule. Every hook this component calls MUST run
+  // on every render, no matter what userLoading / !profile evaluate to.
+  // Previously we bailed out with `if (userLoading) return ...` BEFORE
+  // calling useActiveShifts + useMemo, which meant the hook count changed
+  // between renders and React logged "Rendered fewer hooks than expected".
+  // Keep all hook calls above the early returns.
   const { activeShifts, upcoming, stats: liveStats } = useActiveShifts()
   const livePins: LiveMapPin[] = useMemo(() => {
     const out: LiveMapPin[] = []
@@ -125,6 +95,41 @@ export default function HomeScreen() {
       longitudeDelta: 0.5,
     }
   }, [livePins, upcomingPins])
+
+  // Now safe to short-circuit — every hook above ran unconditionally.
+  if (userLoading) {
+    return (
+      <Screen background="#FFFFFF" noTapToDismiss>
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-gray-400 dark:text-slate-500 text-[13px]">{t('common.loading')}</Text>
+        </View>
+      </Screen>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <Screen background="#FFFFFF" noTapToDismiss>
+        <View className="flex-1 items-center justify-center px-8">
+          <Text className="text-[20px] font-black text-gray-900 dark:text-white text-center mb-2">
+            {L('Profil nicht gefunden', 'Profile not found')}
+          </Text>
+          <Text className="text-[13px] text-gray-500 dark:text-slate-400 text-center leading-relaxed">
+            {L(
+              'Ihr Konto ist angemeldet, aber wir konnten kein Profil finden. Bitte kontaktieren Sie Ihren Admin.',
+              "You're signed in but no profile was found. Please ask your admin.",
+            )}
+          </Text>
+          {session?.user?.email && (
+            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-3 font-mono">{session.user.email}</Text>
+          )}
+        </View>
+      </Screen>
+    )
+  }
+
+  const firstName = profile.full_name?.split(' ')[0] ?? profile.email?.split('@')[0] ?? ''
+  const managerial = isAdmin || isDispatcher
 
   return (
     <Screen background="#FFFFFF" noTapToDismiss>

@@ -90,9 +90,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const onPasswordChange = first === 'change-password'
     const onOnboarding = first === 'onboarding'
     // Screens where the user MUST stay even after verifyOtp creates a
-    // session — recovery + signup finish setting a password inline, and
+    // session — forgot-password finishes setting a password inline, and
     // an eager redirect to /home would strand them without a real password.
-    const onPasswordFlow = last === 'forgot-password' || last === 'register'
+    // Register is intentionally NOT included here — the mobile app no
+    // longer allows account creation (Apple 3.1.1 compliance); the screen
+    // just shows an info page.
+    const onPasswordFlow = last === 'forgot-password'
 
     if (!session) {
       // Unauthenticated — only the (auth) group is allowed. Defence-in-

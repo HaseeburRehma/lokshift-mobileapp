@@ -213,7 +213,10 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* LoginButtons block — gap-4 stacked, matches webapp */}
+            {/* LoginButtons block — gap-4 stacked, matches webapp.
+                Register button removed for Apple guideline 3.1.1 compliance:
+                the mobile app is now sign-in only. New employees are
+                provisioned by their employer via the LokShift web platform. */}
             <View style={{ width: '100%', maxWidth: 384, gap: 16 }}>
               <Pressable
                 onPress={() => setShowForm(true)}
@@ -223,16 +226,7 @@ export default function LoginScreen() {
                   {t('auth.login')}
                 </Text>
               </Pressable>
-              <Link href="/(auth)/register" asChild>
-                <Pressable
-                  style={{ height: 56, borderRadius: 12, backgroundColor: 'transparent', borderWidth: 2, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '600' }}>
-                    {t('auth.register')}
-                  </Text>
-                </Pressable>
-              </Link>
-              <View style={{ alignItems: 'center', marginTop: 16 }}>
+              <View style={{ alignItems: 'center', marginTop: 4 }}>
                 <Link href="/(auth)/forgot-password" asChild>
                   <Pressable>
                     <Text style={{ color: 'rgba(255,255,255,0.90)', fontSize: 14, fontWeight: '500' }}>
@@ -243,12 +237,13 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Privacy notice */}
+            {/* Access notice — replaces the old registration marketing copy.
+                Employees receive access via their organization admin. */}
             <View style={{ marginTop: 32, alignItems: 'center', paddingBottom: 32 }}>
-              <Text style={{ color: 'rgba(255,255,255,0.60)', fontSize: 10, textAlign: 'center', maxWidth: 280, lineHeight: 14 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', maxWidth: 300, lineHeight: 18 }}>
                 {L(
-                  'Mit der Registrierung stimmen Sie unserem Datenschutzhinweis & unserer Datenschutzerklärung zu',
-                  'By signing up, you agree to the Privacy Notice & Privacy Policy',
+                  'Kein Konto? Bitten Sie Ihren Arbeitgeber um eine Einladung. Neue Organisationen registrieren sich unter lokshift.de.',
+                  'No account? Please ask your employer for an invitation. New organisations register at lokshift.de.',
                 )}
               </Text>
             </View>

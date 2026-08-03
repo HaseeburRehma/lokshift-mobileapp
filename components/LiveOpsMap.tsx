@@ -7,12 +7,33 @@
  * On web, the sibling `LiveOpsMap.web.tsx` renders a placeholder card
  * — Metro's platform-extension resolution picks the right file
  * automatically.
+ *
+ * Android needs a Google Maps API key in app.json's
+ * `android.config.googleMaps.apiKey`. Without it the MapView native
+ * module crashes on init — we wrap the render in an ErrorBoundary so
+ * one broken map doesn't take the whole home screen down.
  */
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, Component, type ReactNode } from 'react'
 import { View, Text, Platform } from 'react-native'
 import MapView, { Marker } from 'react-native-maps'
 import { MapPin as MapPinIcon } from 'lucide-react-native'
+
+class MapErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(err: any) {
+    console.warn('[LiveOpsMap] map render failed — showing fallback:', err?.message ?? err)
+  }
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children
+  }
+}
 
 export interface LiveMapPin {
   id: string
@@ -61,7 +82,26 @@ export function LiveOpsMap({
     )
   }, [initialRegion.latitude, initialRegion.longitude, isEmpty])
 
+  const fallback = (
+    <View
+      style={{
+        height,
+        borderRadius: 18,
+        backgroundColor: '#E2E8F0',
+        marginBottom: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <MapPinIcon size={22} color="#94A3B8" />
+      <Text style={{ fontSize: 12, fontWeight: '600', color: '#64748B', marginTop: 8 }}>
+        {emptyLabel}
+      </Text>
+    </View>
+  )
+
   return (
+    <MapErrorBoundary fallback={fallback}>
     <View
       style={{
         height,
@@ -158,5 +198,6 @@ export function LiveOpsMap({
         </View>
       )}
     </View>
+    </MapErrorBoundary>
   )
 }

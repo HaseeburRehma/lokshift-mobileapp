@@ -10,10 +10,38 @@
         "run",
         "dev",
         "--",
-        "-p",
-        "3040"
+        "--port",
+        "3002"
       ],
-      "port": 3040
+      "port": 3002
+    },
+    {
+      "name": "shabab-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/shabab-al-deira",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5199"
+      ],
+      "port": 5199
+    },
+    {
+      "name": "selmir-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/selmir",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3007"
+      ],
+      "port": 3007
     }
   ]
 }

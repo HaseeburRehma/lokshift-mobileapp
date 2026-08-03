@@ -2,7 +2,7 @@
   "expo": {
     "name": "LokShift",
     "slug": "locshift-mobile",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lokshift",
@@ -170,6 +170,11 @@
       },
       "package": "app.lokshift.mobile",
       "versionCode": 1,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCxpEXhm2SSC6_3E5506ZoLUo-quhnF01I"
+        }
+      },
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO",
@@ -186,7 +191,11 @@
       "blockedPermissions": [
         "android.permission.ACCESS_MEDIA_LOCATION",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "web": {
@@ -249,7 +258,8 @@
       ],
       "expo-font",
       "expo-asset",
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "./plugins/withGradleMemory"
     ],
     "experiments": {
       "typedRoutes": true

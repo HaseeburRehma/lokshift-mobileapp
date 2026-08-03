@@ -49,4 +49,5 @@ expo-env.d.ts
 .env.production
 .env.staging
 google-play-service-account.json
+lokshift-*.json
 ios/Certificates.p12
