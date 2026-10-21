@@ -14,6 +14,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import type { OperationalLocation, OperationalLocationType } from '@/lib/types'
+import { invalidateLocationCache } from '@/lib/operational-locations/cache'
 
 export interface OperationalLocationInput {
   name: string
@@ -38,20 +39,30 @@ export function useOperationalLocations(includeArchived = true) {
       if (!profile?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
 
-      let query = supabase
-        .from('operational_locations')
-        .select('*')
-        .eq('organization_id', profile.organization_id)
-        .order('name', { ascending: true })
-
-      if (!includeArchived) query = query.eq('is_active', true)
-
-      const { data, error } = await query
-      if (error) {
-        console.warn('[useOperationalLocations] fetch failed', error.message)
-      } else {
-        setLocations((data ?? []) as OperationalLocation[])
+      // PostgREST caps responses at 1000 rows — page through so several
+      // hundred imported Betriebsstellen never get cut off (Punkt 12).
+      const rows: OperationalLocation[] = []
+      for (let from = 0; from < 20000; from += 1000) {
+        let query = supabase
+          .from('operational_locations')
+          .select('*')
+          .eq('organization_id', profile.organization_id)
+          .order('name', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999)
+        if (!includeArchived) query = query.eq('is_active', true)
+        const { data, error } = await query
+        if (error) {
+          // Keep the previous list rather than replacing it with a partial one.
+          console.warn('[useOperationalLocations] fetch failed', error.message)
+          setLoading(false)
+          return
+        }
+        rows.push(...((data ?? []) as OperationalLocation[]))
+        if (!data || data.length < 1000) break
       }
+      setLocations(rows)
+      invalidateLocationCache(profile.organization_id)
       setLoading(false)
     },
     [supabase, profile?.organization_id, includeArchived],
@@ -60,6 +71,12 @@ export function useOperationalLocations(includeArchived = true) {
   useEffect(() => {
     fetchLocations()
     if (!profile?.organization_id) return
+    // An import inserts hundreds of rows — coalesce into one reload.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => fetchLocations(true), 500)
+    }
 
     const channel = supabase
       .channel(uniqueChannelName(`operational-locations-${profile.organization_id}`))
@@ -71,11 +88,12 @@ export function useOperationalLocations(includeArchived = true) {
           table: 'operational_locations',
           filter: `organization_id=eq.${profile.organization_id}`,
         },
-        () => fetchLocations(true),
+        schedule,
       )
       .subscribe()
 
     return () => {
+      if (timer) clearTimeout(timer)
       try { supabase.removeChannel(channel) } catch {}
     }
   }, [supabase, profile?.organization_id, fetchLocations])

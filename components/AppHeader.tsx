@@ -1,12 +1,16 @@
 /**
- * Top app bar shown on every authenticated screen. Theme-aware: the
- * background, border and icon colors swap to the dark palette when the
- * user (or system) selects dark mode.
+ * Top app bar shown on every authenticated screen — mobile port of the
+ * webapp's DashboardHeader (mobile layout): hamburger left, LokShift logo
+ * centred, notification bell with red count badge (opens the
+ * NotificationPanel sheet) and the avatar (opens the user menu with
+ * Einstellungen / Abmelden) on the right.
+ *
+ * Theme-aware: background, border and icon colours swap to the dark
+ * palette when the user (or system) selects dark mode.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { View, Text, Pressable, Image } from 'react-native'
-import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Menu, Bell } from 'lucide-react-native'
 
@@ -14,6 +18,9 @@ import { useDrawer } from '@/lib/drawer-context'
 import { useUser } from '@/lib/user-context'
 import { useNotifications } from '@/lib/notifications-context'
 import { useTheme } from '@/lib/theme'
+import { useTranslation } from '@/lib/i18n'
+import { NotificationPanel } from '@/components/NotificationPanel'
+import { HeaderUserMenu } from '@/components/nav/HeaderUserMenu'
 
 interface AppHeaderProps {
   title?: string
@@ -22,22 +29,26 @@ interface AppHeaderProps {
 
 export function AppHeader({ title, hideMenu }: AppHeaderProps) {
   const insets = useSafeAreaInsets()
-  const router = useRouter()
   const { open: openDrawer } = useDrawer()
-  const { profile } = useUser()
+  const { profile, session } = useUser()
   const { unreadCount } = useNotifications()
   const { scheme } = useTheme()
+  const { locale } = useTranslation()
+  const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const isDark = scheme === 'dark'
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
-  const initials = (profile?.full_name ?? profile?.email ?? 'U')
-    .split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : (session?.user?.email ?? profile?.email ?? 'U').slice(0, 2).toUpperCase()
 
   const bg = isDark ? '#0B1220' : '#FFFFFF'
   const borderColor = isDark ? '#1F2937' : '#F1F5F9'
   const titleColor = isDark ? '#F8FAFC' : '#0F172A'
-  const menuIcon = isDark ? '#E2E8F0' : '#0F172A'
-  const bellIcon = isDark ? '#94A3B8' : '#475569'
-  const avatarBg = isDark ? '#1E293B' : '#EEF2FF'
+  const menuIcon = '#94A3B8' // web: text-slate-400 in both themes
+  const bellIcon = panelOpen ? '#0064E0' : isDark ? '#CBD5E1' : '#4B5563'
+  const bellPressedBg = isDark ? '#1E293B' : '#F3F4F6'
 
   return (
     <View
@@ -50,21 +61,21 @@ export function AppHeader({ title, hideMenu }: AppHeaderProps) {
     >
       <View
         style={{
-          height: 56, paddingHorizontal: 12,
+          height: 60, paddingHorizontal: 12,
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         }}
       >
-        <View style={{ width: 44, alignItems: 'flex-start' }}>
-          {!hideMenu && (
+        <View style={{ width: 88, alignItems: 'flex-start' }}>
+          {!hideMenu ? (
             <Pressable
               onPress={openDrawer}
               hitSlop={8}
-              accessibilityLabel="Menu"
+              accessibilityLabel={L('Menü', 'Menu')}
               style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}
             >
               <Menu size={24} color={menuIcon} />
             </Pressable>
-          )}
+          ) : null}
         </View>
 
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -76,56 +87,59 @@ export function AppHeader({ title, hideMenu }: AppHeaderProps) {
             <Image
               source={require('../assets/logo-3.png')}
               resizeMode="contain"
-              style={{ height: 22, width: 120 }}
+              style={{ height: 24, width: 110 }}
             />
           )}
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <View style={{ width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Pressable
-            onPress={() => router.push('/notifications')}
-            hitSlop={8}
-            accessibilityLabel="Notifications"
-            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, position: 'relative' }}
+            onPress={() => setPanelOpen(true)}
+            hitSlop={6}
+            accessibilityLabel={L('Benachrichtigungen', 'Notifications')}
+            style={({ pressed }) => ({
+              width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 16,
+              backgroundColor: pressed || panelOpen ? bellPressedBg : 'transparent',
+            })}
           >
-            <Bell size={22} color={bellIcon} />
-            {unreadCount > 0 && (
+            <Bell size={20} color={bellIcon} />
+            {unreadCount > 0 ? (
               <View
                 style={{
-                  position: 'absolute', top: 10, right: 10,
-                  width: 9, height: 9, borderRadius: 999,
+                  position: 'absolute', top: -2, right: -2,
+                  minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 999,
                   backgroundColor: '#EF4444', borderWidth: 2, borderColor: bg,
+                  alignItems: 'center', justifyContent: 'center',
                 }}
-              />
-            )}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '900' }}>
+                  {unreadCount > 9 ? '9+' : String(unreadCount)}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
 
           <Pressable
-            onPress={() => router.push('/profile')}
+            onPress={() => setMenuOpen(true)}
             hitSlop={6}
-            accessibilityLabel="Profile"
+            accessibilityLabel={L('Benutzermenü', 'User menu')}
             style={{
-              width: 34, height: 34, borderRadius: 999,
-              backgroundColor: avatarBg, alignItems: 'center', justifyContent: 'center',
-              marginLeft: 4,
-              overflow: 'hidden',
+              width: 40, height: 40, borderRadius: 12,
+              backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center',
+              overflow: 'hidden', borderWidth: 1, borderColor: '#FFFFFF',
             }}
           >
             {profile?.avatar_url ? (
-              <Image
-                source={{ uri: profile.avatar_url }}
-                style={{ width: 34, height: 34, borderRadius: 999 }}
-              />
+              <Image source={{ uri: profile.avatar_url }} style={{ width: 40, height: 40 }} />
             ) : (
-              <Text
-                style={{ color: '#0064E0', fontWeight: '900', fontSize: 12, letterSpacing: 0.4 }}
-              >
-                {initials}
-              </Text>
+              <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>{initials}</Text>
             )}
           </Pressable>
         </View>
       </View>
+
+      <NotificationPanel visible={panelOpen} onClose={() => setPanelOpen(false)} />
+      <HeaderUserMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
     </View>
   )
 }

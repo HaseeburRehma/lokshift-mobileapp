@@ -1,60 +1,40 @@
 /**
- * Time Account screen — faithful port of the web
- * `/dashboard/time-account/page.tsx` three-view flow:
+ * Zeitkonto — mobile replica of the webapp's /dashboard/time-account:
  *
- *   ① Personnel view (admin / dispatcher)
- *      - Search + PDF export
- *      - Filter chips with each employee's balance inline
- *      - Hero saldo card (org-total OR selected-employee balance)
- *      - 3 stats tiles
- *      - Inline EmployeeMonthlyPanel — shown when an employee is selected,
- *        ends with a "Gesamte Details ansehen" CTA that drills into the
- *        per-employee overview screen at /account/employee/[id]
- *      - Personnel table — full list (avatar · name · target · balance pill
- *        · chevron). Tap row = same toggle behaviour as the chips.
+ *   ① Personnel view (admin / dispatcher) — PersonnelTimeAccounts
+ *      - Title + search + PDF export
+ *      - Employee chips with each balance inline
+ *      - Stats: Organisations-/Mitarbeiter-Saldo (dark), Mitarbeiter
+ *        insgesamt / Tatsächliche Stunden, Compliance / Sollstunden
+ *      - Inline monthly panel for the selected employee ("Gesamte Details
+ *        ansehen" → /account/employee/[id])
+ *      - Personal-Liste card with pagination (10 per page)
  *
- *   ② Overview view (employee personal OR admin drill-in)
- *      - Lives at /account/employee/[id] (admin) or this screen for an
- *        employee viewing their own data.
- *      - 4 stats + monthly cards (each tap → /account/[month])
+ *   ② Overview view (employee personal) — TimeAccountOverview
+ *      - 4 stat cards + Monatsübersicht (each tap → /account/[month])
+ *      - admin drill-in lives at /account/employee/[id]
  *
- *   ③ Monthly view — already lives at /account/[month].
+ *   ③ Monthly view — /account/[month].
  */
 
-import React, { useMemo, useState } from 'react'
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  RefreshControl,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native'
+import React, { useEffect, useMemo, useState } from 'react'
+import { View, Text, ScrollView, Pressable, RefreshControl, TextInput, ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
-import {
-  TrendingUp,
-  TrendingDown,
-  ChevronRight,
-  Search,
-  Users as UsersIcon,
-  Clock,
-  Download,
-  Calendar as CalendarIcon,
-  ArrowRight,
-} from 'lucide-react-native'
+import { ArrowRight, Calendar as CalendarIcon, ChevronDown, ChevronRight, Clock, Download, Search, TrendingUp, Users as UsersIcon } from 'lucide-react-native'
 import { format } from 'date-fns'
 
 import { Screen } from '@/components/Screen'
-import { safeNumber } from '@/lib/safe-format'
-import { Card } from '@/components/Card'
 import { AppHeader } from '@/components/AppHeader'
+import { PageHeader } from '@/components/PageHeader'
 import { toast } from '@/components/Toast'
+import { C, Pagination } from '@/components/time/ui'
+import { FourStatsGrid, MonthlyBreakdownCard, signed } from '@/components/time/account'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { useTimeAccount } from '@/hooks/useTimeAccount'
 import { useOrganizationTimeAccounts, type OrgTimeAccount } from '@/hooks/useOrgTimeAccounts'
 import { exportTimeAccountsPdf } from '@/lib/pdf/reports'
+import { monthLabel } from '@/lib/time/format'
 
 // ─── Screen entry ─────────────────────────────────────────────────────────
 
@@ -72,6 +52,8 @@ export default function TimeAccountScreen() {
 
 // ─── Personnel view ───────────────────────────────────────────────────────
 
+const ITEMS_PER_PAGE = 10
+
 function PersonnelView() {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
@@ -82,25 +64,27 @@ function PersonnelView() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    setPage(1)
+  }, [search])
 
   const filtered = useMemo(
     () => accounts.filter((a) => a.full_name.toLowerCase().includes(search.toLowerCase())),
     [accounts, search],
   )
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE))
+  const safePage = Math.min(page, totalPages)
+  const paginated = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE)
 
   const selected: OrgTimeAccount | null = useMemo(
     () => (selectedId ? accounts.find((a) => a.employee_id === selectedId) ?? null : null),
     [accounts, selectedId],
   )
 
-  const orgTotal = useMemo(
-    () => accounts.reduce((s, a) => s + a.balance, 0),
-    [accounts],
-  )
-  const compliantCount = useMemo(
-    () => accounts.filter((a) => a.balance >= 0).length,
-    [accounts],
-  )
+  const orgTotal = useMemo(() => accounts.reduce((s, a) => s + a.balance, 0), [accounts])
+  const compliantCount = useMemo(() => accounts.filter((a) => a.balance >= 0).length, [accounts])
 
   const heroBalance = selected ? selected.balance : orgTotal
   const heroPositive = heroBalance >= 0
@@ -137,263 +121,211 @@ function PersonnelView() {
   return (
     <Screen background="#FFFFFF" noTapToDismiss>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor="#0064E0" />}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor={C.brand} />}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Title */}
-        <View className="mb-4 px-1">
-          <Text className="text-[26px] font-black text-[#0064E0] tracking-tight leading-tight">
-            {L('Personal-Zeitkonten', 'Personnel Accounts')}
-          </Text>
-          <Text className="text-[13px] text-gray-500 dark:text-slate-400 mt-0.5">
-            {L('Zeitsalden aller Mitarbeiter überwachen', 'Monitor time balances across your workforce')}
-          </Text>
-        </View>
+        <PageHeader
+          title={L('Personal-Zeitkonten', 'Personnel Accounts')}
+          subtitle={L('Zeitsalden aller Mitarbeiter überwachen', 'Monitor time balances across your workforce')}
+        />
 
         {/* Search + PDF */}
-        <View className="flex-row gap-2 mb-4">
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: -8 }}>
           <View
             style={{
               flex: 1,
               flexDirection: 'row',
               alignItems: 'center',
-              backgroundColor: '#F8FAFC',
+              backgroundColor: C.slate50,
               borderWidth: 1,
-              borderColor: '#E5E7EB',
-              borderRadius: 14,
+              borderColor: C.slate200,
+              borderRadius: 12,
               paddingHorizontal: 12,
-              height: 44,
+              height: 40,
             }}
           >
-            <Search size={16} color="#94A3B8" />
+            <Search size={16} color={C.slate400} />
             <TextInput
               value={search}
               onChangeText={setSearch}
               placeholder={L('Mitarbeiter suchen…', 'Search employees…')}
-              placeholderTextColor="#94A3B8"
-              style={{ flex: 1, marginLeft: 8, fontSize: 13, fontWeight: '600', color: '#0F172A' }}
+              placeholderTextColor={C.slate400}
+              style={{ flex: 1, marginLeft: 8, fontSize: 13, fontWeight: '500', color: C.slate700 }}
               autoCapitalize="none"
               returnKeyType="search"
             />
           </View>
-          <Pressable onPress={onExportPdf} disabled={exporting}>
+          <Pressable onPress={onExportPdf} disabled={exporting} accessibilityRole="button" accessibilityLabel="PDF">
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                paddingHorizontal: 14,
-                borderRadius: 14,
+                paddingHorizontal: 12,
+                borderRadius: 12,
                 borderWidth: 1,
                 borderColor: '#E5E7EB',
                 backgroundColor: '#FFFFFF',
-                height: 44,
+                height: 40,
                 opacity: exporting ? 0.6 : 1,
               }}
             >
-              <Download size={14} color="#0064E0" />
-              <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: '900', color: '#374151' }}>
-                {exporting ? '…' : 'PDF'}
-              </Text>
+              {exporting ? <ActivityIndicator size="small" color={C.slate600} /> : <Download size={14} color="#4B5563" />}
+              <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: '600', color: '#4B5563' }}>PDF</Text>
             </View>
           </Pressable>
         </View>
 
-        {/* Filter chips */}
-        <View className="flex-row flex-wrap gap-2 mb-5">
-          <FilterChip
-            label={L('Alle Mitarbeiter', 'All Employees')}
-            selected={selectedId === null}
-            onPress={() => setSelectedId(null)}
-            leadingIcon={<UsersIcon size={12} color={selectedId === null ? '#fff' : '#64748B'} />}
-            variant="all"
+        {/* Employee filter chips */}
+        {accounts.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
+            <FilterChip
+              label={L('Alle Mitarbeiter', 'All Employees')}
+              selected={selectedId === null}
+              onPress={() => setSelectedId(null)}
+              leadingIcon={<UsersIcon size={14} color={selectedId === null ? '#FFFFFF' : C.slate500} />}
+              variant="all"
+            />
+            {accounts.map((a) => {
+              const isSelected = selectedId === a.employee_id
+              return (
+                <FilterChip
+                  key={a.employee_id}
+                  label={a.full_name.split(' ')[0] ?? a.full_name}
+                  value={signed(a.balance, hr)}
+                  selected={isSelected}
+                  positive={a.balance >= 0}
+                  onPress={() => setSelectedId(isSelected ? null : a.employee_id)}
+                />
+              )
+            })}
+          </View>
+        ) : null}
+
+        {/* Stats row (stacked on phones) */}
+        <View style={{ gap: 12, marginTop: 24 }}>
+          <View style={{ backgroundColor: C.slate900, borderRadius: 16, padding: 24, overflow: 'hidden' }}>
+            <View style={{ position: 'absolute', right: 16, top: 0, bottom: 0, justifyContent: 'center', opacity: 0.07 }} pointerEvents="none">
+              <Clock size={96} color="#60A5FA" />
+            </View>
+            <Text style={{ fontSize: 11, fontWeight: '600', letterSpacing: 1.4, textTransform: 'uppercase', color: '#60A5FA' }}>
+              {selected ? L('Mitarbeiter-Saldo', 'Employee Balance') : L('Organisations-Saldo', 'Organisation Balance')}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 12 }}>
+              <Text
+                style={{ fontSize: 36, fontWeight: '700', color: heroPositive ? '#60A5FA' : C.red400, letterSpacing: -0.8, fontVariant: ['tabular-nums'], flexShrink: 1 }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {heroPositive ? `+${heroBalance.toFixed(1)}` : heroBalance.toFixed(1)}
+              </Text>
+              <Text style={{ marginLeft: 4, fontSize: 20, fontWeight: '500', color: C.slate500 }}>{hr}</Text>
+            </View>
+            <Text style={{ marginTop: 12, fontSize: 12, lineHeight: 18, color: C.slate400, maxWidth: 220 }}>
+              {selected
+                ? L(`Angesammelte Zeitguthaben für ${selected.full_name}.`, `Accumulated time credits for ${selected.full_name}.`)
+                : L('Angesammelte Zeitguthaben der gesamten Organisation.', 'Accumulated time credits across the entire unit.')}
+            </Text>
+          </View>
+
+          <StatPanel
+            label={selected ? L('Tatsächliche Stunden', 'Actual Hours') : L('Mitarbeiter insgesamt', 'Total Employees')}
+            value={<Text style={{ fontSize: 36, fontWeight: '700', color: C.slate900, fontVariant: ['tabular-nums'] }}>{selected ? `${selected.actual_hours.toFixed(1)}${hr}` : String(accounts.length)}</Text>}
+            icon={<UsersIcon size={14} color={C.blue600} />}
+            iconBg={C.blue50}
+            hint={selected ? L('Geleistete Stunden', 'Hours worked') : L('Aktive Belegschaft', 'Operational workforce')}
           />
-          {filtered.map((a) => {
-            const isSelected = selectedId === a.employee_id
-            const firstName = a.full_name.split(' ')[0] ?? a.full_name
-            const value = `${a.balance >= 0 ? '+' : ''}${a.balance.toFixed(1)}${hr}`
-            return (
-              <FilterChip
-                key={a.employee_id}
-                label={firstName}
-                value={value}
-                selected={isSelected}
-                positive={a.balance >= 0}
-                onPress={() => setSelectedId(isSelected ? null : a.employee_id)}
-              />
-            )
-          })}
+          <StatPanel
+            label={selected ? L('Sollstunden', 'Target Hours') : L('Zeitkonto-Compliance', 'Time Account Compliance')}
+            value={
+              selected ? (
+                <Text style={{ fontSize: 36, fontWeight: '700', color: C.blue600, fontVariant: ['tabular-nums'] }}>{`${selected.target_hours.toFixed(1)}${hr}`}</Text>
+              ) : (
+                <Text style={{ fontSize: 36, fontWeight: '700', color: C.emerald500, fontVariant: ['tabular-nums'] }}>
+                  {String(compliantCount)}
+                  <Text style={{ fontSize: 20, fontWeight: '500', color: C.slate300 }}>{`/${accounts.length}`}</Text>
+                </Text>
+              )
+            }
+            icon={<TrendingUp size={14} color={C.emerald600} />}
+            iconBg={C.emerald50}
+            hint={selected ? L('Lfd. Jahr', 'Year to date') : L('Sollstunden erreicht', 'Meeting target hours')}
+          />
         </View>
-
-        {/* Hero saldo */}
-        <View
-          style={{
-            backgroundColor: '#0F172A',
-            borderRadius: 28,
-            padding: 24,
-            marginBottom: 16,
-            overflow: 'hidden',
-          }}
-        >
-          <Text className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60A5FA' }}>
-            {selected
-              ? L('Mitarbeiter-Saldo', 'Employee Balance')
-              : L('Organisations-Saldo', 'Organisation Balance')}
-          </Text>
-          <View className="flex-row items-baseline mt-3" style={{ flexWrap: 'wrap' }}>
-            <Text
-              style={{
-                fontSize: 44,
-                fontWeight: '900',
-                color: heroPositive ? '#60A5FA' : '#F87171',
-                letterSpacing: -1,
-                flexShrink: 1,
-              }}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {heroPositive ? '+' : ''}
-              {safeNumber(heroBalance, 1)}
-            </Text>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: '#94A3B8', marginLeft: 6 }}>
-              {hr}
-            </Text>
-          </View>
-          <Text
-            style={{ color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: 280 }}
-            numberOfLines={3}
-          >
-            {selected
-              ? L(
-                  `Angesammelte Zeitguthaben für ${selected.full_name}.`,
-                  `Accumulated time credits for ${selected.full_name}.`,
-                )
-              : L(
-                  'Angesammelte Zeitguthaben der gesamten Organisation.',
-                  'Accumulated time credits across the entire workforce.',
-                )}
-          </Text>
-        </View>
-
-        {/* Stats tiles */}
-        {selected ? (
-          <View className="flex-row gap-3 mb-5">
-            <StatTile
-              label={L('Ist-Stunden', 'Actual hours')}
-              value={`${safeNumber(selected.actual_hours, 1)}${hr}`}
-              iconBg="#DBEAFE"
-              icon={<Clock size={14} color="#0064E0" />}
-            />
-            <StatTile
-              label={L('Soll-Stunden', 'Target hours')}
-              value={`${safeNumber(selected.target_hours, 1)}${hr}`}
-              iconBg="#DCFCE7"
-              icon={<TrendingUp size={14} color="#10B981" />}
-            />
-          </View>
-        ) : (
-          <View className="flex-row gap-3 mb-5">
-            <StatTile
-              label={L('Mitarbeiter', 'Employees')}
-              value={String(accounts.length)}
-              iconBg="#DBEAFE"
-              icon={<UsersIcon size={14} color="#0064E0" />}
-            />
-            <StatTile
-              label={L('Compliant', 'Compliant')}
-              value={`${compliantCount}/${accounts.length}`}
-              iconBg="#DCFCE7"
-              icon={<TrendingUp size={14} color="#10B981" />}
-            />
-          </View>
-        )}
 
         {/* Inline monthly panel when an employee is selected */}
-        {selected && (
-          <EmployeeMonthlyPanel
-            employeeId={selected.employee_id}
-            employeeName={selected.full_name}
-            onViewFull={() => router.push(`/account/employee/${selected.employee_id}` as any)}
-          />
-        )}
+        {selected ? (
+          <View style={{ marginTop: 24 }}>
+            <EmployeeMonthlyPanel
+              employeeId={selected.employee_id}
+              employeeName={selected.full_name}
+              onViewFull={() => router.push(`/account/employee/${selected.employee_id}` as any)}
+            />
+          </View>
+        ) : null}
 
-        {/* Personnel table (always visible) */}
-        <View className="mt-4">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1">
-            {selected ? L('Gesamtes Personal', 'All Personnel') : L('Personal-Liste', 'Personnel List')}
-          </Text>
-          {filtered.length === 0 ? (
-            <Card className="items-center py-10">
-              <Text className="text-[14px] text-gray-400 dark:text-slate-500">
-                {L('Keine Mitarbeiter gefunden.', 'No employees found.')}
+        {/* Personnel list (always visible) */}
+        <View style={{ marginTop: 24, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: C.slate200, borderRadius: 16, overflow: 'hidden' }}>
+          <View style={{ paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.slate100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: C.slate900 }}>
+              {selected ? L('Gesamtes Personal', 'All Personnel') : L('Personal-Liste', 'Personnel List')}
+            </Text>
+            {filtered.length > ITEMS_PER_PAGE ? (
+              <Text style={{ fontSize: 12, fontWeight: '500', color: C.slate400 }}>
+                {`${(safePage - 1) * ITEMS_PER_PAGE + 1}–${Math.min(safePage * ITEMS_PER_PAGE, filtered.length)} ${L('von', 'of')} ${filtered.length}`}
               </Text>
-            </Card>
+            ) : null}
+          </View>
+
+          {filtered.length === 0 ? (
+            <View style={{ paddingVertical: 56, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: C.slate400 }}>{L('Keine Mitarbeiter gefunden.', 'No employees found.')}</Text>
+            </View>
           ) : (
-            filtered.map((a) => {
+            paginated.map((a, idx) => {
               const isActive = selectedId === a.employee_id
               const positive = a.balance >= 0
               return (
-                <Pressable
-                  key={a.employee_id}
-                  onPress={() => setSelectedId(isActive ? null : a.employee_id)}
-                >
-                  <Card
-                    className={`mb-2 flex-row items-center ${
-                      isActive ? 'bg-blue-50/60 dark:bg-blue-900/30' : ''
-                    }`}
+                <Pressable key={a.employee_id} onPress={() => setSelectedId(isActive ? null : a.employee_id)} accessibilityState={{ selected: isActive }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 20,
+                      paddingVertical: 14,
+                      borderTopWidth: idx === 0 ? 0 : 1,
+                      borderTopColor: C.slate100,
+                      backgroundColor: isActive ? 'rgba(239,246,255,0.6)' : '#FFFFFF',
+                    }}
                   >
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 14,
-                        backgroundColor: isActive ? '#DBEAFE' : '#F1F5F9',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginRight: 12,
-                      }}
-                    >
-                      <UsersIcon size={18} color={isActive ? '#2563EB' : '#94A3B8'} />
+                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: isActive ? C.blue100 : C.slate100, alignItems: 'center', justifyContent: 'center' }}>
+                      <UsersIcon size={20} color={isActive ? C.blue600 : C.slate400} />
                     </View>
-                    <View className="flex-1">
-                      <Text
-                        className={`text-[14px] font-black ${
-                          isActive ? 'text-blue-600' : 'text-gray-900 dark:text-white'
-                        }`}
-                      >
+                    <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: isActive ? C.blue600 : C.slate900 }} numberOfLines={1}>
                         {a.full_name}
                       </Text>
-                      <Text className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">
-                        {L('Soll', 'Target')}: {a.target_hours.toFixed(1)}
-                        {hr}
+                      <Text style={{ fontSize: 12, color: C.slate400 }} numberOfLines={1}>
+                        {`${L('Soll', 'Target')}: ${a.target_hours.toFixed(1)}${hr} · ${a.actual_hours.toFixed(1)} ${L('Std. geleistet', 'hrs worked')}`}
                       </Text>
                     </View>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 10,
-                        backgroundColor: positive ? '#DCFCE7' : '#FEE2E2',
-                        marginRight: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: '800',
-                          color: positive ? '#059669' : '#DC2626',
-                        }}
-                      >
-                        {positive ? '+' : ''}
-                        {a.balance.toFixed(1)}
-                        {hr}
-                      </Text>
+                    <View style={{ marginLeft: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: positive ? C.emerald50 : C.red50 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: positive ? C.emerald600 : C.red500, fontVariant: ['tabular-nums'] }}>{signed(a.balance, hr)}</Text>
                     </View>
-                    <ChevronRight size={16} color={isActive ? '#60A5FA' : '#D1D5DB'} />
-                  </Card>
+                    <View style={{ marginLeft: 6 }}>
+                      {isActive ? <ChevronDown size={16} color="#60A5FA" /> : <ChevronRight size={16} color={C.slate300} />}
+                    </View>
+                  </View>
                 </Pressable>
               )
             })
           )}
+
+          {totalPages > 1 ? (
+            <View style={{ paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.slate100, backgroundColor: 'rgba(248,250,252,0.5)' }}>
+              <Pagination page={safePage} totalPages={totalPages} onChange={setPage} labels={{ prev: L('Zurück', 'Previous'), next: L('Weiter', 'Next') }} />
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </Screen>
@@ -405,7 +337,6 @@ function PersonnelView() {
 function EmployeePersonalView() {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const hr = L('Std.', 'h')
   const router = useRouter()
   const { monthlyData, totalBalance, loading, refetch } = useTimeAccount()
 
@@ -413,60 +344,22 @@ function EmployeePersonalView() {
     return <LoadingSpinner label={L('Zeitkonto wird geladen…', 'Loading time account…')} />
   }
 
-  const overtimePaid = monthlyData.reduce(
-    (s, m) => s + (m.difference > 0 ? m.difference : 0),
-    0,
-  )
-  const latest = monthlyData[0]
+  const overtimePaid = monthlyData.reduce((s, m) => s + (m.difference > 0 ? m.difference : 0), 0)
 
   return (
     <Screen background="#FFFFFF" noTapToDismiss>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor="#0064E0" />}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refetch} tintColor={C.brand} />}
       >
-        <View className="mb-4 px-1">
-          <Text className="text-[26px] font-black text-[#0064E0] tracking-tight leading-tight">
-            {L('Mein Zeitkonto', 'My Time Account')}
-          </Text>
-          <Text className="text-[13px] text-gray-500 dark:text-slate-400 mt-0.5">
-            {L('Überstunden und Konto-Salden verfolgen', 'Track overtime and account balances')}
-          </Text>
-        </View>
-
-        <FourStatsGrid
-          totalBalance={totalBalance}
-          overtimePaid={overtimePaid}
-          latestActual={latest?.actualHours ?? 0}
-          latestMonthLabel={latest?.label ?? '—'}
-          workingDays={latest?.workingDays ?? 0}
-          hr={hr}
+        <PageHeader
+          title={L('Zeitkonten', 'Time Accounts')}
+          subtitle={L('Überstunden und Konto-Salden verfolgen', 'Track overtime and account balances')}
         />
-
-        <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1 mt-2">
-          {L('Monatsübersicht', 'Monthly Breakdown')}
-        </Text>
-
-        {monthlyData.length === 0 && !loading ? (
-          <Card className="items-center py-10">
-            <Text className="text-[14px] text-gray-400 dark:text-slate-500">
-              {L('Keine Zeiteinträge gefunden.', 'No time records found.')}
-            </Text>
-          </Card>
-        ) : null}
-
-        {monthlyData.map((m) => (
-          <MonthRow
-            key={m.key}
-            monthLabel={m.label}
-            workingDays={m.workingDays}
-            actualHours={m.actualHours}
-            targetHours={m.targetHours}
-            difference={m.difference}
-            hr={hr}
-            onPress={() => router.push(`/account/${m.key}` as any)}
-          />
-        ))}
+        <FourStatsGrid totalBalance={totalBalance} overtimePaid={overtimePaid} latest={monthlyData[0] ?? null} />
+        <View style={{ marginTop: 24 }}>
+          <MonthlyBreakdownCard data={monthlyData} onMonthPress={(key) => router.push(`/account/${key}` as any)} />
+        </View>
       </ScrollView>
     </Screen>
   )
@@ -493,131 +386,71 @@ function EmployeeMonthlyPanel({
   const hasMore = monthlyData.length > 6
 
   return (
-    <View
-      style={{
-        backgroundColor: '#FFFFFF',
-        borderWidth: 1,
-        borderColor: '#DBEAFE',
-        borderRadius: 18,
-        overflow: 'hidden',
-        marginBottom: 8,
-      }}
-    >
+    <View style={{ backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: C.blue200, borderRadius: 16, overflow: 'hidden' }}>
       {/* Panel header */}
       <View
         style={{
-          backgroundColor: 'rgba(219, 234, 254, 0.4)',
+          backgroundColor: 'rgba(239,246,255,0.4)',
           paddingHorizontal: 16,
           paddingVertical: 14,
           borderBottomWidth: 1,
-          borderColor: '#DBEAFE',
+          borderColor: C.blue100,
           flexDirection: 'row',
           alignItems: 'center',
         }}
       >
-        <View
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 12,
-            backgroundColor: '#DBEAFE',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginRight: 10,
-          }}
-        >
-          <CalendarIcon size={16} color="#2563EB" />
+        <View style={{ width: 32, height: 32, borderRadius: 12, backgroundColor: C.blue100, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+          <CalendarIcon size={16} color={C.blue600} />
         </View>
-        <View className="flex-1" style={{ minWidth: 0 }}>
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
-            {employeeName}
-          </Text>
-          <Text
-            className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
-            numberOfLines={1}
-          >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.slate900 }} numberOfLines={1}>{employeeName}</Text>
+          <Text style={{ fontSize: 12, color: C.slate400, marginTop: 2 }} numberOfLines={1}>
             {L('Monatliche Zeitkonto-Aufschlüsselung', 'Monthly time account breakdown')}
           </Text>
         </View>
-        <Pressable
-          onPress={onViewFull}
-          style={{ flexShrink: 0, marginLeft: 8 }}
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: 10,
-              backgroundColor: '#EFF6FF',
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '900', color: '#2563EB', marginRight: 4 }}>
-              {L('Details', 'View')}
-            </Text>
-            <ArrowRight size={12} color="#2563EB" />
-          </View>
-        </Pressable>
       </View>
+      <Pressable onPress={onViewFull} accessibilityRole="button">
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.slate100 }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.blue600 }}>{L('Gesamte Details ansehen', 'View Full Detail')}</Text>
+          <ArrowRight size={14} color={C.blue600} style={{ marginLeft: 6 }} />
+        </View>
+      </Pressable>
 
       {/* Body */}
       {loading ? (
-        <View style={{ paddingVertical: 32, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
-          <ActivityIndicator color="#0064E0" />
-          <Text className="text-[12px] text-gray-400 dark:text-slate-500 ml-3">
-            {L('Aufschlüsselung wird geladen…', 'Loading breakdown…')}
-          </Text>
+        <View style={{ paddingVertical: 40, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.blue600} />
+          <Text style={{ fontSize: 13, fontWeight: '500', color: C.slate400, marginLeft: 12 }}>{L('Aufschlüsselung wird geladen…', 'Loading breakdown…')}</Text>
         </View>
       ) : first6.length === 0 ? (
-        <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-          <Text className="text-[12px] text-gray-400 dark:text-slate-500">
-            {L('Keine Zeiteinträge gefunden.', 'No time records found.')}
+        <View style={{ paddingVertical: 40, paddingHorizontal: 16, alignItems: 'center' }}>
+          <Text style={{ fontSize: 13, fontWeight: '500', color: C.slate400, textAlign: 'center' }}>
+            {L('Keine Zeiteinträge für diesen Mitarbeiter gefunden.', 'No time records found for this employee.')}
           </Text>
         </View>
       ) : (
-        first6.map((month) => {
+        first6.map((month, idx) => {
           const positive = month.difference >= 0
           return (
-            <Pressable
-              key={month.key}
-              onPress={() => router.push(`/account/${month.key}?employeeId=${employeeId}` as any)}
-            >
+            <Pressable key={month.key} onPress={() => router.push(`/account/${month.key}?employeeId=${employeeId}` as any)}>
               <View
                 style={{
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  borderTopWidth: 1,
-                  borderColor: '#F1F5F9',
+                  paddingVertical: 14,
+                  borderTopWidth: idx === 0 ? 0 : 1,
+                  borderColor: C.slate100,
                   flexDirection: 'row',
                   alignItems: 'center',
                 }}
               >
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
-                    {month.label}
-                  </Text>
-                  <Text
-                    className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5"
-                    numberOfLines={1}
-                  >
-                    {month.workingDays} {L('Tage', 'days')} · {safeNumber(month.actualHours, 1)}
-                    {hr} {L('tatsächlich', 'actual')}
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.slate900 }} numberOfLines={1}>{monthLabel(month.key, locale)}</Text>
+                  <Text style={{ fontSize: 12, color: C.slate400, marginTop: 2 }} numberOfLines={1}>
+                    {`${month.workingDays} ${L('Tage', 'days')} · ${month.actualHours.toFixed(1)}${hr} ${L('tatsächlich', 'actual')}`}
                   </Text>
                 </View>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    fontWeight: '800',
-                    color: positive ? '#10B981' : '#EF4444',
-                    flexShrink: 0,
-                    marginLeft: 8,
-                  }}
-                  numberOfLines={1}
-                >
-                  {positive ? '+' : ''}
-                  {safeNumber(month.difference, 1)}
-                  {hr}
+                <Text style={{ fontSize: 14, fontWeight: '700', color: positive ? C.emerald500 : C.red500, marginLeft: 8, fontVariant: ['tabular-nums'] }} numberOfLines={1}>
+                  {signed(month.difference, hr)}
                 </Text>
               </View>
             </Pressable>
@@ -625,29 +458,16 @@ function EmployeeMonthlyPanel({
         })
       )}
 
-      {hasMore && (
+      {hasMore ? (
         <Pressable onPress={onViewFull}>
-          <View
-            style={{
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderTopWidth: 1,
-              borderColor: '#F1F5F9',
-              backgroundColor: '#F8FAFC',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: '900', color: '#2563EB' }}>
-              {L(
-                `Alle ${monthlyData.length} Monate anzeigen`,
-                `View all ${monthlyData.length} months`,
-              )}
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderColor: C.slate100, backgroundColor: 'rgba(248,250,252,0.3)', flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.blue600 }}>
+              {L(`Alle ${monthlyData.length} Monate anzeigen`, `View all ${monthlyData.length} months`)}
             </Text>
-            <ArrowRight size={12} color="#2563EB" style={{ marginLeft: 6 }} />
+            <ArrowRight size={14} color={C.blue600} style={{ marginLeft: 6 }} />
           </View>
         </Pressable>
-      )}
+      ) : null}
     </View>
   )
 }
@@ -657,147 +477,22 @@ function EmployeeMonthlyPanel({
 function LoadingSpinner({ label }: { label: string }) {
   return (
     <Screen background="#FFFFFF" className="items-center justify-center" noTapToDismiss>
-      <ActivityIndicator color="#0064E0" />
-      <Text className="text-[12px] font-medium text-gray-400 dark:text-slate-500 mt-3">
-        {label}
-      </Text>
+      <ActivityIndicator color={C.blue600} />
+      <Text style={{ fontSize: 12, fontWeight: '500', color: C.slate400, marginTop: 16 }}>{label}</Text>
     </Screen>
   )
 }
 
-export function FourStatsGrid({
-  totalBalance,
-  overtimePaid,
-  latestActual,
-  latestMonthLabel,
-  workingDays,
-  hr,
-}: {
-  totalBalance: number
-  overtimePaid: number
-  latestActual: number
-  latestMonthLabel: string
-  workingDays: number
-  hr: string
-}) {
-  const { locale } = useTranslation()
-  const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const balancePositive = totalBalance >= 0
+function StatPanel({ label, value, icon, iconBg, hint }: { label: string; value: React.ReactNode; icon: React.ReactNode; iconBg: string; hint: string }) {
   return (
-    <View>
-      <View className="flex-row gap-3 mb-3">
-        <StatBlock
-          label={L('Stundensaldo (lfd. Jahr)', 'Hours Balance (YTD)')}
-          value={
-            balancePositive
-              ? `+${totalBalance.toFixed(1)}${hr}`
-              : `${totalBalance.toFixed(1)}${hr}`
-          }
-          color={balancePositive ? '#10B981' : '#EF4444'}
-        />
-        <StatBlock
-          label={L('Bezahlte Überstunden', 'Overtime Paid')}
-          value={`${overtimePaid.toFixed(1)}${hr}`}
-          color="#0064E0"
-        />
-      </View>
-      <View className="flex-row gap-3 mb-3">
-        <StatBlock
-          label={L(`Gesamtstunden (${latestMonthLabel})`, `Total Hours (${latestMonthLabel})`)}
-          value={`${latestActual.toFixed(1)}${hr}`}
-          color="#0064E0"
-        />
-        <StatBlock
-          label={L('Arbeitstage', 'Working Days')}
-          value={String(workingDays)}
-          color="#0064E0"
-        />
+    <View style={{ backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: C.slate200, borderRadius: 16, padding: 24 }}>
+      <Text style={{ fontSize: 11, fontWeight: '600', letterSpacing: 1.4, textTransform: 'uppercase', color: C.slate400 }}>{label}</Text>
+      <View style={{ marginTop: 16 }}>{value}</View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16 }}>
+        <View style={{ width: 24, height: 24, borderRadius: 8, backgroundColor: iconBg, alignItems: 'center', justifyContent: 'center' }}>{icon}</View>
+        <Text style={{ marginLeft: 8, fontSize: 12, fontWeight: '500', color: C.slate400 }}>{hint}</Text>
       </View>
     </View>
-  )
-}
-
-function StatBlock({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 0,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        borderRadius: 16,
-        padding: 16,
-        backgroundColor: '#FFFFFF',
-      }}
-    >
-      <Text
-        style={{ fontSize: 26, fontWeight: '800', color, letterSpacing: -0.5 }}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-      >
-        {value}
-      </Text>
-      <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-1.5 font-normal" numberOfLines={2}>
-        {label}
-      </Text>
-    </View>
-  )
-}
-
-export function MonthRow({
-  monthLabel,
-  workingDays,
-  actualHours,
-  targetHours,
-  difference,
-  hr,
-  onPress,
-}: {
-  monthLabel: string
-  workingDays: number
-  actualHours: number
-  targetHours: number
-  difference: number
-  hr: string
-  onPress: () => void
-}) {
-  const { locale } = useTranslation()
-  const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const positive = difference >= 0
-  const Icon = positive ? TrendingUp : TrendingDown
-  const color = positive ? '#10B981' : '#F97316'
-  return (
-    <Pressable onPress={onPress}>
-      <Card className="mb-2 flex-row items-center">
-        <View
-          className="w-12 h-12 rounded-2xl items-center justify-center mr-3 shrink-0"
-          style={{ backgroundColor: `${color}1A` }}
-        >
-          <Icon size={20} color={color} />
-        </View>
-        <View className="flex-1" style={{ minWidth: 0 }}>
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
-            {monthLabel}
-          </Text>
-          <Text
-            className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5"
-            numberOfLines={1}
-          >
-            {workingDays} {L('Tage', 'days')} · {safeNumber(actualHours, 1)}h / {safeNumber(targetHours, 1)}h
-          </Text>
-        </View>
-        <Text
-          className="text-[16px] font-black mr-2"
-          style={{ color, flexShrink: 0 }}
-          numberOfLines={1}
-        >
-          {positive ? '+' : ''}
-          {safeNumber(difference, 1)}
-          {hr}
-        </Text>
-        <ChevronRight size={16} color="#D1D5DB" />
-      </Card>
-    </Pressable>
   )
 }
 
@@ -818,92 +513,32 @@ function FilterChip({
   leadingIcon?: React.ReactNode
   variant?: 'employee' | 'all'
 }) {
-  const bgSelected = variant === 'all' ? '#0F172A' : '#0064E0'
-  const borderSelected = variant === 'all' ? '#0F172A' : '#0064E0'
+  const bgSelected = variant === 'all' ? C.slate900 : C.blue600
   return (
-    <Pressable onPress={onPress}>
+    <Pressable onPress={onPress} accessibilityState={{ selected }}>
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          paddingHorizontal: 14,
+          paddingHorizontal: 16,
           paddingVertical: 8,
           borderRadius: 999,
           borderWidth: 1,
-          borderColor: selected ? borderSelected : '#E5E7EB',
+          borderColor: selected ? bgSelected : C.slate200,
           backgroundColor: selected ? bgSelected : '#FFFFFF',
           maxWidth: 240,
         }}
       >
-        {leadingIcon ? <View style={{ marginRight: 6 }}>{leadingIcon}</View> : null}
-        <Text
-          style={{
-            fontSize: 12,
-            fontWeight: '700',
-            color: selected ? '#FFFFFF' : '#475569',
-            flexShrink: 1,
-          }}
-          numberOfLines={1}
-        >
+        {leadingIcon ? <View style={{ marginRight: 8 }}>{leadingIcon}</View> : null}
+        <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? '#FFFFFF' : C.slate500, flexShrink: 1 }} numberOfLines={1}>
           {label}
         </Text>
         {value ? (
-          <Text
-            style={{
-              fontSize: 11,
-              fontWeight: '800',
-              marginLeft: 6,
-              color: selected ? '#BFDBFE' : positive ? '#10B981' : '#EF4444',
-            }}
-            numberOfLines={1}
-          >
+          <Text style={{ fontSize: 11, fontWeight: '700', marginLeft: 8, color: selected ? C.blue200 : positive ? C.emerald500 : C.red400, fontVariant: ['tabular-nums'] }} numberOfLines={1}>
             {value}
           </Text>
         ) : null}
       </View>
     </Pressable>
-  )
-}
-
-function StatTile({
-  label,
-  value,
-  iconBg,
-  icon,
-}: {
-  label: string
-  value: string
-  iconBg: string
-  icon: React.ReactNode
-}) {
-  return (
-    <Card className="flex-1" style={{ minWidth: 0 }}>
-      <View
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 10,
-          backgroundColor: iconBg,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 8,
-        }}
-      >
-        {icon}
-      </View>
-      <Text
-        className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-      <Text
-        className="text-[20px] font-black text-gray-900 dark:text-white mt-0.5"
-        numberOfLines={1}
-        adjustsFontSizeToFit
-      >
-        {value}
-      </Text>
-    </Card>
   )
 }

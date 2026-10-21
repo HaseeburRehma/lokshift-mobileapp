@@ -10,7 +10,7 @@
 import React, { useState } from 'react'
 import { View, Text, Pressable } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronLeft, CalendarPlus } from 'lucide-react-native'
+import { Calendar as CalendarIcon, X } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
 import { CalendarEventForm } from '@/components/forms/CalendarEventForm'
@@ -30,37 +30,37 @@ export default function NewCalendarEventScreen() {
   const [saving, setSaving] = useState(false)
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
+    <Screen background="#FFFFFF" className="bg-white dark:bg-slate-950" noTapToDismiss>
+      {/* Header — same as the web's NewEventSheet: icon + "Neuer Termin" + close */}
+      <View
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+          <View style={{ width: 40, height: 40, borderRadius: 16, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+            <CalendarIcon size={22} color="#0064E0" />
+          </View>
+          <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827' }} numberOfLines={1}>
+            {L('Neuer Termin', 'New Event')}
+          </Text>
+        </View>
+        <Pressable
+          onPress={goBack}
+          hitSlop={8}
+          accessibilityLabel={L('Schließen', 'Close')}
+          style={{ width: 40, height: 40, borderRadius: 999, backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <X size={20} color="#9CA3AF" />
         </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Neuer Termin', 'New event')}
-        </Text>
       </View>
-
-      <View className="flex-row items-center px-5 pb-2">
-        <View className="w-12 h-12 rounded-2xl bg-brand items-center justify-center mr-3">
-          <CalendarPlus size={22} color="#fff" />
-        </View>
-        <View className="flex-1">
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-            {L('Termin im Kalender erstellen', 'Add a calendar event')}
-          </Text>
-          <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
-            {L(
-              'Sichtbar für Sie und ausgewählte Teilnehmer.',
-              'Visible to you and any members you add.',
-            )}
-          </Text>
-        </View>
-      </View>
+      <View style={{ height: 16 }} />
 
       <CalendarEventForm
         initialDate={date as string | undefined}
         submitting={saving}
-        submitLabel={saving ? t('common.loading') : L('Termin speichern', 'Save event')}
+        submitLabel={saving ? t('common.loading') : L('Termin erstellen', 'Create Event')}
         onSubmit={async (input) => {
           if (!input.title) {
             toast.error(L('Titel ist erforderlich.', 'Title is required.'))

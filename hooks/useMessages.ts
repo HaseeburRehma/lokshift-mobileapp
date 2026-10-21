@@ -20,6 +20,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import type { ChatMessage, ChatAttachmentType } from '@/lib/types'
+import { sendNotificationToMany } from '@/lib/notifications/service'
 
 export interface SendAttachment {
   url: string
@@ -258,19 +259,13 @@ export function useMessages(conversationId: string | null) {
                 : attachment?.type === 'file'
                 ? `📎 ${attachment.name}`
                 : ''
-            await Promise.all(
-              recipients.map((uid: string) =>
-                supabase
-                  .from('notifications')
-                  .insert({
-                    user_id: uid,
-                    title: `💬 Neue Nachricht von ${senderName}`,
-                    body,
-                    type: 'chat',
-                    is_read: false,
-                  } as any),
-              ),
-            )
+            await sendNotificationToMany(recipients, {
+              title: `Neue Nachricht von ${senderName}`,
+              message: body,
+              module: 'chat',
+              moduleId: conversationId,
+              skipEmail: true,
+            })
           }
         } catch (e) {
           console.warn('[useMessages] notification fanout failed (non-fatal):', e)

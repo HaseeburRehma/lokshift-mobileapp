@@ -42,6 +42,116 @@
         "3007"
       ],
       "port": 3007
+    },
+    {
+      "name": "abgefahrn-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/driving-school-user-app",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8090"
+      ],
+      "port": 8090
+    },
+    {
+      "name": "research-bridge",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/macbookpro/Desktop/hasseeb/research-bridge",
+        "dev",
+        "--port",
+        "3200"
+      ],
+      "port": 3200
+    },
+    {
+      "name": "dentovilla-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/macbookpro/Desktop/hasseeb/dentovilla",
+        "dev",
+        "--port",
+        "3210"
+      ],
+      "port": 3210
+    },
+    {
+      "name": "wp-guardian",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/macbookpro/Desktop/hasseeb/wp-guardian",
+        "dev"
+      ],
+      "port": 3300
+    },
+    {
+      "name": "devnscale",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/macbookpro/Desktop/hasseeb/devnscale",
+        "dev",
+        "--port",
+        "3100"
+      ],
+      "port": 3100
+    },
+    {
+      "name": "abg-conv-harness",
+      "runtimeExecutable": "/opt/homebrew/bin/php",
+      "runtimeArgs": [
+        "-S",
+        "localhost:8099",
+        "/private/tmp/claude-501/-Users-macbookpro-Desktop-hasseeb-locshift-mobile/172c37d4-c263-4370-aa51-b51cc3e7f49e/scratchpad/harness/router.php"
+      ],
+      "port": 8099
+    },
+    {
+      "name": "marokko-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/macbookpro/Desktop/hasseeb/marokko-investment-site",
+        "dev",
+        "--port",
+        "3350"
+      ],
+      "port": 3350
+    },
+    {
+      "name": "lokshift-mobile-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/locshift-mobile",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8095"
+      ],
+      "port": 8095
+    },
+    {
+      "name": "lokshift-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/macbookpro/Desktop/hasseeb/locshift",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3020"
+      ],
+      "port": 3020
     }
   ]
 }

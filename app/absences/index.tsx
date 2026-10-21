@@ -1,8 +1,11 @@
 /**
- * Anträge (vacation + sick leave) — full approval workflow.
+ * Abwesenheiten (vacation + sick leave) — full approval workflow.
+ * Layout mirrors the webapp's /dashboard/settings/absences page:
+ * header with "+" action, two summary tiles, "Status Overview" list and
+ * the blue "Planning Leave?" info box.
  *
  * Employee view:
- *   - Submit vacation / sick leave via the two big action cards.
+ *   - Submit vacation / sick leave ("+" in the header or the info box).
  *   - See own requests with their current status (pending/approved/rejected).
  *   - Withdraw own requests anytime (pending or already decided).
  *
@@ -10,9 +13,9 @@
  *   - See every absence in the org.
  *   - Pending vacations get inline Approve / Reject buttons.
  *   - Reject opens a reason prompt (required); approve is one-tap.
- *   - "Pending" pill at the top of the screen advertises the queue size.
+ *   - "Pending" banner at the top advertises the queue size.
  *
- * Status badges are colour-coded so the queue scans quickly:
+ * Status chips (web colours):
  *   pending  → amber
  *   approved → emerald
  *   rejected → red
@@ -31,18 +34,15 @@ import {
   Modal,
   TextInput,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import {
-  ChevronLeft,
-  Palmtree,
-  ThermometerSnowflake,
   Plus,
   Trash2,
   Calendar as CalendarIcon,
   Check,
   X as XIcon,
-  Clock as ClockIcon,
   ShieldCheck,
 } from 'lucide-react-native'
 import { format, differenceInCalendarDays } from 'date-fns'
@@ -51,10 +51,10 @@ import { de as deLocale, enUS } from 'date-fns/locale'
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
+import { PageHeader } from '@/components/PageHeader'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useAbsences, effectiveStatus } from '@/hooks/useAbsences'
-import { EVENT_COLORS } from '@/lib/types'
 import { useSafeBack } from '@/lib/use-safe-back'
 import { safeParseISO } from '@/lib/safe-format'
 import type { CalendarEvent, AbsenceRequestStatus } from '@/lib/types'
@@ -62,13 +62,26 @@ import type { CalendarEvent, AbsenceRequestStatus } from '@/lib/types'
 type KindFilter = 'all' | 'holiday' | 'sick_leave'
 type StatusFilter = 'all' | AbsenceRequestStatus
 
-const STATUS_PALETTE: Record<
-  AbsenceRequestStatus,
-  { bg: string; text: string; border: string }
-> = {
-  pending: { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
-  approved: { bg: '#DCFCE7', text: '#065F46', border: '#10B981' },
-  rejected: { bg: '#FEE2E2', text: '#7F1D1D', border: '#EF4444' },
+// Web: approved = bg-emerald-100 text-emerald-700, pending = bg-amber-100
+// text-amber-700; rejected follows the same pattern in red.
+const STATUS_PALETTE: Record<AbsenceRequestStatus, { bg: string; text: string }> = {
+  pending: { bg: '#FEF3C7', text: '#B45309' },
+  approved: { bg: '#D1FAE5', text: '#047857' },
+  rejected: { bg: '#FEE2E2', text: '#B91C1C' },
+}
+
+// Web icon tile: sick leave = emerald-50/600, holiday = amber-50/600.
+const KIND_TILE = {
+  sick_leave: { bg: '#ECFDF5', fg: '#059669' },
+  holiday: { bg: '#FFFBEB', fg: '#D97706' },
+} as const
+
+const SEG_SHADOW = {
+  shadowColor: '#0F172A',
+  shadowOpacity: 0.06,
+  shadowRadius: 4,
+  shadowOffset: { width: 0, height: 1 },
+  elevation: 1,
 }
 
 export default function AbsencesScreen() {
@@ -127,6 +140,36 @@ export default function AbsencesScreen() {
       return (b.created_at || '').localeCompare(a.created_at || '')
     })
   }, [filtered, isManagerial])
+
+  // Summary tiles — vacation days in the current year (approved / pending).
+  const summary = useMemo(() => {
+    const year = new Date().getFullYear()
+    let approvedDays = 0
+    let pendingDays = 0
+    for (const e of events) {
+      if (e.event_type !== 'holiday') continue
+      const s = safeParseISO(e.start_time)
+      const en = safeParseISO(e.end_time)
+      if (!s || !en) continue
+      if (s.getFullYear() !== year && en.getFullYear() !== year) continue
+      const d = Math.max(1, differenceInCalendarDays(en, s) + 1)
+      const st = effectiveStatus(e)
+      if (st === 'approved') approvedDays += d
+      else if (st === 'pending') pendingDays += d
+    }
+    return { year, approvedDays, pendingDays }
+  }, [events])
+
+  const goVacation = () => router.push('/absences/new-vacation' as any)
+  const goSick = () => router.push('/absences/new-sick-leave' as any)
+
+  const onNew = () => {
+    Alert.alert(L('Neuer Antrag', 'New request'), undefined, [
+      { text: L('Urlaub beantragen', 'Request vacation'), onPress: goVacation },
+      { text: L('Krank melden', 'Report sick'), onPress: goSick },
+      { text: t('times.cancel'), style: 'cancel' },
+    ])
+  }
 
   const onWithdraw = (id: string, title: string) => {
     Alert.alert(
@@ -189,19 +232,12 @@ export default function AbsencesScreen() {
     }
   }
 
-  return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Anträge', 'Requests')}
-        </Text>
-      </View>
+  const daysUnit = (n: number) => L(n === 1 ? 'Tag' : 'Tage', n === 1 ? 'Day' : 'Days')
 
+  return (
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 120 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -210,112 +246,116 @@ export default function AbsencesScreen() {
           />
         }
       >
-        {/* Hero / queue stat for admins */}
-        {isManagerial ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: pendingCount > 0 ? '#FEF3C7' : '#F1F5F9',
-              borderRadius: 16,
-              padding: 14,
-              marginTop: 4,
-              marginBottom: 12,
-            }}
-          >
-            <View
+        <PageHeader
+          title={L('Abwesenheiten', 'Absences')}
+          subtitle={L('Urlaub & Krankmeldungen', 'Vacation & sick leave')}
+          showBack
+          onBack={goBack}
+          rightSlot={
+            <Pressable
+              onPress={onNew}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={L('Neuer Antrag', 'New request')}
+              className="w-10 h-10 rounded-2xl items-center justify-center"
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 14,
-                backgroundColor: pendingCount > 0 ? '#F59E0B' : '#64748B',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
+                backgroundColor: '#2563EB',
+                shadowColor: '#2563EB',
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: 4,
               }}
             >
-              <ShieldCheck size={20} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text className="text-[13px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
-                {pendingCount > 0
-                  ? L(
-                      `${pendingCount} ${pendingCount === 1 ? 'offener Antrag' : 'offene Anträge'}`,
-                      `${pendingCount} pending request${pendingCount === 1 ? '' : 's'}`,
-                    )
-                  : L('Keine offenen Anträge', 'No pending requests')}
-              </Text>
-              <Text className="text-[11px] text-gray-600 dark:text-slate-400 mt-0.5" numberOfLines={1}>
-                {L(
-                  'Tippen Sie auf „Genehmigen" oder „Ablehnen".',
-                  'Tap "Approve" or "Reject" on a pending row.',
-                )}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View className="flex-row items-center mb-4 mt-1">
-            <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-              <CalendarIcon size={26} color="#fff" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-                {L('Urlaub & Krankmeldungen', 'Vacation & sick leave')}
-              </Text>
-              <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-                {L('Deine Anträge', 'Your requests')}
-              </Text>
-            </View>
-          </View>
-        )}
+              <Plus size={22} color="#fff" />
+            </Pressable>
+          }
+        />
 
-        {/* Action chips — submit vacation / sick leave */}
-        <View className="flex-row gap-2 mb-4">
-          <Pressable
-            onPress={() => router.push('/absences/new-vacation' as any)}
-            className="flex-1 rounded-2xl items-center justify-center py-4"
-            style={{ backgroundColor: EVENT_COLORS.holiday }}
-          >
-            <Palmtree size={20} color="#fff" />
-            <Text className="text-[12px] font-black text-white mt-1.5">
-              {L('Urlaub beantragen', 'Request vacation')}
+        {/* Summary tiles */}
+        <View className="flex-row mb-6" style={{ gap: 12 }}>
+          <Card style={{ flex: 1, borderRadius: 28 }}>
+            <Text className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+              {L(`Urlaub ${summary.year}`, `Vacation ${summary.year}`)}
             </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/absences/new-sick-leave' as any)}
-            className="flex-1 rounded-2xl items-center justify-center py-4"
-            style={{ backgroundColor: EVENT_COLORS.sick_leave }}
-          >
-            <ThermometerSnowflake size={20} color="#fff" />
-            <Text className="text-[12px] font-black text-white mt-1.5">
-              {L('Krank melden', 'Report sick')}
+            <Text className="text-[24px] font-black text-slate-900">
+              {String(summary.approvedDays)}
+              <Text className="text-[12px] text-slate-400"> {daysUnit(summary.approvedDays)}</Text>
             </Text>
-          </Pressable>
+          </Card>
+          <Card style={{ flex: 1, borderRadius: 28 }}>
+            <Text className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+              {L('Offen', 'Pending')}
+            </Text>
+            <Text className="text-[24px] font-black" style={{ color: '#2563EB' }}>
+              {String(summary.pendingDays)}
+              <Text className="text-[12px] text-slate-400"> {daysUnit(summary.pendingDays)}</Text>
+            </Text>
+          </Card>
         </View>
 
-        {/* Kind filter */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
-          className="mb-2"
+        {/* Admin queue banner */}
+        {isManagerial ? (
+          <Card
+            className="mb-6"
+            style={{
+              padding: 14,
+              backgroundColor: pendingCount > 0 ? '#FFFBEB' : '#FFFFFF',
+              borderColor: pendingCount > 0 ? '#FDE68A' : '#E2E8F0',
+            }}
+          >
+            <View className="flex-row items-center">
+              <View
+                className="w-10 h-10 rounded-2xl items-center justify-center mr-3"
+                style={{ backgroundColor: pendingCount > 0 ? '#F59E0B' : '#94A3B8' }}
+              >
+                <ShieldCheck size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text className="text-[14px] font-bold text-slate-900" numberOfLines={1}>
+                  {pendingCount > 0
+                    ? L(
+                        `${pendingCount} ${pendingCount === 1 ? 'offener Antrag' : 'offene Anträge'}`,
+                        `${pendingCount} pending request${pendingCount === 1 ? '' : 's'}`,
+                      )
+                    : L('Keine offenen Anträge', 'No pending requests')}
+                </Text>
+                <Text className="text-[12px] text-slate-500 mt-0.5" numberOfLines={1}>
+                  {L(
+                    'Tippen Sie auf „Genehmigen" oder „Ablehnen".',
+                    'Tap "Approve" or "Reject" on a pending row.',
+                  )}
+                </Text>
+              </View>
+            </View>
+          </Card>
+        ) : null}
+
+        {/* Status overview */}
+        <Text
+          className="text-[11px] font-black uppercase text-slate-400 px-2 mb-3"
+          style={{ letterSpacing: 2.2, opacity: 0.6 }}
         >
+          {L('Statusübersicht', 'Status Overview')}
+        </Text>
+
+        {/* Kind filter */}
+        <View className="flex-row p-1 bg-slate-100 rounded-xl mb-2">
           {(['all', 'holiday', 'sick_leave'] as KindFilter[]).map((opt) => {
             const selected = kindFilter === opt
             return (
               <Pressable
                 key={opt}
                 onPress={() => setKindFilter(opt)}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  selected
-                    ? 'bg-brand border-brand'
-                    : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700'
-                }`}
+                className={`flex-1 items-center justify-center py-2.5 rounded-lg ${selected ? 'bg-white' : ''}`}
+                style={selected ? SEG_SHADOW : undefined}
               >
                 <Text
-                  className={`text-[12px] font-bold ${
-                    selected ? 'text-white' : 'text-gray-600 dark:text-slate-400'
-                  }`}
+                  className="text-[11px] font-black uppercase tracking-widest"
+                  style={{ color: selected ? '#0064E0' : '#64748B' }}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
                 >
                   {opt === 'all'
                     ? L('Alle Arten', 'All types')
@@ -326,81 +366,73 @@ export default function AbsencesScreen() {
               </Pressable>
             )
           })}
-        </ScrollView>
+        </View>
 
         {/* Status filter */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
-          className="mb-3"
-        >
-          {(['all', 'pending', 'approved', 'rejected'] as StatusFilter[]).map(
-            (opt) => {
-              const selected = statusFilter === opt
-              const labelDe =
-                opt === 'all'
-                  ? 'Alle Status'
-                  : opt === 'pending'
-                    ? 'Offen'
-                    : opt === 'approved'
-                      ? 'Genehmigt'
-                      : 'Abgelehnt'
-              const labelEn =
-                opt === 'all'
-                  ? 'All status'
-                  : opt === 'pending'
-                    ? 'Pending'
-                    : opt === 'approved'
-                      ? 'Approved'
-                      : 'Rejected'
-              return (
-                <Pressable
-                  key={opt}
-                  onPress={() => setStatusFilter(opt)}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    selected
-                      ? 'bg-gray-900 border-gray-900'
-                      : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700'
-                  }`}
+        <View className="flex-row p-1 bg-slate-100 rounded-xl mb-4">
+          {(['all', 'pending', 'approved', 'rejected'] as StatusFilter[]).map((opt) => {
+            const selected = statusFilter === opt
+            const labelDe =
+              opt === 'all'
+                ? 'Alle'
+                : opt === 'pending'
+                  ? 'Offen'
+                  : opt === 'approved'
+                    ? 'Genehmigt'
+                    : 'Abgelehnt'
+            const labelEn =
+              opt === 'all'
+                ? 'All'
+                : opt === 'pending'
+                  ? 'Pending'
+                  : opt === 'approved'
+                    ? 'Approved'
+                    : 'Rejected'
+            return (
+              <Pressable
+                key={opt}
+                onPress={() => setStatusFilter(opt)}
+                className={`flex-1 items-center justify-center py-2.5 rounded-lg ${selected ? 'bg-white' : ''}`}
+                style={selected ? SEG_SHADOW : undefined}
+              >
+                <Text
+                  className="text-[11px] font-black uppercase tracking-wider"
+                  style={{ color: selected ? '#0064E0' : '#64748B' }}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
                 >
-                  <Text
-                    className={`text-[12px] font-bold ${
-                      selected ? 'text-white' : 'text-gray-600 dark:text-slate-400'
-                    }`}
-                  >
-                    {L(labelDe, labelEn)}
-                  </Text>
-                </Pressable>
-              )
-            },
-          )}
-        </ScrollView>
+                  {L(labelDe, labelEn)}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </View>
 
         {/* List */}
         {loading ? (
-          <Card>
-            <Text className="text-gray-400 dark:text-slate-500 text-center py-4">
-              {L('Lädt…', 'Loading…')}
-            </Text>
-          </Card>
+          <View className="items-center py-10">
+            <ActivityIndicator color="#0064E0" />
+          </View>
         ) : sorted.length === 0 ? (
-          <Card>
+          <Card style={{ borderColor: '#E2E8F0' }}>
             <View className="items-center py-8">
-              <CalendarIcon size={32} color="#D1D5DB" />
-              <Text className="text-[14px] font-bold text-gray-500 dark:text-slate-400 mt-3">
+              <View className="w-20 h-20 rounded-full bg-slate-50 border border-dashed border-slate-200 items-center justify-center">
+                <CalendarIcon size={28} color="#CBD5E1" />
+              </View>
+              <Text className="text-[11px] font-black uppercase tracking-widest text-slate-400 mt-4 text-center">
                 {L('Keine Anträge', 'No requests')}
               </Text>
-              <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-1 text-center">
+              <Text className="text-[12px] text-slate-400 mt-1 text-center">
                 {L(
-                  'Tippen Sie oben auf „Urlaub beantragen" oder „Krank melden", um einen Antrag zu stellen.',
-                  'Tap "Request vacation" or "Report sick" above to submit a request.',
+                  'Tippen Sie oben auf „+", um Urlaub zu beantragen oder sich krank zu melden.',
+                  'Tap "+" above to request vacation or report sick.',
                 )}
               </Text>
             </View>
           </Card>
         ) : (
-          <View>
+          <View style={{ gap: 12 }}>
             {sorted.map((e) => (
               <AbsenceRow
                 key={e.id}
@@ -416,22 +448,61 @@ export default function AbsencesScreen() {
             ))}
           </View>
         )}
-      </ScrollView>
 
-      {/* FAB — always vacation; sick is one tap further */}
-      <Pressable
-        onPress={() => router.push('/absences/new-vacation' as any)}
-        className="absolute bottom-8 right-6 w-16 h-16 rounded-full bg-brand items-center justify-center"
-        style={{
-          shadowColor: '#0064E0',
-          shadowOpacity: 0.3,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 6 },
-          elevation: 8,
-        }}
-      >
-        <Plus size={26} color="#fff" />
-      </Pressable>
+        {/* Info box — web "Planning Leave?" */}
+        <View
+          className="mt-8 rounded-[40px] p-8 overflow-hidden"
+          style={{ backgroundColor: '#2563EB' }}
+        >
+          <View
+            style={{
+              position: 'absolute',
+              top: -32,
+              right: -32,
+              width: 128,
+              height: 128,
+              borderRadius: 999,
+              backgroundColor: '#FFFFFF',
+              opacity: 0.1,
+            }}
+          />
+          <Text className="text-[20px] font-black text-white mb-2">
+            {L('Urlaub geplant?', 'Planning Leave?')}
+          </Text>
+          <Text className="text-[14px] font-medium mb-6" style={{ color: '#DBEAFE', lineHeight: 22 }}>
+            {L(
+              'Bitte reichen Sie Ihre Anträge mindestens 14 Tage im Voraus zur Genehmigung durch die Disposition ein.',
+              'Please submit your requests at least 14 days in advance for approval by the dispatcher.',
+            )}
+          </Text>
+          <View className="flex-row flex-wrap" style={{ gap: 10 }}>
+            <Pressable
+              onPress={goVacation}
+              className="bg-white px-6 py-3 rounded-2xl"
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 6,
+              }}
+            >
+              <Text className="text-[12px] font-black uppercase tracking-widest" style={{ color: '#2563EB' }}>
+                {L('Jetzt beantragen', 'Request Now')}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={goSick}
+              className="px-6 py-3 rounded-2xl border"
+              style={{ borderColor: 'rgba(255,255,255,0.5)' }}
+            >
+              <Text className="text-[12px] font-black uppercase tracking-widest text-white">
+                {L('Krank melden', 'Report sick')}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
 
       {/* Reject reason modal */}
       <Modal
@@ -445,14 +516,14 @@ export default function AbsencesScreen() {
           onPress={() => setRejectTarget(null)}
         >
           <Pressable
-            className="w-full bg-white dark:bg-slate-900 rounded-3xl p-5"
+            className="w-full bg-white rounded-3xl p-6"
             onPress={(ev) => ev.stopPropagation()}
             style={{ maxWidth: 460 }}
           >
-            <Text className="text-[16px] font-black text-gray-900 dark:text-white mb-1">
+            <Text className="text-[18px] font-black text-slate-900 mb-1">
               {L('Antrag ablehnen', 'Reject request')}
             </Text>
-            <Text className="text-[12px] text-gray-500 dark:text-slate-400 mb-3">
+            <Text className="text-[13px] text-slate-500 mb-4">
               {L(
                 'Bitte geben Sie eine kurze Begründung an. Der Mitarbeiter erhält sie als Benachrichtigung.',
                 'Please give a short reason. The employee will receive it in the notification.',
@@ -463,19 +534,21 @@ export default function AbsencesScreen() {
               onChangeText={setRejectReason}
               multiline
               placeholder={L('Grund eingeben…', 'Enter reason…')}
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#94A3B8"
               style={{
-                minHeight: 96,
-                borderWidth: 2,
-                borderColor: '#E5E7EB',
+                minHeight: 100,
+                backgroundColor: '#F8FAFC',
+                borderWidth: 1,
+                borderColor: '#E2E8F0',
                 borderRadius: 16,
-                padding: 12,
+                padding: 14,
                 fontSize: 14,
-                color: '#111827',
+                fontWeight: '500',
+                color: '#334155',
                 textAlignVertical: 'top',
               }}
             />
-            <View className="flex-row gap-3 mt-4">
+            <View className="flex-row mt-5" style={{ gap: 12 }}>
               <View className="flex-1">
                 <Button
                   label={t('times.cancel')}
@@ -488,6 +561,7 @@ export default function AbsencesScreen() {
                   label={L('Ablehnen', 'Reject')}
                   loading={!!acting && acting === rejectTarget?.id}
                   onPress={submitReject}
+                  style={{ backgroundColor: '#DC2626' }}
                 />
               </View>
             </View>
@@ -523,172 +597,152 @@ function AbsenceRow({
   const end = safeParseISO(event.end_time) ?? new Date()
   const days = Math.max(1, differenceInCalendarDays(end, start) + 1)
   const isHoliday = event.event_type === 'holiday'
-  const color = isHoliday ? EVENT_COLORS.holiday : EVENT_COLORS.sick_leave
-  const Icon = isHoliday ? Palmtree : ThermometerSnowflake
+  const tile = isHoliday ? KIND_TILE.holiday : KIND_TILE.sick_leave
+  const kindLabel = isHoliday ? L('Urlaub', 'Holiday') : L('Krankmeldung', 'Sick Leave')
   const status = effectiveStatus(event)
-  const statusPalette = STATUS_PALETTE[status]
-  const statusLabelDe =
-    status === 'pending' ? 'Offen' : status === 'approved' ? 'Genehmigt' : 'Abgelehnt'
-  const statusLabelEn =
-    status === 'pending' ? 'Pending' : status === 'approved' ? 'Approved' : 'Rejected'
+  const statusPalette = STATUS_PALETTE[status] ?? STATUS_PALETTE.approved
+  const statusLabel =
+    status === 'pending'
+      ? L('Offen', 'Pending')
+      : status === 'approved'
+        ? L('Genehmigt', 'Approved')
+        : L('Abgelehnt', 'Rejected')
 
   // Pending vacation rows get the inline decide buttons.
   const canDecide = isManagerial && status === 'pending' && isHoliday
+  const creatorName = event.creator?.full_name ?? null
+  const deciderName = event.decided_by_profile?.full_name ?? null
 
   return (
-    <Card className="mb-3" style={{ borderLeftWidth: 4, borderLeftColor: statusPalette.border }}>
-      <View className="flex-row items-start">
+    <Card style={{ borderColor: '#E2E8F0', borderRadius: 28, padding: 18 }}>
+      <View className="flex-row items-center">
         <View
-          className="w-11 h-11 rounded-2xl items-center justify-center mr-3 shrink-0"
-          style={{ backgroundColor: `${color}1F` }}
+          className="w-12 h-12 rounded-2xl items-center justify-center mr-4"
+          style={{ backgroundColor: tile.bg }}
         >
-          <Icon size={20} color={color} />
+          <CalendarIcon size={22} color={tile.fg} />
         </View>
         <View className="flex-1" style={{ minWidth: 0 }}>
-          <View className="flex-row items-center flex-wrap mb-1" style={{ gap: 6 }}>
-            <Text
-              className="text-[14px] font-black text-gray-900 dark:text-white mr-1"
-              numberOfLines={1}
-              style={{ maxWidth: '70%' }}
-            >
-              {event.title}
-            </Text>
-            <View
-              className="px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: `${color}1F` }}
-            >
-              <Text
-                className="text-[9px] font-black uppercase tracking-widest"
-                style={{ color }}
-              >
-                {isHoliday ? L('Urlaub', 'Vacation') : L('Krank', 'Sick leave')}
-              </Text>
-            </View>
-            <View
-              className="px-2 py-0.5 rounded-full flex-row items-center"
-              style={{ backgroundColor: statusPalette.bg }}
-            >
-              {status === 'pending' ? (
-                <ClockIcon size={9} color={statusPalette.text} />
-              ) : status === 'approved' ? (
-                <Check size={9} color={statusPalette.text} />
-              ) : (
-                <XIcon size={9} color={statusPalette.text} />
-              )}
-              <Text
-                className="text-[9px] font-black uppercase tracking-widest ml-1"
-                style={{ color: statusPalette.text }}
-              >
-                {L(statusLabelDe, statusLabelEn)}
-              </Text>
-            </View>
-          </View>
-          <Text
-            className="text-[12px] text-gray-500 dark:text-slate-400"
-            numberOfLines={1}
-          >
-            {format(start, 'dd.MM.yyyy', { locale: dateLocale })}
-            {' – '}
-            {format(end, 'dd.MM.yyyy', { locale: dateLocale })}
-            {' · '}
-            {days} {L(days === 1 ? 'Tag' : 'Tage', days === 1 ? 'day' : 'days')}
+          <Text className="text-[15px] font-bold text-slate-900" numberOfLines={1}>
+            {event.title || kindLabel}
           </Text>
-          {isManagerial && event.creator?.full_name ? (
-            <Text
-              className="text-[11px] text-gray-700 dark:text-slate-300 mt-1 font-semibold"
-              numberOfLines={1}
-            >
-              {event.creator.full_name}
-            </Text>
-          ) : null}
-          {event.description ? (
-            <Text
-              className="text-[12px] text-gray-500 dark:text-slate-400 mt-1"
-              numberOfLines={3}
-            >
-              {event.description}
-            </Text>
-          ) : null}
-          {status !== 'pending' && event.decision_reason ? (
-            <Text
-              className="text-[11px] text-gray-700 dark:text-slate-300 mt-2 italic"
-              numberOfLines={3}
-            >
-              {L('Hinweis:', 'Note:')} {event.decision_reason}
-            </Text>
-          ) : null}
-          {status !== 'pending' && event.decided_by_profile?.full_name ? (
-            <Text
-              className="text-[10px] text-gray-400 dark:text-slate-500 mt-1"
-              numberOfLines={1}
-            >
-              {L(
-                `Entschieden von ${event.decided_by_profile.full_name}`,
-                `Decided by ${event.decided_by_profile.full_name}`,
-              )}
-            </Text>
-          ) : null}
-
-          {canDecide ? (
-            <View style={{ flexDirection: 'row', marginTop: 12 }}>
-              <Pressable
-                onPress={onApprove}
-                disabled={acting}
-                style={{ flex: 1, marginRight: 8 }}
-              >
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#DCFCE7',
-                    borderWidth: 1,
-                    borderColor: '#10B981',
-                    borderRadius: 12,
-                    paddingVertical: 8,
-                    opacity: acting ? 0.5 : 1,
-                  }}
-                >
-                  <Check size={14} color="#059669" />
-                  <Text
-                    style={{ marginLeft: 6, color: '#065F46', fontSize: 12, fontWeight: '800' }}
-                  >
-                    {L('Genehmigen', 'Approve')}
-                  </Text>
-                </View>
-              </Pressable>
-              <Pressable
-                onPress={onReject}
-                disabled={acting}
-                style={{ flex: 1 }}
-              >
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#FEE2E2',
-                    borderWidth: 1,
-                    borderColor: '#EF4444',
-                    borderRadius: 12,
-                    paddingVertical: 8,
-                    opacity: acting ? 0.5 : 1,
-                  }}
-                >
-                  <XIcon size={14} color="#DC2626" />
-                  <Text
-                    style={{ marginLeft: 6, color: '#7F1D1D', fontSize: 12, fontWeight: '800' }}
-                  >
-                    {L('Ablehnen', 'Reject')}
-                  </Text>
-                </View>
-              </Pressable>
-            </View>
-          ) : null}
+          <Text className="text-[12px] font-medium text-slate-400 mt-0.5" numberOfLines={1}>
+            {`${format(start, 'dd.MM.yyyy', { locale: dateLocale })} — ${format(end, 'dd.MM.yyyy', { locale: dateLocale })}`}
+          </Text>
         </View>
-        <Pressable onPress={onWithdraw} className="p-1.5 -mr-1 ml-2 shrink-0">
-          <Trash2 size={18} color="#DC2626" />
-        </Pressable>
+        <View className="ml-2 px-3 py-1 rounded-full" style={{ backgroundColor: statusPalette.bg }}>
+          <Text
+            className="text-[10px] font-black uppercase tracking-widest"
+            style={{ color: statusPalette.text }}
+          >
+            {statusLabel}
+          </Text>
+        </View>
+      </View>
+
+      <View className="flex-row flex-wrap mt-4" style={{ rowGap: 12 }}>
+        <View style={{ width: '50%' }}>
+          <Text className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            {L('Art', 'Type')}
+          </Text>
+          <Text className="text-[13px] font-bold text-slate-900 mt-0.5">{kindLabel}</Text>
+        </View>
+        <View style={{ width: '50%' }}>
+          <Text className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            {L('Dauer', 'Duration')}
+          </Text>
+          <Text className="text-[13px] font-bold text-slate-900 mt-0.5">
+            {`${days} ${L(days === 1 ? 'Tag' : 'Tage', days === 1 ? 'day' : 'days')}`}
+          </Text>
+        </View>
+        {isManagerial && creatorName ? (
+          <View style={{ width: '50%' }}>
+            <Text className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              {L('Mitarbeiter', 'Employee')}
+            </Text>
+            <Text className="text-[13px] font-bold text-slate-900 mt-0.5" numberOfLines={1}>
+              {creatorName}
+            </Text>
+          </View>
+        ) : null}
+        {status !== 'pending' && deciderName ? (
+          <View style={{ width: '50%' }}>
+            <Text className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              {L('Entschieden von', 'Decided by')}
+            </Text>
+            <Text className="text-[13px] font-bold text-slate-900 mt-0.5" numberOfLines={1}>
+              {deciderName}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {event.description ? (
+        <Text className="text-[13px] text-slate-500 mt-3" numberOfLines={3}>
+          {event.description}
+        </Text>
+      ) : null}
+      {status !== 'pending' && event.decision_reason ? (
+        <View className="mt-3 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+          <Text className="text-[12px] text-slate-600 italic" numberOfLines={3}>
+            {`${L('Hinweis:', 'Note:')} ${event.decision_reason}`}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Footer actions */}
+      <View
+        className="flex-row items-center mt-4 pt-3 border-t border-slate-100"
+        style={{ gap: 8 }}
+      >
+        {canDecide ? (
+          <>
+            <Pressable
+              onPress={onApprove}
+              disabled={acting}
+              className="flex-1 flex-row items-center justify-center h-9 rounded-lg border bg-emerald-50 border-emerald-200"
+              style={{ opacity: acting ? 0.5 : 1 }}
+            >
+              <Check size={14} color="#047857" />
+              <Text className="text-[12px] font-black uppercase tracking-wider text-emerald-700 ml-1.5">
+                {L('Genehmigen', 'Approve')}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={onReject}
+              disabled={acting}
+              className="flex-1 flex-row items-center justify-center h-9 rounded-lg border bg-red-50 border-red-200"
+              style={{ opacity: acting ? 0.5 : 1 }}
+            >
+              <XIcon size={14} color="#DC2626" />
+              <Text className="text-[12px] font-black uppercase tracking-wider text-red-600 ml-1.5">
+                {L('Ablehnen', 'Reject')}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={onWithdraw}
+              hitSlop={8}
+              accessibilityLabel={L('Zurücknehmen', 'Withdraw')}
+              className="w-9 h-9 rounded-lg items-center justify-center bg-red-50"
+            >
+              <Trash2 size={16} color="#DC2626" />
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <View className="flex-1" />
+            <Pressable
+              onPress={onWithdraw}
+              hitSlop={8}
+              className="flex-row items-center h-9 px-3 rounded-lg bg-red-50"
+            >
+              <Trash2 size={14} color="#DC2626" />
+              <Text className="text-[12px] font-bold text-red-600 ml-1.5">
+                {L('Zurücknehmen', 'Withdraw')}
+              </Text>
+            </Pressable>
+          </>
+        )}
       </View>
     </Card>
   )

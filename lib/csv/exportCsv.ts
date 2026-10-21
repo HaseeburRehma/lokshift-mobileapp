@@ -4,7 +4,7 @@
  * it to the native share sheet, matching the PDF/Excel flow.
  */
 
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as Sharing from 'expo-sharing'
 import { format } from 'date-fns'
 

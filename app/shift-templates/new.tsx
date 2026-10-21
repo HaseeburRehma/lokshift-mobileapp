@@ -5,11 +5,11 @@
  */
 
 import React, { useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Text } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
+import { PageHeader } from '@/components/PageHeader'
 import { ShiftTemplateForm } from '@/components/forms/ShiftTemplateForm'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -41,14 +41,14 @@ export default function NewShiftTemplateScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Neue Vorlage', 'New template')}
-        </Text>
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+        <PageHeader
+          showBack
+          onBack={goBack}
+          title={L('Neue Vorlage', 'New template')}
+          subtitle={L('Kunde, Route, Zeiten und Übernachtung als wiederverwendbare Vorlage', 'Customer, route, times and overnight stay as a reusable template')}
+        />
       </View>
 
       <ShiftTemplateForm

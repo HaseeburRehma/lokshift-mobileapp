@@ -1,26 +1,11 @@
 /**
  * Push-notification registration + foreground handling.
  *
- * This module covers the **mobile side** of the pipeline:
- *   1. Configure the foreground notification handler so banners /
- *      sounds appear when the app is in the foreground.
- *   2. Request OS notification permission (idempotent).
- *   3. Fetch the Expo push token and persist it onto the user's
- *      profile (`profiles.push_token`).
- *   4. Subscribe to incoming notification responses and route the
- *      user to the right screen based on the `type` and `data` fields
- *      that the backend writes into the notification payload.
- *
- * **Backend gap (out of scope for mobile):**
- *   - The webapp doesn't ship a push dispatcher today. To make the
- *     pipeline fire end-to-end, an Edge Function (or a Postgres
- *     trigger via pg_net) needs to listen for INSERT on the
- *     `notifications` table, look up the recipient's
- *     `profiles.push_token`, and POST to
- *     https://exp.host/--/api/v2/push/send.
- *   - The `push_token` column also needs to exist on `profiles`.
- *     Until that migration ships, the token write here fails silently
- *     and the rest of the app keeps working.
+ *   1. Foreground handler so banners / sounds appear in the open app.
+ *   2. OS permission (idempotent).
+ *   3. Expo push token stored in `push_tokens` (private per user; the
+ *      webapp route /api/notifications/dispatch sends via Expo).
+ *   4. Taps route to the matching screen via `data.module`.
  */
 
 import { useEffect, useRef } from 'react'
@@ -31,6 +16,9 @@ import { useRouter } from 'expo-router'
 
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
+import { setCurrentDeviceToken } from './push-token-store'
+
+export { unregisterPushToken } from './push-token-store'
 
 let foregroundHandlerSet = false
 function configureForegroundHandler() {
@@ -111,18 +99,41 @@ async function getExpoPushToken(): Promise<string | null> {
  * `type` values the existing notifications callers in the codebase
  * already use (`plans`, `chat`, `times`, `absence`, etc).
  */
-function routeForNotification(data: Record<string, unknown> | null): string | null {
+/** Webapp links in notifications → matching app screens. */
+const LINK_ROUTES: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+  [/^\/dashboard\/plans\/my-week(?:\?date=(\d{4}-\d{2}-\d{2}))?/, (m) => (m[1] ? `/plans/my-week?date=${m[1]}` : '/plans/my-week')],
+  [/^\/dashboard\/plans\/week(?:\?date=(\d{4}-\d{2}-\d{2}))?/, (m) => (m[1] ? `/dashboard?date=${m[1]}` : '/dashboard')],
+  [/^\/dashboard\/times\/approvals/, () => '/times/verify'],
+  [/^\/dashboard\/times\/monthly/, () => '/times/monthly'],
+  [/^\/dashboard\/personnel/, () => '/qualifications'],
+  [/^\/dashboard\/settings\/qualifications/, () => '/qualifications'],
+  [/^\/dashboard\/holiday-bonus/, () => '/bonuses'],
+]
+
+export function routeForNotification(data: Record<string, unknown> | null): string | null {
   if (!data) return '/notifications'
-  const type = (data.type as string) ?? null
+  const type = ((data.module ?? data.type) as string) ?? null
   const moduleId = (data.moduleId as string) ?? null
+  const link = typeof data.link === 'string' ? data.link : null
+  if (link) {
+    for (const [re, to] of LINK_ROUTES) {
+      const m = link.match(re)
+      if (m) return to(m)
+    }
+  }
 
   switch (type) {
     case 'chat':
       return moduleId ? `/chat/${moduleId}` : '/(tabs)/chat'
     case 'plans':
-      return moduleId ? `/plans/${moduleId}` : '/plans'
+      return moduleId ? `/plans/${moduleId}` : '/plans/my-week'
     case 'times':
-      return '/times'
+    case 'time_entries':
+      return moduleId ? `/times/${moduleId}` : '/times'
+    case 'corrections':
+      return '/times/verify'
+    case 'personnel':
+      return '/qualifications'
     case 'absence':
       return '/absences'
     case 'per-diem':
@@ -141,7 +152,7 @@ function routeForNotification(data: Record<string, unknown> | null): string | nu
  */
 export function usePushRegistration() {
   const router = useRouter()
-  const { session } = useUser()
+  const { session, profile } = useUser()
   const myId = session?.user?.id ?? null
   const supabase = getSupabase()
   const lastWrittenToken = useRef<string | null>(null)
@@ -171,25 +182,20 @@ export function usePushRegistration() {
 
         if (lastWrittenToken.current === token) return
         lastWrittenToken.current = token
+        setCurrentDeviceToken(token)
 
-        // Best-effort write. If the column doesn't exist yet on the
-        // deployed DB (see "backend gap" in the file header), Supabase
-        // returns a 400-level error which we swallow so the app keeps
-        // working. Once the migration ships, this becomes the real
-        // delivery channel.
-        const { error } = await supabase
-          .from('profiles')
-          .update({
-            push_token: token,
-            push_token_platform: Platform.OS,
-            push_token_updated_at: new Date().toISOString(),
-          } as any)
-          .eq('id', myId)
+        // register_push_token() moves the token to whoever is signed in on
+        // this device now (a plain upsert is blocked by RLS when the
+        // previous user didn't sign out, and their pushes would keep
+        // arriving here). Best-effort: a missing function on an older
+        // server is logged and ignored.
+        const { error } = await (supabase as any).rpc('register_push_token', {
+          p_token: token,
+          p_platform: Platform.OS,
+        })
         if (error) {
-          console.info(
-            '[push] token persistence skipped — backend migration may be missing:',
-            error.message,
-          )
+          lastWrittenToken.current = null
+          console.info('[push] token not stored:', error.message)
         }
       } catch (e) {
         console.warn('[push] registration failed (non-fatal):', e)

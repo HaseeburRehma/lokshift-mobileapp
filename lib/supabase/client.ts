@@ -70,6 +70,9 @@ let cached: SupabaseClient | null = null
 export function getSupabase(): AppSupabase {
   if (cached) return cached as unknown as AppSupabase
   cached = createClient(supabaseUrl as string, supabaseAnonKey as string, {
+    // Tells the database this is a current client (see time_entries_normalize:
+    // requests without it are treated as the previous app version).
+    global: { headers: { 'x-lokshift-client': '2' } },
     auth: {
       storage: SupabaseStorage as any,
       autoRefreshToken: true,

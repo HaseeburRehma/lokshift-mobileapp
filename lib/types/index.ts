@@ -150,13 +150,16 @@ export type PlanStatus =
 export interface Plan {
   id: string
   organization_id: string
-  employee_id: string
+  /** null = unbesetzte Schicht */
+  employee_id: string | null
   creator_id?: string
   customer_id: string | null
   start_time: string
   end_time: string
   status: PlanStatus
   route?: string | null
+  /** Schichtbezeichnung, z. B. "D-ZILB SN 2" */
+  shift_name?: string | null
   location: string | null
   notes: string | null
   rejection_reason?: string | null
@@ -218,6 +221,17 @@ export interface TimeEntry {
   notes: string | null
   is_verified: boolean
   verified_by?: string | null
+  verified_at?: string | null
+  /** Who created the row (≠ employee_id → entered on behalf). */
+  entered_by?: string | null
+  /** null = draft (editable by the employee). */
+  submitted_at?: string | null
+  submitted_by?: string | null
+  /** Originally clocked times — immutable. */
+  clock_start_time?: string | null
+  clock_end_time?: string | null
+  corrected_at?: string | null
+  change_reason?: string | null
   is_on_break?: boolean
   current_break_start?: string | null
   total_break_seconds?: number
@@ -236,7 +250,16 @@ export interface TimeEntry {
   employee?: { id: string; full_name: string | null; avatar_url: string | null }
   customer?: { id: string; name: string } | null
   verifier?: { id: string; full_name: string | null }
-  plan?: { location?: string | null; customer?: { id: string; name: string } | null }
+  enterer?: { id: string; full_name: string | null } | null
+  plan?: {
+    id?: string
+    start_time?: string
+    end_time?: string
+    shift_name?: string | null
+    route?: string | null
+    location?: string | null
+    customer?: { id: string; name: string } | null
+  } | null
   start_location?: OperationalLocation | null
   destination_location?: OperationalLocation | null
 }
@@ -317,16 +340,24 @@ export type HolidayBonusType =
   | 'performance'
   | 'other'
 
+export type SpecialPaymentDistribution = 'once' | 'monthly' | 'prorata'
+
+/** Sonderzahlung (table holiday_bonuses). */
 export interface HolidayBonus {
   id: string
   organization_id: string
   employee_id: string
+  title: string | null
   amount: number
   bonus_type: HolidayBonusType
+  distribution: SpecialPaymentDistribution
+  billing_month: string | null
   period_start: string | null
   period_end: string | null
   notes: string | null
+  created_by?: string | null
   created_at: string
+  updated_at?: string
   // Joined
   employee?: { id: string; full_name: string | null }
 }
@@ -339,6 +370,12 @@ export interface NotificationRow {
   id: string
   user_id: string
   title: string
+  /** Live columns */
+  message?: string | null
+  module_type?: string | null
+  module_id?: string | null
+  link?: string | null
+  /** Normalised aliases (filled by NotificationsProvider). */
   body: string | null
   type: string
   is_read: boolean
@@ -507,8 +544,63 @@ export interface Qualification {
   reference: string | null
   is_verified: boolean
   document_url: string | null
+  doc_type: string
+  file_path: string | null
+  file_name: string | null
+  remark: string | null
+  reminder_days: number[]
+  is_confidential: boolean
+  is_required: boolean
+  archived_at: string | null
+  replaced_by: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
   // Joined
   user?: { id: string; full_name: string | null; avatar_url: string | null }
+}
+
+export type CorrectionStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+
+export interface CorrectionValues {
+  date?: string
+  start_time?: string
+  end_time?: string
+  break_minutes?: number
+  notes?: string | null
+  overnight_stay?: boolean
+  meal_allowance?: number
+}
+
+export interface TimeEntryCorrection {
+  id: string
+  organization_id: string
+  entry_id: string
+  employee_id: string
+  requested_by: string
+  requested_at: string
+  reason: string
+  original: CorrectionValues
+  proposed: CorrectionValues
+  status: CorrectionStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  review_note: string | null
+  employee?: { id: string; full_name: string | null } | null
+  reviewer?: { id: string; full_name: string | null } | null
+  entry?: TimeEntry | null
+}
+
+export interface TimeEntryAuditRow {
+  id: string
+  entry_id: string
+  organization_id: string
+  employee_id: string | null
+  action: 'created' | 'clocked_in' | 'clocked_out' | 'submitted' | 'approved' | 'unapproved' | 'updated' | 'correction_applied' | 'deleted'
+  changed_by: string | null
+  changed_at: string
+  old_values: Record<string, unknown> | null
+  new_values: Record<string, unknown> | null
+  reason: string | null
+  changer?: { id: string; full_name: string | null } | null
 }

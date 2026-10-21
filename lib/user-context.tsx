@@ -23,6 +23,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { getSupabase } from './supabase/client'
+import { unregisterPushToken } from '@/lib/notifications/push-token-store'
 import { clearAllCache } from './cache'
 import type { Profile, UserRole } from './types'
 import { normalizeRole } from './rbac/permissions'
@@ -235,6 +236,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   )
 
   const signOut = useCallback(async () => {
+    await unregisterPushToken()
     await supabase.auth.signOut()
     setSession(null)
     setProfile(null)

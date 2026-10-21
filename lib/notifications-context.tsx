@@ -42,6 +42,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
   const myId = session?.user?.id
 
+  const normalize = (row: any): NotificationRow => ({
+    ...row,
+    body: row.message ?? row.body ?? null,
+    type: row.module_type ?? row.type ?? 'system',
+  })
+
   const fetch = useCallback(async () => {
     if (!myId) {
       setNotifications([])
@@ -58,7 +64,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (error) {
       console.warn('[NotificationsContext] fetch failed:', error.message)
     } else {
-      setNotifications((data ?? []) as NotificationRow[])
+      setNotifications((data ?? []).map(normalize))
     }
     setLoading(false)
   }, [supabase, myId])
@@ -79,7 +85,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         (payload: any) => {
           setNotifications((prev) => {
             if (prev.some((n) => n.id === (payload.new as any).id)) return prev
-            return [payload.new as NotificationRow, ...prev]
+            return [normalize(payload.new), ...prev]
           })
         },
       )
@@ -88,7 +94,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${myId}` },
         (payload: any) => {
           setNotifications((prev) =>
-            prev.map((n) => (n.id === (payload.new as any).id ? (payload.new as NotificationRow) : n)),
+            prev.map((n) => (n.id === (payload.new as any).id ? normalize(payload.new) : n)),
           )
         },
       )

@@ -1,194 +1,274 @@
 /**
- * Localization sub-page — language, timezone (read-only), date format.
+ * Lokalisierung — mirrors the webapp's
+ * app/dashboard/settings/localization/page.tsx:
  *
- * Language change persists via the existing i18n context; date format
- * via a small per-device preference store. Timezone is read from the
- * device's Intl resolved options for display; the app uses ISO
- * timestamps end-to-end so changing the device timezone is enough.
+ *   - "Meine Sprache": per-user UI language, instant (i18n setLocale)
+ *   - "Organisations-Standards": default language, timezone, currency,
+ *     time format and date format on public.organizations. Editable by
+ *     admins ("Standards speichern"), read-only ("Nur lesen") otherwise.
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, Pressable } from 'react-native'
-import { useRouter } from 'expo-router'
-import { ChevronLeft, Globe, Clock, Calendar } from 'lucide-react-native'
+import { View, Text, ActivityIndicator } from 'react-native'
+import { Globe, Save } from 'lucide-react-native'
 
-import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
+import { Button } from '@/components/Button'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
+import { useUser } from '@/lib/user-context'
+import { getSupabase } from '@/lib/supabase/client'
 import {
-  getDateFormat,
-  setDateFormat,
-  DATE_FORMAT_EXAMPLES,
-  deviceTimezone,
-  type DateFormat,
-} from '@/lib/preferences'
-import { useSafeBack } from '@/lib/use-safe-back'
+  SettingsShell,
+  SettingsPageHeader,
+  SectionCard,
+  FieldLabel,
+  ChoiceGroup,
+  SC,
+} from '@/components/settings/SettingsUI'
+
+const TIMEZONES = [
+  'Europe/Berlin',
+  'Europe/Vienna',
+  'Europe/Zurich',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Madrid',
+  'UTC',
+]
+
+const CURRENCIES = ['EUR', 'CHF', 'USD', 'GBP']
+
+const DATE_FORMATS = [
+  { id: 'DD.MM.YYYY', sample: '28.04.2026' },
+  { id: 'YYYY-MM-DD', sample: '2026-04-28' },
+  { id: 'MM/DD/YYYY', sample: '04/28/2026' },
+]
+
+const LANGUAGES: Array<{ code: 'de' | 'en'; name: { de: string; en: string }; flag: string }> = [
+  { code: 'de', name: { de: 'Deutsch', en: 'German' }, flag: '🇩🇪' },
+  { code: 'en', name: { de: 'Englisch', en: 'English' }, flag: '🇬🇧' },
+]
+
+interface OrgDefaults {
+  timezone: string
+  currency: string
+  default_locale: 'de' | 'en'
+  date_format: string
+  time_format: string
+}
+
+const DEFAULTS: OrgDefaults = {
+  timezone: 'Europe/Berlin',
+  currency: 'EUR',
+  default_locale: 'de',
+  date_format: 'DD.MM.YYYY',
+  time_format: '24h',
+}
 
 export default function LocalizationScreen() {
-  const router = useRouter()
-  const goBack = useSafeBack('/(tabs)/settings')
   const { locale, setLocale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const [dateFormat, setDateFormatState] = useState<DateFormat>('de')
+  const { profile, isAdmin } = useUser()
+  const orgId = profile?.organization_id ?? null
+
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [org, setOrg] = useState<OrgDefaults>(DEFAULTS)
 
   useEffect(() => {
-    getDateFormat().then(setDateFormatState)
-  }, [])
+    if (!orgId) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await getSupabase()
+          .from('organizations')
+          .select('timezone, currency, default_locale, date_format, time_format')
+          .eq('id', orgId)
+          .maybeSingle()
+        if (cancelled || !data) return
+        const d = data as any
+        setOrg({
+          timezone: d.timezone || DEFAULTS.timezone,
+          currency: d.currency || DEFAULTS.currency,
+          default_locale: d.default_locale === 'en' ? 'en' : 'de',
+          date_format: d.date_format || DEFAULTS.date_format,
+          time_format: d.time_format || DEFAULTS.time_format,
+        })
+      } catch {
+        // Keep defaults on network/RLS failure.
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [orgId])
 
-  const tz = deviceTimezone()
-
-  const chooseDateFormat = async (v: DateFormat) => {
-    setDateFormatState(v)
-    await setDateFormat(v)
-    toast.success(L('Format gespeichert', 'Format saved'))
+  const chooseLanguage = (code: 'de' | 'en') => {
+    setLocale(code)
+    toast.success(code === 'de' ? 'Sprache geändert' : 'Language changed')
   }
 
+  const handleSave = async () => {
+    if (!orgId) return
+    if (!isAdmin) {
+      toast.error(L('Nur Administratoren können Standards ändern', 'Only admins can change defaults'))
+      return
+    }
+    setSaving(true)
+    try {
+      const { error } = await getSupabase()
+        .from('organizations')
+        .update({
+          timezone: org.timezone,
+          currency: org.currency,
+          default_locale: org.default_locale,
+          date_format: org.date_format,
+          time_format: org.time_format,
+        } as any)
+        .eq('id', orgId)
+      if (error) throw error
+      toast.success(L('Standards gespeichert', 'Defaults saved'))
+    } catch (err: any) {
+      toast.error(err?.message || L('Speichern fehlgeschlagen', 'Save failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Timezone/currency lists fall back to including the stored value so an
+  // org configured elsewhere still shows its current selection.
+  const tzOptions = TIMEZONES.includes(org.timezone) ? TIMEZONES : [org.timezone, ...TIMEZONES]
+  const curOptions = CURRENCIES.includes(org.currency) ? CURRENCIES : [org.currency, ...CURRENCIES]
+  const readOnly = !isAdmin
+
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Lokalisierung', 'Localization')}
-        </Text>
-      </View>
+    <SettingsShell>
+      <SettingsPageHeader
+        backLabel={L('Einstellungen', 'Settings')}
+        icon={Globe}
+        tileColor={SC.cyan500}
+        title={L('Lokalisierung', 'Localization')}
+        subtitle={L('Sprache, Zeitzone, Währung und Datumsformat.', 'Language, timezone, currency and date format.')}
+      />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <View className="flex-row items-center mb-4">
-          <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-            <Globe size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-              {L('Sprache, Zeitzone, Datum', 'Language, timezone, date')}
-            </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                'Wirkt sich nur auf dieses Gerät aus.',
-                'Affects this device only.',
-              )}
-            </Text>
-          </View>
+      {/* Personal language preference (per-user, instant) */}
+      <SectionCard
+        title={L('Meine Sprache', 'My language')}
+        description={L('Wirkt sich sofort auf Ihre eigene Oberfläche aus.', 'Takes effect instantly on your own UI.')}
+        padded
+      >
+        <View style={{ marginTop: 16 }}>
+          <ChoiceGroup
+            options={LANGUAGES.map((lang) => ({
+              value: lang.code,
+              label: L(lang.name.de, lang.name.en),
+              sub: lang.code.toUpperCase(),
+              leading: lang.flag,
+            }))}
+            value={locale === 'en' ? 'en' : 'de'}
+            onChange={chooseLanguage}
+            showCheck
+          />
         </View>
+      </SectionCard>
 
-        {/* Language */}
-        <Card className="mb-3">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-3">
-            {L('Sprache', 'Language')}
-          </Text>
-          <View className="flex-row gap-2">
-            {(['de', 'en'] as const).map((lang) => (
-              <Pressable
-                key={lang}
-                onPress={() => {
-                  setLocale(lang)
-                  toast.success(L('Sprache geändert', 'Language changed'))
-                }}
-                className={`flex-1 py-3 rounded-xl items-center border-2 ${
-                  locale === lang ? 'bg-brand border-brand' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700'
-                }`}
-              >
-                <Text
-                  className={`text-[14px] font-black ${
-                    locale === lang ? 'text-white' : 'text-gray-700 dark:text-slate-300'
-                  }`}
-                >
-                  {lang === 'de' ? 'Deutsch' : 'English'}
-                </Text>
-              </Pressable>
-            ))}
+      {/* Organization defaults — admin only */}
+      <SectionCard
+        title={L('Organisations-Standards', 'Organization defaults')}
+        description={L(
+          'Diese Standards werden für neue Benutzer und systemweite Anzeige verwendet.',
+          'These defaults apply to new users and system-wide display.',
+        )}
+        badge={readOnly ? L('Nur lesen', 'Read-only') : undefined}
+        dimmed={readOnly}
+        padded
+      >
+        {loading ? (
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            <ActivityIndicator color={SC.blue600} />
           </View>
-        </Card>
+        ) : (
+          <View style={{ marginTop: 16, gap: 20 }}>
+            <View>
+              <FieldLabel>{L('Standard-Sprache', 'Default language')}</FieldLabel>
+              <ChoiceGroup
+                options={[
+                  { value: 'de', label: 'Deutsch (DE)' },
+                  { value: 'en', label: 'English (EN)' },
+                ]}
+                value={org.default_locale}
+                onChange={(v) => setOrg((p) => ({ ...p, default_locale: v as 'de' | 'en' }))}
+                disabled={readOnly}
+              />
+            </View>
 
-        {/* Timezone */}
-        <Card className="mb-3">
-          <View className="flex-row items-center mb-2">
-            <Clock size={16} color="#0064E0" />
-            <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-2">
-              {L('Zeitzone', 'Timezone')}
-            </Text>
+            <View>
+              <FieldLabel>{L('Zeitzone', 'Timezone')}</FieldLabel>
+              <ChoiceGroup
+                options={tzOptions.map((tz) => ({ value: tz, label: tz }))}
+                value={org.timezone}
+                onChange={(v) => setOrg((p) => ({ ...p, timezone: v }))}
+                disabled={readOnly}
+              />
+            </View>
+
+            <View>
+              <FieldLabel>{L('Währung', 'Currency')}</FieldLabel>
+              <ChoiceGroup
+                options={curOptions.map((c) => ({ value: c, label: c }))}
+                value={org.currency}
+                onChange={(v) => setOrg((p) => ({ ...p, currency: v }))}
+                disabled={readOnly}
+                columns={4}
+              />
+            </View>
+
+            <View>
+              <FieldLabel>{L('Zeitformat', 'Time format')}</FieldLabel>
+              <ChoiceGroup
+                options={[
+                  { value: '24h', label: '24h', sub: '14:30' },
+                  { value: '12h', label: '12h', sub: '2:30 PM' },
+                ]}
+                value={org.time_format}
+                onChange={(v) => setOrg((p) => ({ ...p, time_format: v }))}
+                disabled={readOnly}
+              />
+            </View>
+
+            <View>
+              <FieldLabel>{L('Datumsformat', 'Date format')}</FieldLabel>
+              <ChoiceGroup
+                options={DATE_FORMATS.map((df) => ({ value: df.id, label: df.id, sub: df.sample }))}
+                value={org.date_format}
+                onChange={(v) => setOrg((p) => ({ ...p, date_format: v }))}
+                disabled={readOnly}
+                columns={1}
+              />
+            </View>
+
+            {isAdmin ? (
+              <Button
+                label={L('Standards speichern', 'Save defaults')}
+                onPress={handleSave}
+                loading={saving}
+                leftIcon={<Save size={16} color="#FFFFFF" />}
+              />
+            ) : null}
           </View>
-          <Text className="text-[15px] font-black text-gray-900 dark:text-white">{tz}</Text>
-          <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
-            {L(
-              'Wird vom Gerät übernommen. In den Systemeinstellungen änderbar.',
-              'Read from the device. Change it in system settings.',
-            )}
-          </Text>
-        </Card>
+        )}
+      </SectionCard>
 
-        {/* Date format */}
-        <Card className="mb-3">
-          <View className="flex-row items-center mb-3">
-            <Calendar size={16} color="#0064E0" />
-            <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-2">
-              {L('Datumsformat', 'Date format')}
-            </Text>
-          </View>
-          {(['de', 'iso', 'us'] as DateFormat[]).map((opt, i) => {
-            const sel = dateFormat === opt
-            const label =
-              opt === 'de'
-                ? L('Deutsch', 'European')
-                : opt === 'iso'
-                ? 'ISO 8601'
-                : L('US', 'US')
-            return (
-              <Pressable
-                key={opt}
-                onPress={() => chooseDateFormat(opt)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 12,
-                  borderTopWidth: i === 0 ? 0 : 1,
-                  borderTopColor: '#F1F5F9',
-                }}
-              >
-                <View
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: sel ? '#0064E0' : '#CBD5E1',
-                    backgroundColor: sel ? '#0064E0' : '#fff',
-                    marginRight: 12,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {sel && (
-                    <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 999,
-                        backgroundColor: '#fff',
-                      }}
-                    />
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text className="text-[14px] font-bold text-gray-900 dark:text-white">{label}</Text>
-                  <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                    {DATE_FORMAT_EXAMPLES[opt]}
-                  </Text>
-                </View>
-              </Pressable>
-            )
-          })}
-        </Card>
-
-        <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-2 text-center">
-          {L(
-            'Sprache wird auch in PDF-Exporten verwendet.',
-            'Language is also used in PDF exports.',
-          )}
+      {!orgId ? (
+        <Text style={{ fontSize: 11, color: SC.slate400, textAlign: 'center' }}>
+          {L('Keine Organisation zugeordnet.', 'No organization assigned.')}
         </Text>
-      </ScrollView>
-    </Screen>
+      ) : null}
+    </SettingsShell>
   )
 }

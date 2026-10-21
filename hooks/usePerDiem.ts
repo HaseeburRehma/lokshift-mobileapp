@@ -11,6 +11,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
 import { safeNumber, safeParseISO } from '@/lib/safe-format'
 import type { PerDiem, PerDiemStatus } from '@/lib/types'
+import { sendNotification } from '@/lib/notifications/service'
 
 export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
   const supabase = getSupabase()
@@ -86,16 +87,16 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
     }
     // Notify the submitter.
     try {
-      await supabase.from('notifications').insert({
-        user_id: perDiem.employee_id,
+      await sendNotification({
+        userId: perDiem.employee_id,
         title:
-          status === 'approved' ? '✅ Spesen genehmigt'
-          : status === 'rejected' ? '❌ Spesen abgelehnt'
-          : '⏳ Spesen aktualisiert',
-        body: `€${safeNumber(perDiem.amount)} · ${perDiem.country}`,
-        type: 'per_diem',
-        is_read: false,
-      } as any)
+          status === 'approved' ? 'Spesenantrag genehmigt'
+          : status === 'rejected' ? 'Spesenantrag abgelehnt'
+          : 'Spesenantrag aktualisiert',
+        message: `${safeNumber(perDiem.amount)} € · ${perDiem.country}`,
+        module: 'per_diem',
+        moduleId: perDiem.id,
+      })
     } catch (e) { console.warn('[usePerDiem] notify failed (non-fatal):', e) }
   }
 

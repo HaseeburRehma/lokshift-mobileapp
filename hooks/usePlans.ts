@@ -10,7 +10,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
 import { readCache, writeCache } from '@/lib/cache'
+import { localDateKey } from '@/lib/time/shift-hours'
 import type { Plan, PlanStatus } from '@/lib/types'
+import { notifyManagers, sendNotification } from '@/lib/notifications/service'
+import { describePlan } from '@/lib/plans/notify'
 
 export function usePlans() {
   const supabase = getSupabase()
@@ -32,8 +35,10 @@ export function usePlans() {
       .from('plans')
       .select('*, employee:profiles!employee_id(id, full_name, avatar_url), customer:customers(id, name)')
       .eq('organization_id', profile.organization_id)
+      // Recent past + everything upcoming, so a busy org still sees what's next.
+      .gte('end_time', new Date(Date.now() - 14 * 86_400_000).toISOString())
       .order('start_time', { ascending: true })
-      .limit(200)
+      .limit(500)
 
     if (!isManagerial) query = query.eq('employee_id', myId)
 
@@ -64,7 +69,7 @@ export function usePlans() {
   const grouped = useMemo(() => {
     const map = new Map<string, Plan[]>()
     for (const p of plans) {
-      const key = p.start_time.slice(0, 10)
+      const key = localDateKey(new Date(p.start_time))
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(p)
     }
@@ -73,13 +78,17 @@ export function usePlans() {
       .map(([date, items]) => ({ date, items }))
   }, [plans])
 
-  const updateStatus = async (plan: Plan, newStatus: PlanStatus) => {
+  const updateStatus = async (plan: Plan, newStatus: PlanStatus, reason?: string) => {
     // optimistic
     setPlans((prev) => prev.map((p) => (p.id === plan.id ? { ...p, status: newStatus } : p)))
 
     const { error } = await supabase
       .from('plans')
-      .update({ status: newStatus, updated_at: new Date().toISOString() } as any)
+      .update({
+        status: newStatus,
+        rejection_reason: newStatus === 'rejected' ? reason?.trim() || null : null,
+        updated_at: new Date().toISOString(),
+      } as any)
       .eq('id', plan.id)
 
     if (error) {
@@ -93,16 +102,18 @@ export function usePlans() {
     // doesn't roll back the status change.
     if (newStatus === 'confirmed' || newStatus === 'rejected') {
       try {
-        const employeeName = plan.employee?.full_name ?? 'Mitarbeiter'
-        // Notify the creator if any; otherwise we'd need an admin lookup
-        // which we skip in v1.
-        await supabase.from('notifications').insert({
-          user_id: plan.employee_id,
-          title: newStatus === 'confirmed' ? '✅ Schicht bestätigt' : '❌ Schicht abgelehnt',
-          body: `${employeeName}: ${newStatus === 'confirmed' ? 'bestätigt' : 'abgelehnt'}.`,
-          type: 'plans',
-          is_read: false,
-        } as any)
+        const employeeName = plan.employee?.full_name ?? profile?.full_name ?? 'Mitarbeiter'
+        // The dispatcher who created the shift is told; without a creator
+        // all admins + dispatchers are.
+        const payload = {
+          title: newStatus === 'confirmed' ? 'Schicht bestätigt' : 'Schicht abgelehnt',
+          message: `${employeeName} hat die Schicht ${describePlan(plan)} ${newStatus === 'confirmed' ? 'bestätigt' : `abgelehnt${reason ? ` – Grund: ${reason}` : ''}`}.`,
+          module: 'plans' as const,
+          moduleId: plan.id,
+          skipEmail: newStatus === 'confirmed',
+        }
+        if (plan.creator_id && plan.creator_id !== myId) await sendNotification({ userId: plan.creator_id, ...payload })
+        else await notifyManagers(payload)
       } catch (e) {
         console.warn('[usePlans] notification insert failed (non-fatal):', e)
       }

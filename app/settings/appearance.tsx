@@ -1,33 +1,33 @@
 /**
- * Appearance — theme picker (system / light / dark).
+ * Darstellung — theme picker behind the settings hub's "Design" row
+ * (web hub: DARSTELLUNG → Design). Styled like the webapp settings
+ * sub-pages.
  *
- * "System" follows the OS color scheme automatically; "Light" and
- * "Dark" override it per device. The pref is persisted via
- * lib/preferences and applied by lib/theme/ThemeProvider.
+ * The app is currently locked to the light theme (lib/theme), so the
+ * System / Dunkel options are shown but marked as coming soon; setPref
+ * stays wired so the picker works as soon as the provider unlocks.
  */
 
 import React from 'react'
-import { View, Text, ScrollView, Pressable } from 'react-native'
-import { useRouter } from 'expo-router'
-import {
-  ChevronLeft,
-  Sun,
-  Moon,
-  SunMoon,
-  Check,
-  Palette,
-} from 'lucide-react-native'
+import { View, Text, Pressable } from 'react-native'
+import { Sun, Moon, SunMoon, Check } from 'lucide-react-native'
 
-import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
 import { useTranslation } from '@/lib/i18n'
 import { useTheme } from '@/lib/theme'
 import type { ThemePref } from '@/lib/preferences'
-import { useSafeBack } from '@/lib/use-safe-back'
+import {
+  SettingsShell,
+  SettingsPageHeader,
+  SectionCard,
+  Badge,
+  FootNote,
+  SC,
+} from '@/components/settings/SettingsUI'
 
 interface Opt {
   key: ThemePref
-  icon: React.ReactNode
+  icon: any
+  iconColor: string
   label_de: string
   label_en: string
   desc_de: string
@@ -36,24 +36,27 @@ interface Opt {
 
 const OPTIONS: Opt[] = [
   {
-    key: 'system',
-    icon: <SunMoon size={22} color="#0064E0" />,
-    label_de: 'System',
-    label_en: 'System',
-    desc_de: 'Folgt der Einstellung Ihres Geräts.',
-    desc_en: 'Follows your device setting.',
-  },
-  {
     key: 'light',
-    icon: <Sun size={22} color="#F59E0B" />,
+    icon: Sun,
+    iconColor: SC.amber500,
     label_de: 'Hell',
     label_en: 'Light',
     desc_de: 'Immer helles Design.',
     desc_en: 'Always light theme.',
   },
   {
+    key: 'system',
+    icon: SunMoon,
+    iconColor: SC.blue600,
+    label_de: 'System',
+    label_en: 'System',
+    desc_de: 'Folgt der Einstellung Ihres Geräts.',
+    desc_en: 'Follows your device setting.',
+  },
+  {
     key: 'dark',
-    icon: <Moon size={22} color="#475569" />,
+    icon: Moon,
+    iconColor: SC.slate600,
     label_de: 'Dunkel',
     label_en: 'Dark',
     desc_de: 'Immer dunkles Design.',
@@ -62,103 +65,96 @@ const OPTIONS: Opt[] = [
 ]
 
 export default function AppearanceScreen() {
-  const router = useRouter()
-  const goBack = useSafeBack('/(tabs)/settings')
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { pref, setPref, scheme } = useTheme()
+  // Only the light theme is shipped right now (see lib/theme).
+  const available = (k: ThemePref) => k === 'light'
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Darstellung', 'Appearance')}
-        </Text>
-      </View>
+    <SettingsShell>
+      <SettingsPageHeader
+        backLabel={L('Einstellungen', 'Settings')}
+        icon={Sun}
+        tileColor={SC.slate900}
+        title={L('Darstellung', 'Appearance')}
+        subtitle={L(
+          `Erscheinungsbild der App. Aktiv: ${scheme === 'dark' ? 'Dunkel' : 'Hell'}.`,
+          `How the app looks. Active: ${scheme === 'dark' ? 'Dark' : 'Light'}.`,
+        )}
+      />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <View className="flex-row items-center mb-4">
-          <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-            <Palette size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-              {L('Erscheinungsbild', 'Theme')}
-            </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                `Aktiv: ${scheme === 'dark' ? 'Dunkel' : 'Hell'}`,
-                `Active: ${scheme === 'dark' ? 'Dark' : 'Light'}`,
-              )}
-            </Text>
-          </View>
-        </View>
-
-        <Card style={{ padding: 0 } as any}>
-          {OPTIONS.map((opt, i) => {
-            const sel = pref === opt.key
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => setPref(opt.key)}
+      <SectionCard
+        title={L('Design', 'Theme')}
+        description={L('Wählen Sie das Farbschema für dieses Gerät.', 'Choose the colour scheme for this device.')}
+      >
+        {OPTIONS.map((opt, i) => {
+          const Icon = opt.icon
+          const sel = pref === opt.key
+          const enabled = available(opt.key)
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => {
+                if (enabled) setPref(opt.key)
+              }}
+              disabled={!enabled}
+              accessibilityRole="button"
+              accessibilityState={{ selected: sel, disabled: !enabled }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 14,
+                borderBottomWidth: i === OPTIONS.length - 1 ? 0 : 1,
+                borderBottomColor: SC.slate50,
+                opacity: enabled ? 1 : 0.55,
+              }}
+            >
+              <View
                 style={{
-                  flexDirection: 'row',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  backgroundColor: SC.slate50,
                   alignItems: 'center',
-                  padding: 16,
-                  borderTopWidth: i === 0 ? 0 : 1,
-                  borderTopColor: '#F1F5F9',
+                  justifyContent: 'center',
+                  marginRight: 12,
                 }}
               >
+                <Icon size={18} color={opt.iconColor} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: SC.slate800 }}>{L(opt.label_de, opt.label_en)}</Text>
+                <Text style={{ fontSize: 12, color: SC.slate500, marginTop: 2 }}>{L(opt.desc_de, opt.desc_en)}</Text>
+              </View>
+              {sel ? (
                 <View
                   style={{
-                    width: 44,
-                    height: 44,
+                    width: 24,
+                    height: 24,
                     borderRadius: 12,
-                    backgroundColor: '#F8FAFC',
+                    backgroundColor: SC.blue600,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginRight: 12,
                   }}
                 >
-                  {opt.icon}
+                  <Check size={14} color="#FFFFFF" />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-                    {L(opt.label_de, opt.label_en)}
-                  </Text>
-                  <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                    {L(opt.desc_de, opt.desc_en)}
-                  </Text>
-                </View>
-                {sel && (
-                  <View
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 999,
-                      backgroundColor: '#0064E0',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Check size={14} color="#fff" />
-                  </View>
-                )}
-              </Pressable>
-            )
-          })}
-        </Card>
+              ) : !enabled ? (
+                <Badge label={L('Bald', 'Soon')} />
+              ) : null}
+            </Pressable>
+          )
+        })}
+      </SectionCard>
 
-        <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-4 text-center">
-          {L(
-            'Dunkelmodus wird in den kommenden Updates auf alle Bildschirme ausgeweitet.',
-            'Dark mode coverage is being expanded to all screens in upcoming updates.',
-          )}
-        </Text>
-      </ScrollView>
-    </Screen>
+      <FootNote>
+        {L(
+          'LokShift nutzt derzeit das helle Design. System- und Dunkelmodus folgen in einem kommenden Update.',
+          'LokShift currently uses the light theme. System and dark mode will follow in an upcoming update.',
+        )}
+      </FootNote>
+    </SettingsShell>
   )
 }

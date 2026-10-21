@@ -1,50 +1,113 @@
 /**
- * Shift duration helpers — ported 1:1 from the webapp's
- * `lib/time/shift-hours.ts` so client (mobile) and server compute the
- * same start/end ISO timestamps and net hours from a
- * (date, startTime, endTime, breakMinutes) tuple.
+ * Shift time helpers — identical copy in the webapp and the mobile app.
  *
- * The overnight convention (end < start → next-day end) matches the
- * Excel formula:
- *   IF(End >= Start, End - Start, (1 - Start) + End) * 24
+ * A shift is entered as (date, "HH:mm" start, "HH:mm" end, break minutes).
+ * An end earlier than the start falls on the following calendar day
+ * (22:00 → 08:00 = 10 h). Times are interpreted in the device's local
+ * timezone and stored as real UTC instants, so the database never has to
+ * guess a timezone.
  *
- * Pure module (no I/O); safe for shared use across UI, hooks and the
- * Stundenzettel PDF generator.
+ * The database recalculates `net_hours` from the stored instants on every
+ * write (trigger `time_entries_normalize`); the values computed here are
+ * for previews and must match that formula.
  */
 
 export interface ShiftTimes {
-  /** ISO string suitable for `time_entries.start_time` (timestamptz). */
+  /** UTC instant for `time_entries.start_time`. */
   startISO: string
-  /** ISO string suitable for `time_entries.end_time` — may be next day. */
+  /** UTC instant for `time_entries.end_time` — next day for overnight shifts. */
   endISO: string
-  /** YYYY-MM-DD of the start (always == input date). */
+  /** YYYY-MM-DD of the start (== input date). */
   startDate: string
-  /** YYYY-MM-DD of the end (== startDate, OR startDate + 1 if overnight). */
+  /** YYYY-MM-DD of the end (startDate, or the following day). */
   endDate: string
-  /** True when the shift wraps past midnight. */
   isOvernight: boolean
-  /** Gross worked hours (no break deduction). */
+  /** Hours between start and end, before the break. */
   grossHours: number
-  /** Net worked hours after break deduction (clamped >= 0). */
+  /** Hours after the break, never negative, rounded to 2 decimals. */
   netHours: number
+  /** True when the break is at least as long as the shift. */
+  breakExceedsShift: boolean
 }
 
-function isEndBeforeStart(start: string, end: string): boolean {
-  return end < start
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export function isValidTime(value: string | null | undefined): value is string {
+  return !!value && TIME_RE.test(value)
 }
 
-function addDays(date: string, n: number): string {
-  // Compose the result from LOCAL components — using toISOString() rolls
-  // the day backward by the UTC offset whenever the local timezone is
-  // east of UTC (e.g. CEST = UTC+2 → 2026-05-06 became 2026-05-05). That
-  // silently turned every overnight shift into a non-shift, which the
-  // client saw as "23:00 → 09:45 = 0.00 hours" (Issue 3 in the brief).
-  const d = new Date(`${date}T00:00:00`)
-  d.setDate(d.getDate() + n)
+export function isValidDate(value: string | null | undefined): value is string {
+  return !!value && DATE_RE.test(value)
+}
+
+export function roundHours(hours: number): number {
+  return Math.round(hours * 100) / 100
+}
+
+/** YYYY-MM-DD of a Date in local time (never via toISOString, which is UTC). */
+export function localDateKey(d: Date = new Date()): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${dd}`
+}
+
+/** "HH:mm" of a Date in local time. */
+export function localTimeKey(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** Add calendar days to a YYYY-MM-DD string (DST-safe, local calendar). */
+export function addDays(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return localDateKey(new Date(y, m - 1, d + n))
+}
+
+/** Local wall-clock date + time → UTC ISO instant. */
+export function toInstantIso(date: string, time: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const [hh, mm] = time.split(':').map(Number)
+  return new Date(y, m - 1, d, hh, mm, 0, 0).toISOString()
+}
+
+/** Net hours between two instants minus a break — same formula as the DB trigger. */
+export function hoursBetween(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+  breakMinutes: number | null | undefined = 0,
+): number {
+  if (!startIso || !endIso) return 0
+  const start = new Date(startIso).getTime()
+  const end = new Date(endIso).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
+  return roundHours(Math.max(0, (end - start) / 3_600_000 - (Number(breakMinutes) || 0) / 60))
+}
+
+/**
+ * Net hours of a stored entry. Every screen and export uses this so the
+ * values always match each other and the database trigger.
+ */
+export function entryNetHours(entry: {
+  start_time: string | null
+  end_time: string | null
+  break_minutes?: number | null
+}): number {
+  return hoursBetween(entry.start_time, entry.end_time, entry.break_minutes)
+}
+
+/**
+ * Whole calendar days between the local start date and the local end date
+ * of a stored shift (0 = same day, 1 = ends next day).
+ */
+export function endDayOffset(startIso: string | null | undefined, endIso: string | null | undefined): number {
+  if (!startIso || !endIso) return 0
+  const s = new Date(startIso)
+  const e = new Date(endIso)
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0
+  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime()
+  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime()
+  return Math.round((ed - sd) / 86_400_000)
 }
 
 export function calculateShiftTimes(
@@ -53,35 +116,28 @@ export function calculateShiftTimes(
   endTime: string,
   breakMinutes: number = 0,
 ): ShiftTimes {
-  if (
-    !date ||
-    !startTime ||
-    !endTime ||
-    !/^\d{2}:\d{2}$/.test(startTime) ||
-    !/^\d{2}:\d{2}$/.test(endTime)
-  ) {
-    const safeStartISO = `${date || new Date().toISOString().split('T')[0]}T${startTime || '00:00'}:00`
+  const brk = Math.max(0, Number(breakMinutes) || 0)
+  if (!isValidDate(date) || !isValidTime(startTime) || !isValidTime(endTime)) {
+    const safeDate = isValidDate(date) ? date : localDateKey()
+    const safeStart = toInstantIso(safeDate, isValidTime(startTime) ? startTime : '00:00')
     return {
-      startISO: safeStartISO,
-      endISO: safeStartISO,
-      startDate: date,
-      endDate: date,
+      startISO: safeStart,
+      endISO: safeStart,
+      startDate: safeDate,
+      endDate: safeDate,
       isOvernight: false,
       grossHours: 0,
       netHours: 0,
+      breakExceedsShift: false,
     }
   }
 
-  const isOvernight = isEndBeforeStart(startTime, endTime)
+  const isOvernight = endTime < startTime
   const endDate = isOvernight ? addDays(date, 1) : date
-
-  const startISO = `${date}T${startTime}:00`
-  const endISO = `${endDate}T${endTime}:00`
-
-  const startMs = new Date(startISO).getTime()
-  const endMs = new Date(endISO).getTime()
-  const grossHours = Math.max(0, (endMs - startMs) / 3_600_000)
-  const netHours = Math.max(0, grossHours - (breakMinutes || 0) / 60)
+  const startISO = toInstantIso(date, startTime)
+  const endISO = toInstantIso(endDate, endTime)
+  const grossHours = Math.max(0, (new Date(endISO).getTime() - new Date(startISO).getTime()) / 3_600_000)
+  const netHours = roundHours(Math.max(0, grossHours - brk / 60))
 
   return {
     startISO,
@@ -89,8 +145,9 @@ export function calculateShiftTimes(
     startDate: date,
     endDate,
     isOvernight,
-    grossHours,
+    grossHours: roundHours(grossHours),
     netHours,
+    breakExceedsShift: grossHours > 0 && brk / 60 >= grossHours,
   }
 }
 
@@ -101,4 +158,51 @@ export function calculateNetHours(
   breakMinutes: number = 0,
 ): number {
   return calculateShiftTimes(date, startTime, endTime, breakMinutes).netHours
+}
+
+export type ShiftIssue =
+  | 'missing_end'
+  | 'zero_hours'
+  | 'break_exceeds_shift'
+  | 'very_long'
+  | 'end_equals_start'
+
+/**
+ * Problems that must be visible before a shift is submitted or approved
+ * (Kundenfeedback Punkt 1: "fehlende oder widersprüchliche Angaben als
+ * Fehler kennzeichnen").
+ */
+export function shiftIssues(entry: {
+  start_time: string | null
+  end_time: string | null
+  break_minutes?: number | null
+  is_planned?: boolean | null
+}): ShiftIssue[] {
+  if (entry.is_planned) return []
+  if (!entry.end_time) return ['missing_end']
+  const issues: ShiftIssue[] = []
+  const gross = hoursBetween(entry.start_time, entry.end_time, 0)
+  const net = hoursBetween(entry.start_time, entry.end_time, entry.break_minutes)
+  if (gross === 0) issues.push('end_equals_start')
+  else if (net === 0) issues.push((entry.break_minutes ?? 0) > 0 ? 'break_exceeds_shift' : 'zero_hours')
+  if (gross > 16) issues.push('very_long')
+  return issues
+}
+
+export function shiftIssueLabel(issue: ShiftIssue, locale: 'de' | 'en' = 'de'): string {
+  const de: Record<ShiftIssue, string> = {
+    missing_end: 'Schichtende fehlt',
+    zero_hours: '0 Stunden erfasst',
+    break_exceeds_shift: 'Pause ist so lang wie die Schicht',
+    very_long: 'Ungewöhnlich lange Schicht (über 16 Std.)',
+    end_equals_start: 'Ende entspricht Beginn',
+  }
+  const en: Record<ShiftIssue, string> = {
+    missing_end: 'End time missing',
+    zero_hours: '0 hours recorded',
+    break_exceeds_shift: 'Break is as long as the shift',
+    very_long: 'Unusually long shift (over 16 h)',
+    end_equals_start: 'End equals start',
+  }
+  return (locale === 'de' ? de : en)[issue]
 }

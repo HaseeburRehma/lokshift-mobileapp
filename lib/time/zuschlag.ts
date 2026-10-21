@@ -1,63 +1,86 @@
 /**
- * Zuschlag (wage supplement) calculator — ported 1:1 from the webapp's
- * `lib/time/zuschlag.ts`. Mirrors the exact formulas used in the client's
- * manual Stundenzettel Excel so the mobile Stundenzettel PDF matches a
- * hand-calculated row to the minute:
+ * Zuschläge (night / Sunday / holiday premium hours) — identical copy in
+ * the webapp and the mobile app.
  *
- *   I  25% Zuschlag → hours between 20:00 and 24:00
- *   J  40% Zuschlag → hours between 00:00 and 04:00
- *   K  Sonntag      → full shift hours when start weekday = Sunday
- *   L  Feiertag     → full shift hours on a configured holiday
- *                     (Christmas Day and Boxing Day are excluded)
- *   M  Gastfahrt    → net hours when is_gastfahrt is true
+ * Rules (defaults derived from the client's monthly timesheet template,
+ * configurable per organisation via organizations.settings.surcharges):
+ *   25 %      hours worked between 20:00 and 24:00
+ *   40 %      hours worked between 00:00 and 04:00
+ *   Sonntag   hours that fall on a Sunday (only the Sunday part of a shift
+ *             that crosses midnight — 22:30 Sun → 10:20 Mon = 1.50 h)
+ *   Feiertag  hours that fall on a public holiday of the configured state;
+ *             1./2. Weihnachtstag are excluded (paid separately)
+ *   Gastfahrt net hours of entries flagged as Gastfahrt
  *
- * Overnight handling matches `calculateShiftTimes`: when endTime < startTime
- * the end is shifted by 24h and the night bands are tested in both today's
- * and tomorrow's domains.
- *
- * Pure module — no I/O, safe for UI + PDF generator.
+ * The calculation walks the real start/end instants day by day in local
+ * time, so DST changes and shifts across midnight / month ends are exact.
+ * Breaks are not positioned in time; premium hours are therefore capped at
+ * the shift's net hours.
  */
 
 import { calculateShiftTimes } from './shift-hours'
 import {
   DEFAULT_STATE,
-  holidayDatesFor,
-  excludedZuschlagDatesFor,
+  EXCLUDED_HOLIDAY_NAMES,
+  generateGermanHolidays,
   type GermanState,
 } from './holidays'
 
-/**
- * Deprecated — kept exported as backward-compatible stub. Old callers
- * referenced this constant directly. Use `holidayDatesFor(year, state)`
- * from `./holidays` instead so 2026+ shifts get correct Feiertagszuschlag.
- *
- * @deprecated Use holidayDatesFor(date.year, 'NW') from ./holidays.
- */
-export const DEFAULT_HOLIDAYS_2025: string[] = holidayDatesFor(2025, 'NW')
+export interface SurchargeRules {
+  /** Minutes after midnight. */
+  night25From: number
+  night25To: number
+  night40From: number
+  night40To: number
+  holidayState: GermanState
+  excludedHolidayNames: string[]
+  /** Whether Gastfahrt hours count towards the actual hours (Ist). */
+  gastfahrtCountsAsWork: boolean
+}
 
-/**
- * Holidays the client template excludes from the Feiertag column even
- * though they would otherwise qualify. Christmas Day and Boxing Day are
- * paid via a separate Weihnachtsgeld scheme.
- *
- * @deprecated Use excludedZuschlagDatesFor(year) from ./holidays.
- */
-export const EXCLUDED_HOLIDAYS: string[] = excludedZuschlagDatesFor(2025)
+export const DEFAULT_SURCHARGE_RULES: SurchargeRules = {
+  night25From: 20 * 60,
+  night25To: 24 * 60,
+  night40From: 0,
+  night40To: 4 * 60,
+  holidayState: DEFAULT_STATE,
+  excludedHolidayNames: EXCLUDED_HOLIDAY_NAMES,
+  gastfahrtCountsAsWork: true,
+}
+
+function parseHHMM(value: unknown, fallback: number): number {
+  if (typeof value !== 'string' || !/^\d{1,2}:\d{2}$/.test(value)) return fallback
+  const [h, m] = value.split(':').map(Number)
+  return Math.min(24 * 60, h * 60 + m)
+}
+
+/** Reads `organizations.settings.surcharges` with safe fallbacks. */
+export function resolveSurchargeRules(settings?: Record<string, unknown> | null): SurchargeRules {
+  const s = (settings?.surcharges ?? {}) as Record<string, unknown>
+  const d = DEFAULT_SURCHARGE_RULES
+  return {
+    night25From: parseHHMM(s.night25_from, d.night25From),
+    night25To: parseHHMM(s.night25_to, d.night25To),
+    night40From: parseHHMM(s.night40_from, d.night40From),
+    night40To: parseHHMM(s.night40_to, d.night40To),
+    holidayState: (typeof s.holiday_state === 'string' ? s.holiday_state : d.holidayState) as GermanState,
+    excludedHolidayNames: Array.isArray(s.excluded_holidays)
+      ? (s.excluded_holidays as string[])
+      : d.excludedHolidayNames,
+    gastfahrtCountsAsWork:
+      typeof s.gastfahrt_counts_as_work === 'boolean' ? s.gastfahrt_counts_as_work : d.gastfahrtCountsAsWork,
+  }
+}
 
 export interface ZuschlagBreakdown {
-  /** 25% night premium hours (20:00 – 24:00). */
   night25: number
-  /** 40% night premium hours (00:00 – 04:00). */
   night40: number
-  /** Hours worked on a Sunday. */
   sunday: number
-  /** Hours worked on a designated public holiday. */
   holiday: number
-  /** Hours flagged as Gastfahrt (passenger travel). */
   gastfahrt: number
 }
 
-const EMPTY: ZuschlagBreakdown = {
+export const EMPTY_ZUSCHLAG: ZuschlagBreakdown = {
   night25: 0,
   night40: 0,
   sunday: 0,
@@ -65,100 +88,118 @@ const EMPTY: ZuschlagBreakdown = {
   gastfahrt: 0,
 }
 
-/**
- * Compute overlap hours between the shift [start, end] (minutes from
- * midnight; overnight shifts have end > 1440) and a fixed window
- * [winStart, winEnd]. Tests both today's and tomorrow's window so the
- * 40% band (00:00–04:00) of an overnight shift is captured.
- */
-function overlapHours(
-  shiftStart: number,
-  shiftEnd: number,
-  winStart: number,
-  winEnd: number,
-): number {
-  const a1 = Math.max(shiftStart, winStart)
-  const b1 = Math.min(shiftEnd, winEnd)
-  const today = Math.max(0, b1 - a1)
-  const a2 = Math.max(shiftStart, winStart + 1440)
-  const b2 = Math.min(shiftEnd, winEnd + 1440)
-  const tomorrow = Math.max(0, b2 - a2)
-  return (today + tomorrow) / 60
+const holidayCache = new Map<string, Map<string, string>>()
+
+function holidaysFor(year: number, state: GermanState): Map<string, string> {
+  const key = `${year}:${state}`
+  let map = holidayCache.get(key)
+  if (!map) {
+    map = new Map(generateGermanHolidays(year, state).map((h) => [h.date, h.name]))
+    holidayCache.set(key, map)
+  }
+  return map
 }
 
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Holiday name for a YYYY-MM-DD date that counts for the holiday premium, else null. */
+export function premiumHolidayName(date: string, rules: SurchargeRules = DEFAULT_SURCHARGE_RULES): string | null {
+  const name = holidaysFor(Number(date.slice(0, 4)), rules.holidayState).get(date) ?? null
+  if (!name || rules.excludedHolidayNames.includes(name)) return null
+  return name
+}
+
+/** Holiday name for any public holiday (also the excluded ones), else null. */
+export function publicHolidayName(date: string, rules: SurchargeRules = DEFAULT_SURCHARGE_RULES): string | null {
+  return holidaysFor(Number(date.slice(0, 4)), rules.holidayState).get(date) ?? null
+}
+
+function overlapMs(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
+  return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart))
+}
+
+/**
+ * Premium hours for one stored shift.
+ *
+ * @param startIso  time_entries.start_time
+ * @param endIso    time_entries.end_time
+ * @param opts.netHours  stored net hours — caps the premium hours
+ */
+export function calculateSurcharges(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+  opts: { isGastfahrt?: boolean; netHours?: number | null; rules?: SurchargeRules } = {},
+): ZuschlagBreakdown {
+  if (!startIso || !endIso) return { ...EMPTY_ZUSCHLAG }
+  const start = new Date(startIso).getTime()
+  const end = new Date(endIso).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { ...EMPTY_ZUSCHLAG }
+
+  const rules = opts.rules ?? DEFAULT_SURCHARGE_RULES
+  const gross = (end - start) / 3_600_000
+  const net = opts.netHours == null ? gross : Math.max(0, Number(opts.netHours) || 0)
+  if (net <= 0) return { ...EMPTY_ZUSCHLAG }
+
+  let n25 = 0
+  let n40 = 0
+  let sun = 0
+  let hol = 0
+
+  const s = new Date(start)
+  let day = new Date(s.getFullYear(), s.getMonth(), s.getDate())
+  // A shift never spans more than a few days; the guard prevents runaway
+  // loops on corrupt data.
+  for (let i = 0; i < 40 && day.getTime() < end; i++) {
+    const y = day.getFullYear()
+    const m = day.getMonth()
+    const d = day.getDate()
+    const dayStart = day.getTime()
+    const dayEnd = new Date(y, m, d + 1).getTime()
+    const at = (minutes: number) => new Date(y, m, d, 0, minutes).getTime()
+
+    n25 += overlapMs(start, end, at(rules.night25From), at(rules.night25To))
+    n40 += overlapMs(start, end, at(rules.night40From), at(rules.night40To))
+    if (day.getDay() === 0) sun += overlapMs(start, end, dayStart, dayEnd)
+    if (premiumHolidayName(dayKey(day), rules)) hol += overlapMs(start, end, dayStart, dayEnd)
+
+    day = new Date(y, m, d + 1)
+  }
+
+  const toHours = (ms: number) => Math.round(Math.min(ms / 3_600_000, net) * 100) / 100
+  return {
+    night25: toHours(n25),
+    night40: toHours(n40),
+    sunday: toHours(sun),
+    holiday: toHours(hol),
+    gastfahrt: opts.isGastfahrt ? Math.round(net * 100) / 100 : 0,
+  }
+}
+
+/**
+ * Same result from wall-clock input (date + "HH:mm" start/end). Used by
+ * form previews before anything is stored.
+ */
 export function calculateZuschlag(
   date: string,
   startTime: string,
   endTime: string,
   breakMinutes: number = 0,
   isGastfahrt: boolean = false,
-  /** When omitted, auto-generated for the date's year + Rheinmaasrail state (NW). */
-  holidays?: string[],
-  /** When omitted, auto-generated for the date's year (1./2. Weihnachten). */
-  excluded?: string[],
-  /** Override for non-NRW deployments. */
-  state: GermanState = DEFAULT_STATE,
+  rules: SurchargeRules = DEFAULT_SURCHARGE_RULES,
 ): ZuschlagBreakdown {
-  if (!date || !startTime || !endTime) return { ...EMPTY }
-
+  if (!date || !startTime || !endTime) return { ...EMPTY_ZUSCHLAG }
   const shift = calculateShiftTimes(date, startTime, endTime, breakMinutes)
-  const netHours = shift.netHours
-  if (netHours <= 0) return { ...EMPTY }
-
-  // Auto-derive the holiday list for the shift's year(s) — covers both
-  // the start date and the next day in the overnight case. Previously we
-  // shipped a hard-coded 2025 list which silently treated 01.05.2026
-  // (Tag der Arbeit) as a normal weekday (Issue 4 in the bug brief).
-  const startYear = parseInt(date.slice(0, 4), 10)
-  const endYear = parseInt(shift.endDate.slice(0, 4), 10)
-  const years = startYear === endYear ? [startYear] : [startYear, endYear]
-  const holidayList = holidays ?? holidayDatesFor(years, state)
-  const excludedList = excluded ?? excludedZuschlagDatesFor(years)
-
-  const [sh, sm] = startTime.split(':').map(Number)
-  const [eh, em] = endTime.split(':').map(Number)
-  const startMin = sh * 60 + sm
-  let endMin = eh * 60 + em
-  if (shift.isOvernight) endMin += 1440
-
-  const night25 = overlapHours(startMin, endMin, 1200, 1440)
-  const night40 = overlapHours(startMin, endMin, 0, 240)
-
-  const weekday = new Date(`${date}T00:00:00`).getDay()
-  const endWeekday = new Date(`${shift.endDate}T00:00:00`).getDay()
-
-  // Sunday allowance — must handle overnight shifts that cross into or out of Sunday:
-  //   • Pure Sunday shift (start=Sun, not overnight)         → full netHours
-  //   • Sunday start crossing into Monday (overnight)        → only the Sunday part (start→midnight)
-  //   • Saturday (or any day) crossing midnight into Sunday  → only the Sunday part (midnight→end)
-  let sunday = 0
-  if (weekday === 0 && !shift.isOvernight) {
-    sunday = netHours
-  } else if (weekday === 0 && shift.isOvernight) {
-    sunday = Math.max(0, 1440 - startMin) / 60
-  } else if (shift.isOvernight && endWeekday === 0) {
-    sunday = Math.max(0, endMin - 1440) / 60
-  }
-
-  // Holiday allowance — same cross-midnight logic as Sunday above.
-  const isHoliday = holidayList.includes(date) && !excludedList.includes(date)
-  const isHolidayEnd = holidayList.includes(shift.endDate) && !excludedList.includes(shift.endDate)
-  let holiday = 0
-  if (isHoliday && !shift.isOvernight) {
-    holiday = netHours
-  } else if (isHoliday && shift.isOvernight) {
-    holiday = Math.max(0, 1440 - startMin) / 60
-  } else if (shift.isOvernight && isHolidayEnd) {
-    holiday = Math.max(0, endMin - 1440) / 60
-  }
-
-  const gastfahrt = isGastfahrt ? netHours : 0
-
-  return { night25, night40, sunday, holiday, gastfahrt }
+  return calculateSurcharges(shift.startISO, shift.endISO, {
+    isGastfahrt,
+    netHours: shift.netHours,
+    rules,
+  })
 }
 
 export function sumZuschlag(rows: ZuschlagBreakdown[]): ZuschlagBreakdown {
-  return rows.reduce<ZuschlagBreakdown>(
+  const total = rows.reduce<ZuschlagBreakdown>(
     (acc, r) => ({
       night25: acc.night25 + r.night25,
       night40: acc.night40 + r.night40,
@@ -166,6 +207,14 @@ export function sumZuschlag(rows: ZuschlagBreakdown[]): ZuschlagBreakdown {
       holiday: acc.holiday + r.holiday,
       gastfahrt: acc.gastfahrt + r.gastfahrt,
     }),
-    { ...EMPTY },
+    { ...EMPTY_ZUSCHLAG },
   )
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  return {
+    night25: r2(total.night25),
+    night40: r2(total.night40),
+    sunday: r2(total.sunday),
+    holiday: r2(total.holiday),
+    gastfahrt: r2(total.gastfahrt),
+  }
 }

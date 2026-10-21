@@ -1,15 +1,17 @@
 /**
- * Monthly daily-breakdown — drill-in target from /account.
+ * Monthly daily breakdown — drill-in target from /account.
  *
- * Mirrors the webapp's /dashboard/time-account/[month] page:
- *   - UPPERCASE italic month-name header with a soft back button
- *   - Summary card: 2×2 grid of Scheduled · Actual · Variance · Status
- *     bar with a coloured progress fill
- *   - Daily Distribution list, one row per day, scheduled vs actual
+ * Mirrors the webapp's MonthlyBreakdown view of /dashboard/time-account:
+ *   - Back nav bar with the month name (web mobile layout)
+ *   - Title + "Tägliche Einsatzdaten"
+ *   - 4 stat cards: Geplante Stunden · Tatsächliche Stunden · Differenz ·
+ *     Bezahlte Überstunden (hours above 8 per worked day)
+ *   - "Tägliche Übersicht" card, one row per day (Geplant · Tatsächlich ·
+ *     Differenz), weekends muted, 10 days per page
  *
  * Data:
- *   - Scheduled hours per day come from `plans` rows that overlap the
- *     date (one row may span overnight; we sum the per-day slice).
+ *   - Scheduled hours per day come from `plans` rows that start on the
+ *     date (an overnight plan counts to its start day).
  *   - Actual hours per day come from `time_entries` rows (uses
  *     `net_hours`, identical to the time engines).
  */
@@ -17,19 +19,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView, ActivityIndicator, Pressable } from 'react-native'
 import { useLocalSearchParams } from 'expo-router'
-import { Calendar, ChevronLeft } from 'lucide-react-native'
-import {
-  parse,
-  format,
-  eachDayOfInterval,
-  startOfMonth,
-  endOfMonth,
-  isSameDay,
-} from 'date-fns'
+import { parse, format, eachDayOfInterval, startOfMonth, endOfMonth, isSameDay, isWeekend } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
-import { safeNumber } from '@/lib/safe-format'
+import { BackNavBar, C, Pagination } from '@/components/time/ui'
+import { StatCard } from '@/components/time/account'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
@@ -41,6 +36,8 @@ interface DayRow {
   actual: number
 }
 
+const DAYS_PER_PAGE = 10
+
 export default function MonthlyDetailScreen() {
   const { month, employeeId } = useLocalSearchParams<{ month: string; employeeId?: string }>()
   const goBack = useSafeBack('/account')
@@ -48,12 +45,14 @@ export default function MonthlyDetailScreen() {
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { session } = useUser()
   const dateLocale = locale === 'de' ? deLocale : enUS
+  const hrs = L('Std.', 'hrs')
 
   const targetEmployeeId = employeeId ?? session?.user?.id ?? null
 
   const [days, setDays] = useState<DayRow[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [page, setPage] = useState(1)
 
   const monthName = useMemo(() => {
     if (!month) return ''
@@ -142,6 +141,7 @@ export default function MonthlyDetailScreen() {
       })
 
       setDays(built)
+      setPage(1)
       setLoading(false)
     })()
     return () => {
@@ -152,15 +152,20 @@ export default function MonthlyDetailScreen() {
   const totals = useMemo(() => {
     const scheduled = days.reduce((s, r) => s + r.scheduled, 0)
     const actual = days.reduce((s, r) => s + r.actual, 0)
-    return { scheduled, actual, difference: actual - scheduled }
+    // Paid overtime = hours above 8 per worked day (same rule as the web view).
+    const paidOvertime = days.reduce((s, r) => s + (r.actual > 8 ? r.actual - 8 : 0), 0)
+    return { scheduled, actual, difference: actual - scheduled, paidOvertime }
   }, [days])
 
   if (notFound) {
     return (
       <Screen background="#FFFFFF" className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center font-bold tracking-widest uppercase">
+        <Text style={{ color: C.slate400, textAlign: 'center', fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' }}>
           {L('Daten nicht verfügbar', 'Data no longer available')}
         </Text>
+        <Pressable onPress={goBack} style={{ marginTop: 16 }}>
+          <Text style={{ color: C.blue600, fontWeight: '800' }}>{L('Zurück', 'Back')}</Text>
+        </Pressable>
       </Screen>
     )
   }
@@ -168,225 +173,101 @@ export default function MonthlyDetailScreen() {
   if (loading) {
     return (
       <Screen background="#FFFFFF" className="items-center justify-center" noTapToDismiss>
-        <ActivityIndicator color="#0064E0" />
+        <ActivityIndicator color={C.blue600} />
       </Screen>
     )
   }
 
-  const isPositive = totals.difference >= 0
-  // Progress fill: actual / scheduled, capped at 100% so the bar never overshoots.
-  // When there's no scheduled time, fall back to fully-filled if any actual exists.
-  const progressPct =
-    totals.scheduled > 0
-      ? Math.min(100, (totals.actual / totals.scheduled) * 100)
-      : totals.actual > 0
-        ? 100
-        : 0
+  const totalPages = Math.max(1, Math.ceil(days.length / DAYS_PER_PAGE))
+  const safePage = Math.min(page, totalPages)
+  const pageDays = days.slice((safePage - 1) * DAYS_PER_PAGE, safePage * DAYS_PER_PAGE)
+  const signedHrs = (n: number) => (n > 0 ? `+${n.toFixed(1)} ${hrs}` : `${n.toFixed(1)} ${hrs}`)
 
   return (
-    <Screen background="#FFFFFF" className="bg-white dark:bg-slate-950" noTapToDismiss>
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
-        {/* Navigation Header */}
-        <View className="px-6 pt-4 pb-2 flex-row items-center">
-          <Pressable onPress={goBack} accessibilityLabel={L('Zurück', 'Back')}>
-            <View
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'transparent',
-              }}
-            >
-              <ChevronLeft size={24} color="#111827" />
-            </View>
-          </Pressable>
-          <Text
-            className="text-gray-900 dark:text-white ml-2"
-            style={{
-              fontSize: 26,
-              fontWeight: '900',
-              letterSpacing: -0.5,
-              textTransform: 'uppercase',
-              fontStyle: 'italic',
-            }}
-          >
-            {monthName}
-          </Text>
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <BackNavBar title={monthName} onBack={goBack} backLabel={L('Zurück zur Übersicht', 'Back to Overview')} />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 48 }}>
+        {/* Title */}
+        <View style={{ marginBottom: 24 }}>
+          <Text style={{ fontSize: 26, fontWeight: '700', color: C.slate900, letterSpacing: -0.5, lineHeight: 30 }}>{monthName}</Text>
+          <Text style={{ fontSize: 13, color: C.slate500, marginTop: 4 }}>{L('Tägliche Einsatzdaten', 'Daily operational records')}</Text>
         </View>
 
-        {/* Summary card — 2x2 grid */}
-        <View className="px-6 mb-8 mt-2">
-          <View
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderWidth: 1,
-              borderColor: '#F1F5F9',
-              borderRadius: 32,
-              padding: 24,
-              shadowColor: '#0064E0',
-              shadowOpacity: 0.05,
-              shadowRadius: 28,
-              shadowOffset: { width: 0, height: 18 },
-              elevation: 4,
-            }}
-          >
-            <View className="flex-row flex-wrap">
-              <View style={{ width: '50%', marginBottom: 20, paddingRight: 8 }}>
-                <Text
-                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-                  numberOfLines={1}
-                >
-                  {L('Soll', 'Scheduled')}
-                </Text>
-                <Text
-                  className="text-[22px] font-black text-gray-900 dark:text-white mt-1"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {safeNumber(totals.scheduled, 1)} {L('Std.', 'hrs')}
-                </Text>
-              </View>
-              <View style={{ width: '50%', marginBottom: 20, alignItems: 'flex-end', paddingLeft: 8 }}>
-                <Text
-                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-                  numberOfLines={1}
-                >
-                  {L('Ist', 'Actual')}
-                </Text>
-                <Text
-                  className="text-[22px] font-black mt-1"
-                  style={{ color: '#0064E0' }}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {safeNumber(totals.actual, 1)} {L('Std.', 'hrs')}
-                </Text>
-              </View>
-              <View style={{ width: '50%', paddingRight: 8 }}>
-                <Text
-                  className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-                  numberOfLines={1}
-                >
-                  {L('Abweichung', 'Variance')}
-                </Text>
-                <Text
-                  className="text-[22px] font-black mt-1"
-                  style={{ color: isPositive ? '#059669' : '#DC2626' }}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {isPositive ? '+' : ''}
-                  {safeNumber(totals.difference, 1)} {L('Std.', 'hrs')}
-                </Text>
-              </View>
-              <View style={{ width: '50%', alignItems: 'flex-end' }}>
-                <Text className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
-                  {L('Status', 'Status')}
-                </Text>
-                <View
-                  style={{
-                    marginTop: 8,
-                    height: 8,
-                    width: 96,
-                    borderRadius: 999,
-                    backgroundColor: '#F1F5F9',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <View
-                    style={{
-                      width: `${progressPct}%`,
-                      height: '100%',
-                      backgroundColor: isPositive ? '#10B981' : '#EF4444',
-                    }}
-                  />
-                </View>
-              </View>
-            </View>
+        {/* Summary stats */}
+        <View style={{ gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <StatCard size={22} label={L('Geplante Stunden', 'Scheduled Hours')} value={`${totals.scheduled.toFixed(1)} ${hrs}`} />
+            <StatCard size={22} label={L('Tatsächliche Stunden', 'Actual Hours')} value={`${totals.actual.toFixed(1)} ${hrs}`} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <StatCard
+              size={22}
+              label={L('Differenz', 'Difference')}
+              value={totals.difference >= 0 ? `+${totals.difference.toFixed(1)} ${hrs}` : `${totals.difference.toFixed(1)} ${hrs}`}
+              color={totals.difference >= 0 ? C.emerald500 : C.red500}
+            />
+            <StatCard size={22} label={L('Bezahlte Überstunden', 'Paid Overtime')} value={`${totals.paidOvertime.toFixed(1)} ${hrs}`} />
           </View>
         </View>
 
-        {/* Daily Distribution */}
-        <View className="px-6 mb-2 flex-row items-center">
-          <Text
-            className="text-gray-400 dark:text-slate-500"
-            style={{
-              fontSize: 12,
-              fontWeight: '900',
-              letterSpacing: 1.6,
-              textTransform: 'uppercase',
-              fontStyle: 'italic',
-            }}
-          >
-            {L('Tagesübersicht', 'Daily Distribution')}
-          </Text>
-          <Calendar size={12} color="#94A3B8" style={{ marginLeft: 8, opacity: 0.6 }} />
-        </View>
+        {/* Daily breakdown */}
+        <View style={{ marginTop: 24, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: C.slate200, borderRadius: 16, overflow: 'hidden' }}>
+          <View style={{ paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.slate100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: C.slate900 }}>{L('Tägliche Übersicht', 'Daily Breakdown')}</Text>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: C.slate400 }}>
+              {`${L('Tage', 'Days')} ${(safePage - 1) * DAYS_PER_PAGE + 1}–${Math.min(safePage * DAYS_PER_PAGE, days.length)} ${L('von', 'of')} ${days.length}`}
+            </Text>
+          </View>
 
-        <View
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: '#F1F5F9',
-          }}
-        >
-          {days.map((d) => {
-            const variance = d.actual - d.scheduled
-            const hasData = d.scheduled > 0 || d.actual > 0
-            const varianceColor = variance >= 0 ? '#10B981' : '#F97316'
+          {pageDays.map((d, idx) => {
+            const weekend = isWeekend(d.date)
+            const diff = d.actual - d.scheduled
+            const diffColor = diff > 0 ? C.emerald500 : diff < 0 ? C.red500 : C.slate400
+            const diffText = diff === 0 ? `0 ${hrs}` : signedHrs(diff)
+            let dayLabel = ''
+            try {
+              dayLabel = format(d.date, locale === 'de' ? 'EEE, dd. MMM' : 'EEE, MMM d', { locale: dateLocale })
+            } catch {}
             return (
               <View
                 key={d.date.toISOString()}
                 style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingHorizontal: 24,
+                  paddingHorizontal: 20,
                   paddingVertical: 14,
-                  borderBottomWidth: 1,
-                  borderColor: '#F8FAFC',
+                  borderTopWidth: idx === 0 ? 0 : 1,
+                  borderTopColor: C.slate100,
+                  backgroundColor: weekend ? 'rgba(248,250,252,0.6)' : '#FFFFFF',
                 }}
               >
-                <View style={{ width: 48 }}>
-                  <Text
-                    className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-                    numberOfLines={1}
-                  >
-                    {format(d.date, 'EEE', { locale: dateLocale })}
-                  </Text>
-                  <Text className="text-[18px] font-black text-gray-900 dark:text-white">
-                    {format(d.date, 'd')}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <View style={{ width: 4, height: 28, borderRadius: 2, marginRight: 10, backgroundColor: diff > 0 ? '#34D399' : diff < 0 ? C.red400 : C.slate200 }} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: weekend ? C.slate400 : C.slate900 }} numberOfLines={1}>{dayLabel}</Text>
+                      {weekend ? <Text style={{ fontSize: 11, color: C.slate300, marginTop: 1 }}>{L('Wochenende', 'Weekend')}</Text> : null}
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: diffColor, fontVariant: ['tabular-nums'], marginLeft: 8 }}>{diffText}</Text>
                 </View>
-                <View className="flex-1 ml-3" style={{ minWidth: 0 }}>
-                  <Text
-                    className="text-[13px] font-bold text-gray-900 dark:text-white"
-                    numberOfLines={1}
-                  >
-                    {safeNumber(d.scheduled, 1)} h / {safeNumber(d.actual, 1)} h
-                  </Text>
-                  <Text
-                    className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 uppercase tracking-widest font-black"
-                    numberOfLines={1}
-                  >
-                    {L('Soll · Ist', 'Scheduled · Actual')}
-                  </Text>
+                <View style={{ flexDirection: 'row', gap: 24, marginTop: 10, marginLeft: 14 }}>
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '500', color: C.slate400 }}>{L('Geplant', 'Scheduled')}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: C.slate700, fontVariant: ['tabular-nums'] }}>{`${d.scheduled.toFixed(1)} ${hrs}`}</Text>
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: '500', color: C.slate400 }}>{L('Tatsächlich', 'Actual')}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.slate900, fontVariant: ['tabular-nums'] }}>{`${d.actual.toFixed(1)} ${hrs}`}</Text>
+                  </View>
                 </View>
-                {hasData && (
-                  <Text
-                    className="text-[14px] font-black"
-                    style={{ color: varianceColor, flexShrink: 0, marginLeft: 8 }}
-                    numberOfLines={1}
-                  >
-                    {variance >= 0 ? '+' : ''}
-                    {safeNumber(variance, 1)} h
-                  </Text>
-                )}
               </View>
             )
           })}
+
+          {totalPages > 1 ? (
+            <View style={{ paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.slate100, backgroundColor: 'rgba(248,250,252,0.5)' }}>
+              <Pagination page={safePage} totalPages={totalPages} onChange={setPage} labels={{ prev: L('Zurück', 'Previous'), next: L('Weiter', 'Next') }} />
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </Screen>

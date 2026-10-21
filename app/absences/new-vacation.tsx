@@ -1,18 +1,21 @@
 /**
  * Submit a vacation request — creates a calendar_event with
  * event_type='holiday'. Notifies admins/dispatchers via useAbsences.
+ *
+ * Field order / labels follow the web NewEventSheet (Terminart → Titel →
+ * Zeit & Datum → Erinnerung → Beschreibung); type is fixed to "Urlaub".
  */
 
 import React, { useState } from 'react'
-import { View, Text, ScrollView, Pressable } from 'react-native'
+import { View, Text, ScrollView, Switch, TextInput, type TextInputProps } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft, Palmtree } from 'lucide-react-native'
+import { Calendar as CalendarIcon, Clock, Check } from 'lucide-react-native'
 import { format } from 'date-fns'
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
-import { FormField } from '@/components/FormField'
+import { PageHeader } from '@/components/PageHeader'
 import { ReminderPicker } from '@/components/forms/ReminderPicker'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -63,80 +66,151 @@ export default function NewVacationScreen() {
     }
   }
 
-  return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Urlaub beantragen', 'Request vacation')}
-        </Text>
-      </View>
+  const color = EVENT_COLORS.holiday
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
-        <View className="flex-row items-center mb-4">
-          <View
-            className="w-14 h-14 rounded-3xl items-center justify-center mr-3"
-            style={{ backgroundColor: EVENT_COLORS.holiday }}
-          >
-            <Palmtree size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
+  return (
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <PageHeader
+          title={L('Urlaub beantragen', 'Request vacation')}
+          subtitle={L('Die Disposition wird informiert.', 'Dispatch will be notified.')}
+          showBack
+          onBack={goBack}
+        />
+
+        <Card style={{ borderRadius: 28, padding: 0 }}>
+          {/* Sheet header */}
+          <View className="flex-row items-center px-5 py-5 border-b border-gray-100">
+            <View className="w-10 h-10 rounded-2xl bg-blue-50 items-center justify-center mr-3">
+              <CalendarIcon size={22} color="#0064E0" />
+            </View>
+            <Text className="text-[18px] font-black text-gray-900 flex-1" numberOfLines={1}>
               {L('Neuer Urlaubsantrag', 'New vacation request')}
             </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                'Die Disposition wird informiert.',
-                'Dispatch will be notified.',
-              )}
-            </Text>
           </View>
-        </View>
 
-        <Card className="mb-3 space-y-4">
-          <FormField
-            label={L('Titel', 'Title')}
-            value={title}
-            onChangeText={setTitle}
-            placeholder={L('z. B. Sommerurlaub', 'e.g. Summer holiday')}
-          />
-          <View className="flex-row gap-3">
-            <View className="flex-1">
-              <FormField
-                label={L('Von', 'From')}
-                value={startDate}
-                onChangeText={setStartDate}
-                placeholder="YYYY-MM-DD"
+          <View className="p-5" style={{ gap: 24 }}>
+            {/* Terminart (fixed) */}
+            <View>
+              <SectionLabel>{L('Terminart', 'Event Type')}</SectionLabel>
+              <View className="h-14 flex-row items-center px-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                <View
+                  className="w-8 h-8 rounded-xl items-center justify-center mr-3"
+                  style={{ backgroundColor: `${color}26` }}
+                >
+                  <Text style={{ fontSize: 14 }}>🌴</Text>
+                </View>
+                <Text className="text-[15px] font-bold text-gray-900">{L('Urlaub', 'Holiday')}</Text>
+              </View>
+            </View>
+
+            {/* Titel */}
+            <View>
+              <SectionLabel>{L('Titel', 'Title')}</SectionLabel>
+              <SheetInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder={L('z. B. Sommerurlaub', 'e.g. Summer holiday')}
               />
             </View>
-            <View className="flex-1">
-              <FormField
-                label={L('Bis', 'To')}
-                value={endDate}
-                onChangeText={setEndDate}
-                placeholder="YYYY-MM-DD"
+
+            {/* Zeit & Datum */}
+            <View>
+              <View className="flex-row items-center justify-between mb-2 px-1">
+                <Text className="text-[13px] font-black uppercase tracking-widest text-gray-400">
+                  {L('Zeit & Datum', 'Time & Date')}
+                </Text>
+                <View className="flex-row items-center">
+                  <Text className="text-[12px] font-bold text-gray-500 mr-2">
+                    {L('Ganztägig', 'All day')}
+                  </Text>
+                  <Switch value disabled trackColor={{ true: '#0064E0', false: '#D1D5DB' }} />
+                </View>
+              </View>
+              <View style={{ gap: 12 }}>
+                <View>
+                  <Text className="text-[11px] font-bold text-gray-500 mb-1 ml-1">{L('Von', 'From')}</Text>
+                  <SheetInput
+                    icon
+                    value={startDate}
+                    onChangeText={setStartDate}
+                    placeholder="YYYY-MM-DD"
+                    autoCorrect={false}
+                  />
+                </View>
+                <View>
+                  <Text className="text-[11px] font-bold text-gray-500 mb-1 ml-1">{L('Bis', 'To')}</Text>
+                  <SheetInput
+                    icon
+                    value={endDate}
+                    onChangeText={setEndDate}
+                    placeholder="YYYY-MM-DD"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Erinnerung */}
+            <ReminderPicker value={reminder} onChange={setReminder} />
+
+            {/* Beschreibung */}
+            <View>
+              <SectionLabel>{L('Beschreibung', 'Description')}</SectionLabel>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                placeholder={L('Optionale Notizen oder Details…', 'Optional notes or details...')}
+                placeholderTextColor="#9CA3AF"
+                style={{
+                  minHeight: 100,
+                  backgroundColor: '#F9FAFB',
+                  borderRadius: 16,
+                  padding: 16,
+                  fontSize: 15,
+                  fontWeight: '500',
+                  color: '#374151',
+                  textAlignVertical: 'top',
+                }}
               />
             </View>
           </View>
-          <FormField
-            label={L('Bemerkung', 'Notes')}
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            placeholder={L('Optional', 'Optional')}
-          />
-          <ReminderPicker value={reminder} onChange={setReminder} />
         </Card>
 
         <Button
-          label={saving ? t('common.loading') : L('Antrag stellen', 'Submit request')}
+          label={L('Antrag stellen', 'Submit request')}
+          leftIcon={<Check size={20} color="#fff" />}
           onPress={onSubmit}
           loading={saving}
           size="lg"
+          style={{ marginTop: 16 }}
         />
       </ScrollView>
     </Screen>
+  )
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <Text className="text-[13px] font-black uppercase tracking-widest text-gray-400 pl-1 mb-2">
+      {children}
+    </Text>
+  )
+}
+
+function SheetInput({ icon, ...props }: TextInputProps & { icon?: boolean }) {
+  return (
+    <View className="h-14 flex-row items-center bg-gray-50 rounded-2xl px-4">
+      {icon ? <Clock size={18} color="#9CA3AF" style={{ marginRight: 12 }} /> : null}
+      <TextInput
+        placeholderTextColor="#9CA3AF"
+        style={{ flex: 1, fontSize: 15, fontWeight: '700', color: '#111827' }}
+        {...props}
+      />
+    </View>
   )
 }

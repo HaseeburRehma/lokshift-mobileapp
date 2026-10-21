@@ -22,7 +22,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, Image, Pressable, AppState, ScrollView, TextInput } from 'react-native'
+import { View, Text, Image, Pressable, AppState, ScrollView, TextInput, Animated, Easing } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Link, useRouter } from 'expo-router'
 import { Globe, Eye, EyeOff } from 'lucide-react-native'
@@ -75,6 +75,11 @@ export default function LoginScreen() {
   const [tick, setTick] = useState(0)
   const lastEmailRef = useRef('')
 
+  // Entrance animations matching the webapp: hero "fade-in zoom-in
+  // duration-700", form "slide-in-from-right duration-300".
+  const heroIn = useRef(new Animated.Value(0)).current
+  const formIn = useRef(new Animated.Value(0)).current
+
   useEffect(() => {
     AsyncStorage.getItem(SEEN_SPLASH_KEY).then((v) => {
       if (v === 'true') setShowSplash(false)
@@ -105,6 +110,17 @@ export default function LoginScreen() {
   const isLockedOut = lockoutRemaining > 0
   // Tick is read so the recompute happens every second while locked.
   void tick
+
+  useEffect(() => {
+    if (showSplash) return
+    if (!showForm) {
+      heroIn.setValue(0)
+      Animated.timing(heroIn, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    } else {
+      formIn.setValue(0)
+      Animated.timing(formIn, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    }
+  }, [showSplash, showForm, heroIn, formIn])
 
   const onSplashComplete = () => {
     AsyncStorage.setItem(SEEN_SPLASH_KEY, 'true').catch(() => {})
@@ -203,10 +219,19 @@ export default function LoginScreen() {
           <View style={{ flex: 1 }} className="items-center pt-8">
             {/* Centered hero */}
             <View className="flex-1 items-center justify-center" style={{ gap: 48 }}>
-              <Image
-                source={require('../../assets/splash.png')}
+              {/* Same illustration as the webapp (public/splash.png). The
+                  native splash canvas (assets/splash.png) is a full-phone
+                  image and rendered as a tiny logo here. */}
+              <Animated.Image
+                source={require('../../assets/login-hero.png')}
                 resizeMode="contain"
-                style={{ width: 256, height: 256 }}
+                accessibilityLabel={L('Willkommen', 'Welcome')}
+                style={{
+                  width: 256,
+                  height: 256,
+                  opacity: heroIn,
+                  transform: [{ scale: heroIn.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }],
+                }}
               />
               <Text className="text-white font-bold text-center px-4" style={{ fontSize: 24, lineHeight: 30 }}>
                 {t('auth.welcome')}
@@ -250,7 +275,17 @@ export default function LoginScreen() {
           </View>
         ) : (
           /* ── Form state ────────────────────────────────────────────── */
-          <View style={{ flex: 1, paddingTop: 48, width: '100%', maxWidth: 384, alignSelf: 'center' }}>
+          <Animated.View
+            style={{
+              flex: 1,
+              paddingTop: 48,
+              width: '100%',
+              maxWidth: 384,
+              alignSelf: 'center',
+              opacity: formIn,
+              transform: [{ translateX: formIn.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
+            }}
+          >
             <View style={{ marginBottom: 32 }}>
               <Text style={{ color: '#FFFFFF', fontSize: 26, fontWeight: '700', lineHeight: 32, marginBottom: 8 }}>
                 {L('Anmeldung fortsetzen', 'Continue signing in')}
@@ -385,7 +420,7 @@ export default function LoginScreen() {
                 {L('← Zurück', '← Back')}
               </Text>
             </Pressable>
-          </View>
+          </Animated.View>
         )}
       </ScrollView>
     </View>

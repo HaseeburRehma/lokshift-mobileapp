@@ -3,7 +3,8 @@
  *
  * Returns real-time counts for:
  *   live      (managerial): active shifts, i.e. time_entries with end_time IS NULL
- *   times     (managerial): unverified completed time_entries
+ *   times     (managerial): submitted shifts awaiting approval plus
+ *                pending correction requests (Freigaben)
  *   perDiem   (managerial): submitted per_diems awaiting approval
  *   requests  (managerial): pending absence requests org-wide
  *                (employee): own pending absence requests
@@ -63,14 +64,23 @@ export function useDrawerBadges(): DrawerBadges {
           .is('end_time', null)
         out.live = count ?? 0
 
-        // Unverified completed shifts
-        const { count: timesCount } = await supabase
-          .from('time_entries')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', orgId)
-          .eq('is_verified', false)
-          .not('end_time', 'is', null)
-        out.times = timesCount ?? 0
+        // Freigaben: submitted, not yet approved shifts + open correction
+        // requests (drafts are still with the employee — not counted).
+        const [{ count: timesCount }, { count: corrCount }] = await Promise.all([
+          supabase
+            .from('time_entries')
+            .select('id', { count: 'exact', head: true })
+            .eq('organization_id', orgId)
+            .eq('is_verified', false)
+            .not('end_time', 'is', null)
+            .not('submitted_at', 'is', null),
+          supabase
+            .from('time_entry_corrections')
+            .select('id', { count: 'exact', head: true })
+            .eq('organization_id', orgId)
+            .eq('status', 'pending'),
+        ])
+        out.times = (timesCount ?? 0) + (corrCount ?? 0)
 
         // Submitted per-diems
         const { count: pdCount } = await supabase
@@ -164,6 +174,13 @@ export function useDrawerBadges(): DrawerBadges {
         .channel(uniqueChannelName(`drawer-time-entries-${orgId}`))
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'time_entries',
+          filter: `organization_id=eq.${orgId}`,
+        }, scheduleFetch)
+        .subscribe(),
+      supabase
+        .channel(uniqueChannelName(`drawer-corrections-${orgId}`))
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'time_entry_corrections',
           filter: `organization_id=eq.${orgId}`,
         }, scheduleFetch)
         .subscribe(),

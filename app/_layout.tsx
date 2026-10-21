@@ -16,6 +16,10 @@ import '../global.css'
 import { initMonitoring, setMonitoringUser, addBreadcrumb } from '@/lib/monitoring'
 initMonitoring()
 
+// Web build only: Alert.alert is a no-op in react-native-web → browser dialogs.
+import { installWebAlert } from '@/lib/web-alert'
+installWebAlert()
+
 import React, { useEffect } from 'react'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -34,6 +38,7 @@ import { BiometricLockProvider } from '@/lib/biometric/lock-context'
 import { AppDrawer } from '@/components/AppDrawer'
 import { BiometricLockOverlay } from '@/components/BiometricLockOverlay'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ServerUpdateGate } from '@/components/ServerUpdateGate'
 import { ToastHost } from '@/components/Toast'
 
 /**
@@ -192,12 +197,14 @@ export default function RootLayout() {
                           one broken screen doesn't tear down the providers
                           (tab bar, drawer, biometric lock) above it. */}
                       <ErrorBoundary boundary="screen">
-                        <Stack screenOptions={{ headerShown: false }}>
-                          <Stack.Screen name="(auth)" />
-                          <Stack.Screen name="(tabs)" />
-                          <Stack.Screen name="change-password" />
-                          <Stack.Screen name="onboarding" />
-                        </Stack>
+                        <ServerUpdateGate>
+                          <Stack screenOptions={{ headerShown: false }}>
+                            <Stack.Screen name="(auth)" />
+                            <Stack.Screen name="(tabs)" />
+                            <Stack.Screen name="change-password" />
+                            <Stack.Screen name="onboarding" />
+                          </Stack>
+                        </ServerUpdateGate>
                       </ErrorBoundary>
                       {/* Drawer is rendered at the root so it's reachable from any
                           authenticated screen, not just tab routes. It's a Modal

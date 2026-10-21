@@ -1,9 +1,10 @@
 /**
  * Change password — pixel-parity port of the webapp's change-password/page.tsx.
  *
- * Same visual language as the login form state:
- *   - blue (#0064E0) background edge-to-edge
- *   - centered max-width column
+ * Same visual language as the web page (`min-h-screen bg-[#0064E0]`):
+ *   - flat blue (#0064E0) background edge-to-edge (no halos — the web
+ *     page sits outside the (auth) layout)
+ *   - centered max-w-sm column, left-aligned 26px heading
  *   - white labels, white inputs (no card wrapper), white CTA
  *
  * Reached after first-login (must_change_password=true) or post-recovery.
@@ -68,10 +69,6 @@ export default function ChangePasswordScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0064E0' }}>
-      {/* Background halos (subtle, matches webapp auth layout) */}
-      <View pointerEvents="none" style={{ position: 'absolute', top: '-10%', left: '-10%', width: '50%', height: '40%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999 }} />
-      <View pointerEvents="none" style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '50%', height: '40%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 999 }} />
-
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingTop: insets.top + 48, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: 384, alignSelf: 'center' }}>
           {/* Heading */}
@@ -130,14 +127,19 @@ export default function ChangePasswordScreen() {
               />
             </View>
 
+            {/* Web: only disabled while saving — empty / short input is
+                answered with the validation toast instead. */}
             <Pressable
               onPress={onSubmit}
-              disabled={loading || !password || !confirm}
-              style={{
-                height: 56, marginTop: 16, borderRadius: 12, backgroundColor: '#FFFFFF',
+              disabled={loading}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                height: 56, marginTop: 4, borderRadius: 12,
+                backgroundColor: pressed ? '#F9FAFB' : '#FFFFFF',
                 alignItems: 'center', justifyContent: 'center',
-                opacity: (loading || !password || !confirm) ? 0.5 : 1,
-              }}
+                opacity: loading ? 0.5 : 1,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              })}
             >
               <Text style={{ color: '#0064E0', fontWeight: '700', fontSize: 16 }}>
                 {loading ? L('Wird gespeichert…', 'Saving…') : L('Passwort speichern', 'Save password')}

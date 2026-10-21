@@ -1,54 +1,59 @@
 /**
- * Data export — lets the user download their own data as a single JSON
- * file (DSGVO §15 spirit). Includes profile, time entries, plans,
- * per-diem, holiday bonuses, and absence requests.
+ * Daten-Export — lets the user download their own data as a single JSON
+ * file (DSGVO Art. 15/20; referenced by the privacy policy: "Einstellungen
+ * → Daten-Export"). Includes profile, time entries, plans, per-diem,
+ * holiday bonuses, and absence requests.
  *
  * Admins additionally get an "org-wide" toggle that exports the same
  * tables for every member.
  *
  * Output goes to the cache directory and is handed to the system
  * share sheet via expo-sharing — same pattern as the Stundenzettel PDF.
+ * Styled like the webapp settings sub-pages.
  */
 
 import React, { useState } from 'react'
-import { View, Text, Pressable, ScrollView, Switch, Alert } from 'react-native'
-import { useRouter } from 'expo-router'
-import { ChevronLeft, Download, Database } from 'lucide-react-native'
+import { View, Text, Alert } from 'react-native'
+import { Download, Database, Clock, CalendarCheck, Wallet, Gift, Palmtree, User as UserIcon } from 'lucide-react-native'
 import { format } from 'date-fns'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as Sharing from 'expo-sharing'
 
-import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { canManageUsers } from '@/lib/rbac/permissions'
 import { getSupabase } from '@/lib/supabase/client'
-import { useSafeBack } from '@/lib/use-safe-back'
+import {
+  SettingsShell,
+  SettingsPageHeader,
+  SectionCard,
+  ToggleRow,
+  FootNote,
+  SC,
+} from '@/components/settings/SettingsUI'
 
 interface Section {
   key: string
   table: string
   label_de: string
   label_en: string
+  icon: any
   /** Some tables key by employee_id, others by user_id, others by creator_id. */
   ownerColumn: 'employee_id' | 'user_id' | 'creator_id' | null
 }
 
 const SECTIONS: Section[] = [
-  { key: 'time_entries', table: 'time_entries', label_de: 'Zeiteinträge', label_en: 'Time entries', ownerColumn: 'employee_id' },
-  { key: 'plans', table: 'plans', label_de: 'Pläne', label_en: 'Plans', ownerColumn: 'employee_id' },
-  { key: 'per_diems', table: 'per_diems', label_de: 'Spesen', label_en: 'Per diem', ownerColumn: 'employee_id' },
-  { key: 'holiday_bonuses', table: 'holiday_bonuses', label_de: 'Boni', label_en: 'Bonuses', ownerColumn: 'employee_id' },
-  { key: 'absences', table: 'calendar_events', label_de: 'Anträge', label_en: 'Requests', ownerColumn: 'creator_id' },
-  { key: 'profile', table: 'profiles', label_de: 'Stammdaten', label_en: 'Profile', ownerColumn: null },
+  { key: 'time_entries', table: 'time_entries', label_de: 'Zeiteinträge', label_en: 'Time entries', icon: Clock, ownerColumn: 'employee_id' },
+  { key: 'plans', table: 'plans', label_de: 'Pläne', label_en: 'Plans', icon: CalendarCheck, ownerColumn: 'employee_id' },
+  { key: 'per_diems', table: 'per_diems', label_de: 'Spesen', label_en: 'Per diem', icon: Wallet, ownerColumn: 'employee_id' },
+  { key: 'holiday_bonuses', table: 'holiday_bonuses', label_de: 'Boni', label_en: 'Bonuses', icon: Gift, ownerColumn: 'employee_id' },
+  { key: 'absences', table: 'calendar_events', label_de: 'Anträge', label_en: 'Requests', icon: Palmtree, ownerColumn: 'creator_id' },
+  { key: 'profile', table: 'profiles', label_de: 'Stammdaten', label_en: 'Profile', icon: UserIcon, ownerColumn: null },
 ]
 
 export default function ExportScreen() {
-  const router = useRouter()
-  const goBack = useSafeBack('/(tabs)/settings')
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { profile, session, role } = useUser()
@@ -100,10 +105,7 @@ export default function ExportScreen() {
         orgWide && isAdmin
           ? `lokshift_export_${profile.organization_id ?? 'org'}_${stamp}.json`
           : `lokshift_export_self_${stamp}.json`
-      const targetDir =
-        (FileSystem as any).cacheDirectory ??
-        (FileSystem as any).documentDirectory ??
-        null
+      const targetDir = (FileSystem as any).cacheDirectory ?? (FileSystem as any).documentDirectory ?? null
       if (!targetDir) {
         toast.error(L('Kein Speicherort verfügbar.', 'No writable location.'))
         return
@@ -117,10 +119,7 @@ export default function ExportScreen() {
           dialogTitle: L('Daten exportieren', 'Export data'),
         })
       } else {
-        Alert.alert(
-          L('Export erstellt', 'Export ready'),
-          L(`Gespeichert unter: ${uri}`, `Saved to: ${uri}`),
-        )
+        Alert.alert(L('Export erstellt', 'Export ready'), L(`Gespeichert unter: ${uri}`, `Saved to: ${uri}`))
       }
     } catch (err: any) {
       toast.error(err?.message ?? t('common.error'))
@@ -130,99 +129,82 @@ export default function ExportScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Daten-Export', 'Data export')}
-        </Text>
-      </View>
+    <SettingsShell>
+      <SettingsPageHeader
+        backLabel={L('Einstellungen', 'Settings')}
+        icon={Database}
+        tileColor={SC.emerald500}
+        title={L('Daten-Export', 'Data export')}
+        subtitle={L(
+          'Eine JSON-Datei mit allen Bereichen, sofort über das Teilen-Menü.',
+          'A JSON file with every area, ready to share via the system menu.',
+        )}
+      />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <View className="flex-row items-center mb-4">
-          <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-            <Database size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-              {L('Ihre Daten herunterladen', 'Download your data')}
-            </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                'Eine JSON-Datei mit allen Bereichen, sofort über das Teilen-Menü.',
-                'A JSON file with every area, ready to share via the system menu.',
-              )}
-            </Text>
-          </View>
-        </View>
-
-        <Card className="mb-3">
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white mb-2">
-            {L('Enthalten', 'Included')}
-          </Text>
-          {SECTIONS.map((s) => (
+      <SectionCard
+        title={L('Enthalten', 'Included')}
+        description={L('Diese Bereiche werden in die Datei geschrieben.', 'These areas are written to the file.')}
+      >
+        {SECTIONS.map((s, i) => {
+          const Icon = s.icon
+          return (
             <View
               key={s.key}
-              className="flex-row items-center py-2 border-b border-gray-50 dark:border-slate-800"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderBottomWidth: i === SECTIONS.length - 1 ? 0 : 1,
+                borderBottomColor: SC.slate50,
+              }}
             >
               <View
                 style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 999,
-                  backgroundColor: '#0064E0',
-                  marginRight: 10,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  backgroundColor: SC.slate50,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 12,
                 }}
-              />
-              <Text className="text-[13px] text-gray-800 dark:text-slate-100">
-                {L(s.label_de, s.label_en)}
-              </Text>
+              >
+                <Icon size={16} color={SC.slate500} />
+              </View>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: SC.slate800 }}>{L(s.label_de, s.label_en)}</Text>
             </View>
-          ))}
-        </Card>
+          )
+        })}
+      </SectionCard>
 
-        {isAdmin && (
-          <Card className="mb-3 flex-row items-center">
-            <View className="flex-1 pr-3">
-              <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-                {L('Gesamte Organisation', 'Organisation-wide')}
-              </Text>
-              <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
-                {L(
-                  'Exportiert alle Mitarbeiter (nur Admin).',
-                  'Exports every employee (admin only).',
-                )}
-              </Text>
-            </View>
-            <Switch
-              value={orgWide}
-              onValueChange={setOrgWide}
-              trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
-            />
-          </Card>
+      {isAdmin ? (
+        <SectionCard>
+          <ToggleRow
+            label={L('Gesamte Organisation', 'Organisation-wide')}
+            desc={L('Exportiert alle Mitarbeiter (nur Admin).', 'Exports every employee (admin only).')}
+            value={orgWide}
+            onValueChange={setOrgWide}
+            last
+          />
+        </SectionCard>
+      ) : null}
+
+      <Button
+        label={busy ? t('common.loading') : L('Export erstellen & teilen', 'Generate & share export')}
+        onPress={exportNow}
+        loading={busy}
+        size="lg"
+        leftIcon={<Download size={18} color="#FFFFFF" />}
+        style={{ marginBottom: 16 }}
+      />
+
+      <FootNote>
+        {L(
+          'Die Datei wird auf Ihrem Gerät erstellt und nicht hochgeladen.',
+          'The file is generated on your device and not uploaded.',
         )}
-
-        <Button
-          label={
-            busy
-              ? t('common.loading')
-              : L('Export erstellen & teilen', 'Generate & share export')
-          }
-          onPress={exportNow}
-          loading={busy}
-          size="lg"
-          leftIcon={<Download size={18} color="#fff" />}
-        />
-
-        <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-4 text-center">
-          {L(
-            'Die Datei wird auf Ihrem Gerät erstellt und nicht hochgeladen.',
-            'The file is generated on your device and not uploaded.',
-          )}
-        </Text>
-      </ScrollView>
-    </Screen>
+      </FootNote>
+    </SettingsShell>
   )
 }

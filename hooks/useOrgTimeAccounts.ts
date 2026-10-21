@@ -37,19 +37,32 @@ export function useOrganizationTimeAccounts() {
     setLoading(true)
 
     const yearStart = `${new Date().getFullYear()}-01-01`
-    const [{ data: employees }, { data: entries }] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id, full_name, target_hours')
-        .eq('organization_id', profile!.organization_id)
-        .eq('role', 'employee')
-        .eq('is_active', true),
-      supabase
+    // Responses are capped at 1000 rows — page through the year's entries
+    // (a year of 20 drivers is already several thousand rows). Planned
+    // placeholders don't count as worked time (same rule as the reports).
+    const entries: Array<{ employee_id: string; net_hours: number | null }> = []
+    for (let from = 0; from < 200000; from += 1000) {
+      const { data: page, error } = await supabase
         .from('time_entries')
-        .select('employee_id, net_hours, date')
+        .select('id, employee_id, net_hours')
         .eq('organization_id', profile!.organization_id)
-        .gte('date', yearStart),
-    ])
+        .eq('is_planned', false)
+        .gte('date', yearStart)
+        .order('id')
+        .range(from, from + 999)
+      if (error) {
+        console.warn('[useOrgTimeAccounts]', error.message)
+        break
+      }
+      entries.push(...((page ?? []) as typeof entries))
+      if (!page || page.length < 1000) break
+    }
+    const { data: employees } = await supabase
+      .from('profiles')
+      .select('id, full_name, target_hours')
+      .eq('organization_id', profile!.organization_id)
+      .eq('role', 'employee')
+      .eq('is_active', true)
 
     const sumByEmployee = new Map<string, number>()
     for (const e of (entries ?? [])) {

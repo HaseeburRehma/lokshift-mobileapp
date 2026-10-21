@@ -3,12 +3,13 @@
  *
  * Pixel-parity port of the webapp's /dashboard/settings/personal-data
  * page. Layout:
- *   - Back chevron + "Stammdaten" title (brand blue)
- *   - White card with rounded corners containing:
- *       • Centered avatar + "Profilbild ändern" link
+ *   - blue-50 back circle + "Stammdaten" title (brand blue, text-2xl)
+ *   - white rounded-3xl card containing:
+ *       • 112px avatar (white ring, blue-500 initial fallback) +
+ *         "Profilbild ändern" link
  *       • Vorname / Nachname / E-Mail (disabled) / Telefon /
- *         Geschlecht (chip row) / Über mich
- *   - "Profil speichern" CTA
+ *         Geschlecht (segmented, replaces the web <select>) / Über mich
+ *   - "Abmelden" (red outline) + "Profil speichern" (blue) — web mobile order
  *
  * Writes back the new fields AND keeps `full_name` in sync as
  * `first_name + ' ' + last_name` so older consumers keep working.
@@ -30,8 +31,6 @@ import * as ImagePicker from 'expo-image-picker'
 import { ChevronLeft, Camera, LogOut } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
-import { Button } from '@/components/Button'
 import { AppHeader } from '@/components/AppHeader'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -203,108 +202,114 @@ export default function PersonalDataScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <AppHeader />
-      <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
+      <Screen background="#F8FAFC" noTapToDismiss>
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 48 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48 }}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Header — back pill + brand title */}
-          <View className="flex-row items-center mb-6" style={{ gap: 12 }}>
+          {/* Header — web: w-9 h-9 bg-blue-50 back circle + text-2xl brand title */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 12 }}>
             <Pressable
               onPress={goBack}
+              accessibilityRole="button"
               accessibilityLabel={L('Zurück', 'Back')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: 999,
+                borderRadius: 18,
                 backgroundColor: '#EFF6FF',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <ChevronLeft size={20} color="#0064E0" />
+              <ChevronLeft size={20} color="#2563EB" />
             </Pressable>
-            <Text className="text-[24px] font-black text-brand tracking-tight">
+            <Text style={{ fontSize: 24, fontWeight: '700', color: '#0064E0', letterSpacing: -0.3 }}>
               {L('Stammdaten', 'Personal Data')}
             </Text>
           </View>
 
           {loading ? (
-            <Card>
-              <View className="items-center py-10">
-                <ActivityIndicator color="#0064E0" />
-              </View>
-            </Card>
+            <View style={[CARD, { alignItems: 'center', paddingVertical: 48 }]}>
+              <ActivityIndicator color="#3B82F6" />
+            </View>
           ) : (
-            <Card>
-              {/* Avatar block */}
-              <View className="items-center mb-6">
+            <View style={CARD}>
+              {/* Avatar — web: w-28 h-28 border-[3px] border-white shadow-md ring-1 ring-slate-100 */}
+              <View style={{ alignItems: 'center', marginBottom: 24 }}>
                 <View
                   style={{
                     width: 112,
                     height: 112,
-                    borderRadius: 999,
-                    overflow: 'hidden',
-                    backgroundColor: '#EEF2FF',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderWidth: 3,
-                    borderColor: '#FFFFFF',
-                    marginBottom: 10,
+                    borderRadius: 56,
+                    marginBottom: 12,
+                    backgroundColor: '#FFFFFF',
                     shadowColor: '#0F172A',
-                    shadowOpacity: 0.08,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 3 },
                     elevation: 4,
                   }}
                 >
-                  {avatarUrl ? (
-                    <Image
-                      source={{ uri: avatarUrl }}
-                      style={{ width: 112, height: 112 }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 36 }}>
-                      {initial.toUpperCase()}
-                    </Text>
-                  )}
-                  {uploadingAvatar && (
-                    <View
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(15,23,42,0.45)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <ActivityIndicator color="#FFFFFF" />
-                    </View>
-                  )}
+                  <View
+                    style={{
+                      width: 112,
+                      height: 112,
+                      borderRadius: 56,
+                      overflow: 'hidden',
+                      borderWidth: 3,
+                      borderColor: '#FFFFFF',
+                      backgroundColor: '#3B82F6',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {avatarUrl ? (
+                      <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    ) : (
+                      <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 30 }}>{initial.toUpperCase()}</Text>
+                    )}
+                    {uploadingAvatar ? (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(0,0,0,0.5)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <ActivityIndicator color="#FFFFFF" />
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
                 <Pressable
                   onPress={onChangeAvatar}
                   disabled={uploadingAvatar}
+                  accessibilityRole="button"
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 6,
                     paddingVertical: 4,
                     paddingHorizontal: 8,
+                    opacity: uploadingAvatar ? 0.5 : 1,
                   }}
                 >
-                  <Camera size={14} color="#0064E0" />
-                  <Text style={{ color: '#0064E0', fontSize: 13, fontWeight: '700' }}>
+                  <Camera size={16} color="#2563EB" />
+                  <Text style={{ color: '#2563EB', fontSize: 14, fontWeight: '600' }}>
                     {L('Profilbild ändern', 'Edit profile picture')}
                   </Text>
                 </Pressable>
               </View>
 
-              {/* Fields */}
+              {/* Fields — web: label above input on mobile, border-b slate-100 rows */}
               <View style={{ borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
                 <Field
                   label={L('Vorname', 'First name')}
@@ -333,11 +338,9 @@ export default function PersonalDataScreen() {
                   placeholder="0175..."
                   keyboardType="phone-pad"
                 />
-                <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
-                  <Text className="text-[13px] font-bold text-gray-700 dark:text-slate-300 mb-2">
-                    {L('Geschlecht', 'Gender')}
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <View style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+                  <Text style={LABEL}>{L('Geschlecht', 'Gender')}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
                     {(
                       [
                         { value: 'male', label_de: 'Männlich', label_en: 'Male' },
@@ -349,23 +352,22 @@ export default function PersonalDataScreen() {
                       return (
                         <Pressable
                           key={opt.value || 'none'}
-                          onPress={() => setForm((p) => ({ ...p, gender: opt.value }))}
+                          // Tapping the active option clears it (web: "Bitte wählen").
+                          onPress={() => setForm((p) => ({ ...p, gender: sel ? '' : opt.value }))}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: sel }}
                           style={{
-                            paddingHorizontal: 16,
-                            paddingVertical: 8,
-                            borderRadius: 999,
-                            borderWidth: 2,
-                            backgroundColor: sel ? '#0064E0' : '#FFFFFF',
-                            borderColor: sel ? '#0064E0' : '#E5E7EB',
+                            flex: 1,
+                            height: 40,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: sel ? '#EFF6FF' : '#F8FAFC',
+                            borderColor: sel ? '#2563EB' : '#E2E8F0',
                           }}
                         >
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              fontWeight: '700',
-                              color: sel ? '#FFFFFF' : '#475569',
-                            }}
-                          >
+                          <Text style={{ fontSize: 14, fontWeight: sel ? '700' : '500', color: sel ? '#2563EB' : '#334155' }}>
                             {locale === 'de' ? opt.label_de : opt.label_en}
                           </Text>
                         </Pressable>
@@ -374,49 +376,62 @@ export default function PersonalDataScreen() {
                   </View>
                 </View>
 
-                <View style={{ paddingVertical: 14 }}>
-                  <Text className="text-[13px] font-bold text-gray-700 dark:text-slate-300 mb-2">
-                    {L('Über mich', 'Bio')}
-                  </Text>
+                <View style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+                  <Text style={LABEL}>{L('Über mich', 'Bio')}</Text>
                   <TextInput
                     value={form.bio}
                     onChangeText={(v) => setForm((p) => ({ ...p, bio: v }))}
                     placeholder={L('Kurze Beschreibung', 'Short description')}
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor="#CBD5E1"
                     multiline
                     numberOfLines={3}
-                    style={{
-                      minHeight: 80,
-                      backgroundColor: '#F8FAFC',
-                      borderWidth: 1.5,
-                      borderColor: '#E5E7EB',
-                      borderRadius: 12,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      fontSize: 14,
-                      color: '#0F172A',
-                      textAlignVertical: 'top',
-                    }}
+                    style={[INPUT, { minHeight: 84, paddingVertical: 10, textAlignVertical: 'top' }]}
                   />
                 </View>
               </View>
 
-              {/* CTAs */}
-              <View style={{ marginTop: 16, gap: 10 }}>
-                <Button
-                  label={saving ? L('Speichert…', 'Saving…') : L('Profil speichern', 'Save profile')}
-                  onPress={save}
-                  loading={saving}
-                  size="lg"
-                />
-                <Button
-                  label={L('Abmelden', 'Logout')}
-                  variant="secondary"
-                  leftIcon={<LogOut size={16} color="#DC2626" />}
+              {/* Buttons — web mobile order: Abmelden (red outline), then Profil speichern */}
+              <View style={{ marginTop: 28, gap: 12 }}>
+                <Pressable
                   onPress={signOut}
-                />
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    height: 44,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#FECACA',
+                    backgroundColor: pressed ? '#FEF2F2' : '#FFFFFF',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  })}
+                >
+                  <LogOut size={16} color="#DC2626" />
+                  <Text style={{ color: '#DC2626', fontSize: 14, fontWeight: '600' }}>{L('Abmelden', 'Logout')}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={save}
+                  disabled={saving}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    height: 44,
+                    borderRadius: 12,
+                    backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    opacity: saving ? 0.6 : 1,
+                  })}
+                >
+                  {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                  <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
+                    {saving ? L('Speichert…', 'Saving…') : L('Profil speichern', 'Save profile')}
+                  </Text>
+                </Pressable>
               </View>
-            </Card>
+            </View>
           )}
         </ScrollView>
       </Screen>
@@ -424,8 +439,32 @@ export default function PersonalDataScreen() {
   )
 }
 
-// Per-row input. Disabled rows render with the muted backgroud used on
-// the web for read-only fields like email.
+// Web card: bg-white rounded-3xl border border-slate-100 shadow-sm p-6
+const CARD = {
+  backgroundColor: '#FFFFFF',
+  borderRadius: 24,
+  borderWidth: 1,
+  borderColor: '#F1F5F9',
+  padding: 24,
+} as const
+
+// Web label: text-sm font-semibold text-slate-700
+const LABEL = { fontSize: 14, fontWeight: '600' as const, color: '#334155', marginBottom: 8 }
+
+// Web input: text-sm bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 font-medium
+const INPUT = {
+  backgroundColor: '#F8FAFC',
+  borderWidth: 1,
+  borderColor: '#E2E8F0',
+  borderRadius: 8,
+  paddingHorizontal: 12,
+  fontSize: 14,
+  fontWeight: '500' as const,
+  color: '#334155',
+}
+
+// Per-row input. Disabled rows render with the muted slate-100 background
+// the web uses for read-only fields like email.
 function Field({
   label,
   value,
@@ -444,10 +483,8 @@ function Field({
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'
 }) {
   return (
-    <View style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
-      <Text className="text-[13px] font-bold text-gray-700 dark:text-slate-300 mb-2">
-        {label}
-      </Text>
+    <View style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+      <Text style={LABEL}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -456,17 +493,11 @@ function Field({
         editable={!disabled}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
-        style={{
-          height: 44,
-          backgroundColor: disabled ? '#F1F5F9' : '#F8FAFC',
-          borderWidth: 1.5,
-          borderColor: '#E5E7EB',
-          borderRadius: 12,
-          paddingHorizontal: 12,
-          fontSize: 14,
-          fontWeight: '500',
-          color: disabled ? '#64748B' : '#0F172A',
-        }}
+        style={[
+          INPUT,
+          { height: 40 },
+          disabled ? { backgroundColor: '#F1F5F9', color: '#64748B' } : null,
+        ]}
       />
     </View>
   )

@@ -20,7 +20,7 @@
 import { Platform } from 'react-native'
 import * as Print from 'expo-print'
 import * as Sharing from 'expo-sharing'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import { format } from 'date-fns'
 
 export interface RenderAndShareOpts {
@@ -117,7 +117,17 @@ function renderAndPrintWeb(html: string, filename: string): string {
     url = `data:text/html;charset=utf-8,${encodeURIComponent(titledHtml)}`
   }
 
-  const win = window.open(url, '_blank', 'noopener,noreferrer')
+  // No 'noopener' feature here: with it, window.open() always returns null
+  // and every export would be treated as a blocked popup. The opener link
+  // is cut manually instead.
+  const win = window.open(url, '_blank')
+  if (win) {
+    try {
+      win.opener = null
+    } catch {
+      // ignore
+    }
+  }
   if (!win) {
     // Popup blocked. Fall back to a same-tab download of the HTML
     // (better than silent failure).

@@ -1,13 +1,15 @@
 /**
- * Edit / delete a working-time model — admin only.
+ * Edit / delete a working-time model — admin only. Copy mirrors the
+ * webapp's WorkModelForm dialog ("Modell bearbeiten").
  */
 
 import React, { useEffect, useState } from 'react'
 import { View, Text, Pressable, Alert } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronLeft, Trash2 } from 'lucide-react-native'
+import { Trash2 } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
+import { PageHeader } from '@/components/PageHeader'
 import { WorkModelForm } from '@/components/forms/WorkModelForm'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -36,8 +38,8 @@ export default function EditWorkModelScreen() {
 
   if (!canManageUsers(role)) {
     return (
-      <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
+      <Screen background="#F8FAFC" className="px-6 items-center justify-center" noTapToDismiss>
+        <Text className="text-slate-400 text-center">
           {L(
             'Nur Administratoren können Arbeitszeitmodelle bearbeiten.',
             'Only administrators can edit work models.',
@@ -49,9 +51,9 @@ export default function EditWorkModelScreen() {
 
   if (!model) {
     return (
-      <Screen background="#F9FAFB" noTapToDismiss>
+      <Screen background="#F8FAFC" noTapToDismiss>
         <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 dark:text-slate-500">{t('common.loading')}</Text>
+          <Text className="text-slate-400">{t('common.loading')}</Text>
         </View>
       </Screen>
     )
@@ -73,7 +75,7 @@ export default function EditWorkModelScreen() {
             setBusy(true)
             try {
               await deleteModel(model.id)
-              toast.success(L('Modell gelöscht', 'Model deleted'))
+              toast.success(L('Arbeitszeitmodell gelöscht', 'Work model deleted'))
               router.replace('/work-models')
             } catch (err: any) {
               toast.error(err?.message ?? t('common.error'))
@@ -87,26 +89,31 @@ export default function EditWorkModelScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center justify-between px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Pressable onPress={onDelete} className="p-2 -mr-2" disabled={busy}>
-          <Trash2 size={22} color={busy ? '#9CA3AF' : '#DC2626'} />
-        </Pressable>
-      </View>
-
-      <View className="px-5 pb-2">
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white">
-          {L('Modell bearbeiten', 'Edit model')}
-        </Text>
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+        <PageHeader
+          title={L('Modell bearbeiten', 'Edit Model')}
+          subtitle={model.name}
+          showBack
+          onBack={goBack}
+          rightSlot={
+            <Pressable
+              onPress={onDelete}
+              disabled={busy}
+              hitSlop={8}
+              accessibilityLabel={L('Löschen', 'Delete')}
+              className="w-10 h-10 rounded-xl border border-red-100 bg-red-50 items-center justify-center"
+            >
+              <Trash2 size={18} color={busy ? '#CBD5E1' : '#EF4444'} />
+            </Pressable>
+          }
+        />
       </View>
 
       <WorkModelForm
         initial={model}
         submitting={saving}
-        submitLabel={saving ? t('common.loading') : L('Änderungen speichern', 'Save changes')}
+        submitLabel={saving ? L('Speichern...', 'Saving...') : L('Aktualisieren', 'Update')}
         onSubmit={async (input) => {
           if (!input.name) {
             toast.error(L('Name ist erforderlich.', 'Name is required.'))
@@ -115,7 +122,7 @@ export default function EditWorkModelScreen() {
           setSaving(true)
           try {
             await updateModel(model.id, input)
-            toast.success(L('Modell gespeichert', 'Model saved'))
+            toast.success(L('Arbeitszeitmodell aktualisiert', 'Work model updated'))
             router.replace('/work-models')
           } catch (err: any) {
             toast.error(err?.message ?? t('common.error'))

@@ -1,14 +1,15 @@
 /**
  * Create a new customer. Thin host around CustomerForm — handles submit,
- * navigation, and the access check for non-managerial roles.
+ * navigation, and the access check for non-managerial roles. Copy
+ * mirrors the webapp's CustomerForm dialog ("Neuen Kunden anlegen").
  */
 
 import React, { useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Text } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
+import { PageHeader } from '@/components/PageHeader'
 import { CustomerForm } from '@/components/forms/CustomerForm'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -29,8 +30,8 @@ export default function NewCustomerScreen() {
 
   if (!canCreatePlans(role)) {
     return (
-      <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
+      <Screen background="#F8FAFC" className="px-6 items-center justify-center" noTapToDismiss>
+        <Text className="text-slate-400 text-center">
           {L(
             'Nur Admins oder Disponenten können Kunden anlegen.',
             'Only admins or dispatchers can create customers.',
@@ -41,28 +42,28 @@ export default function NewCustomerScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Neuer Kunde', 'New customer')}
-        </Text>
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+        <PageHeader
+          title={L('Neuen Kunden anlegen', 'Create New Customer')}
+          subtitle={L('Einsatzorte und Kundenkontakte verwalten', 'Organize project sites & client contacts')}
+          showBack
+          onBack={goBack}
+        />
       </View>
 
       <CustomerForm
         submitting={saving}
-        submitLabel={saving ? t('common.loading') : L('Kunde speichern', 'Save customer')}
+        submitLabel={saving ? L('Wird gespeichert…', 'Processing...') : L('Kunde speichern', 'Save Customer')}
         onSubmit={async (input) => {
           if (!input.name) {
-            toast.error(L('Firmenname ist erforderlich.', 'Company name is required.'))
+            toast.error(L('Kundenname ist erforderlich', 'Customer name is required'))
             return
           }
           setSaving(true)
           try {
             await createCustomer(input)
-            toast.success(L('Kunde angelegt', 'Customer created'))
+            toast.success(L('Kunde angelegt', 'Customer added'))
             router.replace('/customers')
           } catch (err: any) {
             captureError(err, { tags: { action: 'customer.create' } })

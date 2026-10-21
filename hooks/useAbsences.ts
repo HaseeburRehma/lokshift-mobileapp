@@ -30,6 +30,7 @@ import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import { EVENT_COLORS } from '@/lib/types'
 import type { CalendarEvent, AbsenceRequestStatus } from '@/lib/types'
+import { sendNotification, sendNotificationToMany } from '@/lib/notifications/service'
 
 export type AbsenceKind = 'holiday' | 'sick_leave'
 
@@ -158,16 +159,9 @@ export function useAbsences() {
           ? `${submitterName} hat Urlaub für ${fmtDe(input.start_date)} bis ${fmtDe(input.end_date)} beantragt. Bitte genehmigen.`
           : `${submitterName} hat sich krank gemeldet (${fmtDe(input.start_date)} bis ${fmtDe(input.end_date)}).`
 
-      await Promise.all(
-        (managers ?? []).map((m: any) =>
-          supabase.from('notifications').insert({
-            user_id: m.id,
-            title: titleDe,
-            body: bodyDe,
-            type: 'absence',
-            is_read: false,
-          } as any),
-        ),
+      await sendNotificationToMany(
+        (managers ?? []).map((m: any) => m.id).filter((id: string) => id !== profile.id),
+        { title: titleDe, message: bodyDe, module: 'absence', skipEmail: kind !== 'holiday' },
       )
     } catch (e) {
       console.warn('[useAbsences] manager notification failed (non-fatal):', e)
@@ -200,13 +194,7 @@ export function useAbsences() {
         ? `Ihr Antrag (${period}) wurde genehmigt.${reason ? `\nHinweis: ${reason}` : ''}`
         : `Ihr Antrag (${period}) wurde abgelehnt.${reason ? `\nBegründung: ${reason}` : ''}`
 
-      await supabase.from('notifications').insert({
-        user_id: event.creator_id,
-        title: titleDe,
-        body: bodyDe,
-        type: 'absence',
-        is_read: false,
-      } as any)
+      await sendNotification({ userId: event.creator_id, title: titleDe, message: bodyDe, module: 'absence', moduleId: event.id })
     } catch (e) {
       console.warn('[useAbsences] requester notification failed (non-fatal):', e)
     }

@@ -1,112 +1,193 @@
 /**
- * Nutzungsbedingungen / Terms of Service. Required by both stores
- * (especially Google's "agreed to terms" requirement) and recommended
- * for any B2B SaaS to limit liability.
+ * Allgemeine Geschäftsbedingungen / Terms of Service — content mirrors the
+ * webapp's app/agb/page.tsx (DE) and app/terms/page.tsx (EN). Opens in the
+ * app language; the header link flips to the other version.
  */
 
-import React from 'react'
-import { View, Text, ScrollView, Pressable, Linking } from 'react-native'
-import { ChevronLeft, ExternalLink } from 'lucide-react-native'
+import React, { useState } from 'react'
+import { useRouter } from 'expo-router'
 
-import { Screen } from '@/components/Screen'
 import { useTranslation } from '@/lib/i18n'
-import { useSafeBack } from '@/lib/use-safe-back'
+import { LegalLayout, LegalSection, LegalP, LegalList, LegalLink } from '@/components/settings/LegalLayout'
 
 export default function AgbScreen() {
   const { locale } = useTranslation()
-  const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  const goBack = useSafeBack('/(tabs)/settings')
+  const router = useRouter()
+  const [lang, setLang] = useState<'de' | 'en'>(locale === 'en' ? 'en' : 'de')
+  const openPrivacy = () => router.replace('/legal/datenschutz' as any)
+
+  if (lang === 'en') {
+    return (
+      <LegalLayout
+        title="Terms of Service"
+        subtitle="Terms governing the use of the LokShift application."
+        lastUpdated="Last updated: 3 July 2026"
+        otherLocaleLabel="Deutsch"
+        onOtherLocale={() => setLang('de')}
+      >
+        <LegalSection title="§ 1 Scope">
+          <LegalP>
+            These terms govern the use of the LokShift application (the “App”) by authorised
+            employees and dispatchers of a customer organisation that holds a valid licence agreement.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 2 Eligibility">
+          <LegalP>
+            Access to the App is available only via an invitation provided by your employer. Accounts must
+            not be shared with third parties.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 3 User Obligations">
+          <LegalList
+            items={[
+              'Keep your credentials confidential.',
+              'Recorded times must correspond to actual work performed.',
+              'Location data must not be manipulated.',
+              'Chat features are for professional communication only.',
+              'Harassment, discrimination, or otherwise unlawful content is prohibited.',
+            ]}
+          />
+        </LegalSection>
+
+        <LegalSection title="§ 4 Availability">
+          <LegalP>
+            We aim for 99% uptime. Maintenance windows are announced in advance. Uninterrupted operation is
+            not guaranteed.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 5 Data Processing">
+          <LegalP>
+            {'Data processing occurs in accordance with the '}
+            <LegalLink onPress={openPrivacy}>Privacy Policy</LegalLink>
+            {' and a separate data processing agreement between the employer and Rhein Maas Rail GmbH.'}
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 6 Liability">
+          <LegalP>
+            We are liable only for damages caused by gross negligence or intent. Liability for slight
+            negligence is excluded except in cases of breach of material contractual obligations.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 7 Termination">
+          <LegalP>
+            When the employment relationship ends, your employer deactivates your account. Personal data is
+            retained or deleted in accordance with the Privacy Policy.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 8 Changes">
+          <LegalP>
+            We reserve the right to modify these terms. Changes will be announced within the App; continued
+            use constitutes acceptance.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 9 Governing Law">
+          <LegalP>
+            These terms are governed by the laws of the Federal Republic of Germany. The place of
+            jurisdiction is Aachen, provided the user is a merchant.
+          </LegalP>
+        </LegalSection>
+
+        <LegalSection title="§ 10 Severability">
+          <LegalP>
+            Should any provision of these terms be or become invalid, the validity of the remaining
+            provisions shall not be affected.
+          </LegalP>
+        </LegalSection>
+      </LegalLayout>
+    )
+  }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Nutzungsbedingungen', 'Terms of Service')}
-        </Text>
-      </View>
+    <LegalLayout
+      title="Allgemeine Geschäftsbedingungen"
+      subtitle="Nutzungsbedingungen für die LokShift-Anwendung."
+      lastUpdated="Stand: 3. Juli 2026"
+      otherLocaleLabel="English"
+      onOtherLocale={() => setLang('en')}
+    >
+      <LegalSection title="§ 1 Geltungsbereich">
+        <LegalP>
+          Diese Nutzungsbedingungen regeln die Nutzung der LokShift-Anwendung (nachfolgend „App“ oder
+          „Anwendung“) durch berechtigte Mitarbeiter und Disponenten der Kundenorganisation, mit der ein
+          gültiger Lizenzvertrag besteht.
+        </LegalP>
+      </LegalSection>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <Section title="§ 1 Geltungsbereich">
-          Diese Nutzungsbedingungen regeln die Nutzung der mobilen LokShift-Applikation
-          („App") durch berechtigte Mitarbeiter und Disponenten der Kundenorganisation,
-          mit der ein gültiger Lizenzvertrag besteht.
-        </Section>
+      <LegalSection title="§ 2 Berechtigung">
+        <LegalP>
+          Der Zugang zur App ist nur über eine durch den Arbeitgeber bereitgestellte Einladung möglich. Das
+          Konto darf nicht an Dritte weitergegeben werden.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 2 Berechtigung">
-          Der Zugang zur App ist nur über eine durch den Arbeitgeber bereitgestellte
-          Einladung möglich. Das Konto darf nicht an Dritte weitergegeben werden.
-        </Section>
+      <LegalSection title="§ 3 Pflichten des Nutzers">
+        <LegalList
+          items={[
+            'Anmeldedaten sind vertraulich zu behandeln.',
+            'Erfasste Zeiten müssen der tatsächlichen Arbeitsleistung entsprechen.',
+            'Standortdaten dürfen nicht manipuliert werden.',
+            'Chat-Funktionen sind ausschließlich für dienstliche Kommunikation zu nutzen.',
+            'Belästigungen, Diskriminierung oder rechtswidrige Inhalte sind untersagt.',
+          ]}
+        />
+      </LegalSection>
 
-        <Section title="§ 3 Pflichten des Nutzers">
-          • Anmeldedaten sind vertraulich zu behandeln.{'\n'}
-          • Erfasste Zeiten müssen der tatsächlichen Arbeitsleistung entsprechen.{'\n'}
-          • Standortdaten dürfen nicht manipuliert werden.{'\n'}
-          • Chat-Funktionen sind ausschließlich für dienstliche Kommunikation zu nutzen.
-        </Section>
+      <LegalSection title="§ 4 Verfügbarkeit">
+        <LegalP>
+          Wir bemühen uns um eine Verfügbarkeit von 99 %. Wartungsfenster werden rechtzeitig angekündigt.
+          Ein dauerhaft störungsfreier Betrieb wird nicht zugesichert.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 4 Verfügbarkeit">
-          Wir bemühen uns um eine Verfügbarkeit von 99 %. Wartungsfenster werden
-          rechtzeitig angekündigt. Ein dauerhaft störungsfreier Betrieb wird nicht
-          zugesichert.
-        </Section>
+      <LegalSection title="§ 5 Datenverarbeitung">
+        <LegalP>
+          {'Die Datenverarbeitung erfolgt im Rahmen der '}
+          <LegalLink onPress={openPrivacy}>Datenschutzerklärung</LegalLink>
+          {' sowie eines gesonderten Auftragsverarbeitungsvertrags zwischen dem Arbeitgeber und der Rhein Maas Rail GmbH.'}
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 5 Datenverarbeitung">
-          Die Datenverarbeitung erfolgt im Rahmen der Datenschutzerklärung sowie eines
-          gesonderten Auftragsverarbeitungsvertrags zwischen dem Arbeitgeber und der
-          Rhein Maas Rail GmbH.
-        </Section>
+      <LegalSection title="§ 6 Haftung">
+        <LegalP>
+          Wir haften nur für Schäden, die auf grober Fahrlässigkeit oder Vorsatz beruhen. Die Haftung für
+          leichte Fahrlässigkeit ist — außer bei Verletzung wesentlicher Vertragspflichten — ausgeschlossen.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 6 Haftung">
-          Wir haften nur für Schäden, die auf grober Fahrlässigkeit oder Vorsatz
-          beruhen. Die Haftung für leichte Fahrlässigkeit ist – außer bei Verletzung
-          wesentlicher Vertragspflichten – ausgeschlossen.
-        </Section>
+      <LegalSection title="§ 7 Beendigung">
+        <LegalP>
+          Bei Ende des Arbeitsverhältnisses wird das Konto vom Arbeitgeber deaktiviert. Persönliche Daten
+          werden gemäß Datenschutzerklärung gespeichert oder gelöscht.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 7 Beendigung">
-          Bei Ende des Arbeitsverhältnisses wird das Konto vom Arbeitgeber deaktiviert.
-          Persönliche Daten werden gemäß Datenschutzerklärung gespeichert oder gelöscht.
-        </Section>
+      <LegalSection title="§ 8 Änderungen">
+        <LegalP>
+          Wir behalten uns vor, diese Bedingungen anzupassen. Änderungen werden in der App angekündigt; die
+          fortgesetzte Nutzung gilt als Zustimmung.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 8 Änderungen">
-          Wir behalten uns vor, diese Bedingungen anzupassen. Änderungen werden in der
-          App angekündigt; die fortgesetzte Nutzung gilt als Zustimmung.
-        </Section>
+      <LegalSection title="§ 9 Anwendbares Recht">
+        <LegalP>
+          Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist Aachen, sofern der Nutzer
+          Kaufmann ist.
+        </LegalP>
+      </LegalSection>
 
-        <Section title="§ 9 Anwendbares Recht">
-          Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist
-          Aachen, sofern der Nutzer Kaufmann ist.
-        </Section>
-
-        <View style={{ marginTop: 12 }}>
-          <Pressable
-            onPress={() =>
-              Linking.openURL('https://lokshift.app/agb').catch(() => {})
-            }
-            className="flex-row items-center px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700"
-          >
-            <Text className="text-[13px] font-bold text-brand flex-1">
-              {L('Vollständige Fassung im Web', 'Full version on the web')}
-            </Text>
-            <ExternalLink size={16} color="#0064E0" />
-          </Pressable>
-        </View>
-      </ScrollView>
-    </Screen>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View className="mb-4">
-      <Text className="text-[14px] font-black text-gray-900 dark:text-white mb-2">
-        {title}
-      </Text>
-      <Text className="text-[12px] text-gray-700 dark:text-slate-300 leading-5">
-        {children}
-      </Text>
-    </View>
+      <LegalSection title="§ 10 Salvatorische Klausel">
+        <LegalP>
+          Sollten einzelne Bestimmungen dieser Nutzungsbedingungen unwirksam sein, bleibt die Wirksamkeit der
+          übrigen Bestimmungen unberührt.
+        </LegalP>
+      </LegalSection>
+    </LegalLayout>
   )
 }

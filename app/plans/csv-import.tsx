@@ -13,7 +13,7 @@ import React, { useState } from 'react'
 import { View, Text, ScrollView, Pressable, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import {
   ChevronLeft,
   FileText,
@@ -40,6 +40,7 @@ import {
 } from '@/lib/plans/csvImport'
 import { useSafeBack } from '@/lib/use-safe-back'
 import { captureError } from '@/lib/monitoring'
+import { sendNotification } from '@/lib/notifications/service'
 
 export default function CsvImportScreen() {
   const router = useRouter()
@@ -156,19 +157,12 @@ export default function CsvImportScreen() {
       }
       await Promise.all(
         Array.from(grouped.entries()).map(([uid, count]) =>
-          getSupabase()
-            .from('notifications')
-            .insert({
-              user_id: uid,
-              title: L('📋 Neue Schichten zugewiesen', '📋 New shifts assigned'),
-              body: L(
-                `Ihnen wurden ${count} neue Schicht(en) zugewiesen.`,
-                `${count} new shift(s) have been assigned to you.`,
-              ),
-              type: 'plans',
-              is_read: false,
-            } as any)
-            .then(() => {}),
+          sendNotification({
+            userId: uid,
+            title: 'Neue Schichten zugewiesen',
+            message: `Ihnen wurden ${count} neue Schicht(en) zugewiesen. Bitte prüfen und bestätigen.`,
+            module: 'plans',
+          }),
         ),
       )
 
@@ -192,35 +186,47 @@ export default function CsvImportScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('CSV importieren', 'Import CSV')}
-        </Text>
-      </View>
-
+    <Screen background="#FFFFFF" noTapToDismiss>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <View className="flex-row items-center mb-4">
-          <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-            <FileText size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-              {L('Pläne aus einer CSV-Datei erstellen', 'Create plans from a CSV file')}
-            </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                'Eine Zeile pro Schicht. Mitarbeiter werden per E-Mail-Adresse zugeordnet.',
-                'One row per shift. Employees are matched by email address.',
-              )}
-            </Text>
+        <View style={{ paddingTop: 12, paddingBottom: 16 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', height: 40, marginLeft: -6 }}>
+            <ChevronLeft size={18} color="#64748B" />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B', marginLeft: 2 }}>{L('Zurück', 'Back')}</Text>
+          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 24,
+                backgroundColor: '#0064E0',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 14,
+                shadowColor: '#0064E0',
+                shadowOpacity: 0.25,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 4,
+              }}
+            >
+              <FileText size={26} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', letterSpacing: -0.4, color: '#0064E0', lineHeight: 28 }}>
+                {L('CSV importieren', 'Import CSV')}
+              </Text>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: '#64748B', marginTop: 4 }}>
+                {L(
+                  'Eine Zeile pro Schicht. Mitarbeiter werden per E-Mail-Adresse zugeordnet.',
+                  'One row per shift. Employees are matched by email address.',
+                )}
+              </Text>
+            </View>
           </View>
         </View>
 
-        <Card className="mb-3 space-y-3">
+        <Card className="mb-3 space-y-3" style={{ borderColor: '#F1F5F9' }}>
           <View>
             <Text className="text-[13px] font-black text-gray-900 dark:text-white">
               {L('Erwartete Spalten', 'Expected columns')}
@@ -263,7 +269,7 @@ export default function CsvImportScreen() {
         {report && (
           <>
             {/* Summary */}
-            <Card className="mb-3 flex-row items-center gap-3">
+            <Card className="mb-3 flex-row items-center gap-3" style={{ borderColor: '#F1F5F9' }}>
               <View
                 style={{
                   width: 44, height: 44, borderRadius: 999,
@@ -306,7 +312,7 @@ export default function CsvImportScreen() {
                 <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1">
                   {L('Vorschau', 'Preview')}
                 </Text>
-                <Card style={{ padding: 0 } as any} className="mb-3">
+                <Card style={{ padding: 0, borderColor: '#F1F5F9' }} className="mb-3">
                   {report.valid.slice(0, 8).map((r, i) => (
                     <View
                       key={r.index}
@@ -340,7 +346,7 @@ export default function CsvImportScreen() {
                 <Text className="text-[11px] font-black uppercase tracking-widest text-red-500 mb-2 ml-1">
                   {L('Fehlerhafte Zeilen', 'Error rows')}
                 </Text>
-                <Card style={{ padding: 0 } as any} className="mb-3">
+                <Card style={{ padding: 0, borderColor: '#F1F5F9' }} className="mb-3">
                   {report.errors.slice(0, 10).map((e, i) => (
                     <View
                       key={`err-${e.index}`}

@@ -1,26 +1,26 @@
 /**
- * Calendar tab — full month grid with day-event dots, mirroring the
- * webapp's mobile-responsive calendar screen.
+ * Calendar tab — mobile port of the webapp's /dashboard/calendar
+ * (CalendarHeader + CalendarGrid + CalendarEventList).
  *
  * Header:
- *   "Mai 2026" (current month, 26px bold)
- *   ← / Heute / → controls
- *   + Ereignis hinzufügen (admin/dispatcher only — links to /plans/new)
+ *   "Oktober 2026" (capitalised month, black slate-900)
+ *   segmented ‹ Heute › control
+ *   "Ereignis hinzufügen" (+ "Schicht anlegen" for admin/dispatch)
  *
- * Grid:
- *   7-column Su…Sa header (slate-400 9px caps),
- *   6 rows of day cells (auto-padded with prev/next month days at the
- *   edges, dimmed), today highlighted with a blue circle, dots under
- *   day numbers that have plans.
+ * Grid (Sunday-first like the web): white rounded card, SO…SA header row,
+ * 6 rows of day cells, today = filled blue circle, selected = blue ring,
+ * other-month days dimmed, a blue dot when the day has entries.
  *
- * Tapping a day filters the list below the grid to that day's plans.
+ * List: "20. Oktober 2026" + "N Termine" pill, then shifts (pink, like
+ * the web's mapped plans) and calendar events as tinted rows with type
+ * icon, title, reminder bell, location, members and the time column.
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { View, Text, Pressable, ScrollView, RefreshControl } from 'react-native'
+import { View, Text, Pressable, ScrollView, RefreshControl, Image } from 'react-native'
 import { useRouter } from 'expo-router'
 import {
-  ChevronLeft, ChevronRight, Plus, Briefcase, MapPin, ArrowRight, CalendarPlus,
+  ChevronLeft, ChevronRight, Plus, MapPin, Clock, Bell, Users as UsersIcon, CalendarDays,
 } from 'lucide-react-native'
 import {
   addMonths, endOfMonth, endOfWeek, format, isSameDay, isSameMonth,
@@ -29,14 +29,40 @@ import {
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
-import { StatusBadge } from '@/components/StatusBadge'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
 import { canCreatePlans } from '@/lib/rbac/permissions'
 import { useCalendarEvents } from '@/hooks/useCalendarEvents'
-import type { Plan, CalendarEvent } from '@/lib/types'
+import { localDateKey } from '@/lib/time/shift-hours'
+import { EVENT_COLORS, type Plan, type CalendarEvent } from '@/lib/types'
+
+type MemberLite = { id: string; full_name: string | null; avatar_url: string | null }
+
+/** One row of the selected-day list — a calendar event or a shift. */
+interface DayItem {
+  key: string
+  kind: 'plan' | 'event'
+  id: string
+  title: string
+  color: string
+  eventType: string
+  start: string
+  end: string
+  allDay: boolean
+  location: string | null
+  reminder: boolean
+  members: MemberLite[]
+}
+
+const TYPE_EMOJI: Record<string, string> = {
+  birthday: '🎂',
+  meeting: '👥',
+  sick_leave: '🏥',
+  event: '📅',
+  holiday: '📅',
+  other: '📅',
+}
 
 export default function CalendarScreen() {
   const { locale } = useTranslation()
@@ -97,10 +123,11 @@ export default function CalendarScreen() {
     return days
   }, [cursor])
 
+  // Local day of the shift start (not the UTC date of the ISO string).
   const plansByDay = useMemo(() => {
     const m = new Map<string, Plan[]>()
     for (const p of plans) {
-      const key = p.start_time.slice(0, 10)
+      const key = localDateKey(new Date(p.start_time))
       if (!m.has(key)) m.set(key, [])
       m.get(key)!.push(p)
     }
@@ -126,15 +153,58 @@ export default function CalendarScreen() {
   }, [calendarEvents])
 
   const selectedDayKey = format(selectedDay, 'yyyy-MM-dd')
-  const dayPlans = plansByDay.get(selectedDayKey) ?? []
-  const dayEvents = eventsByDay.get(selectedDayKey) ?? []
-  const dayItemCount = dayPlans.length + dayEvents.length
+
+  // Same order as the web list: calendar events and shifts by start time.
+  const dayItems: DayItem[] = useMemo(() => {
+    const out: DayItem[] = []
+    for (const p of plansByDay.get(selectedDayKey) ?? []) {
+      out.push({
+        key: `plan-${p.id}`,
+        kind: 'plan',
+        id: p.id,
+        title: p.route || p.shift_name || p.customer?.name || L('Schicht', 'Work Shift'),
+        color: EVENT_COLORS.shift,
+        eventType: 'shift',
+        start: p.start_time,
+        end: p.end_time,
+        allDay: false,
+        location: p.location || null,
+        reminder: false,
+        members: p.employee ? [p.employee] : [],
+      })
+    }
+    for (const e of eventsByDay.get(selectedDayKey) ?? []) {
+      out.push({
+        key: `event-${e.id}`,
+        kind: 'event',
+        id: e.id,
+        title: e.title,
+        color: e.color || EVENT_COLORS.event,
+        eventType: e.event_type,
+        start: e.start_time,
+        end: e.end_time,
+        allDay: !!e.is_all_day,
+        location: e.location || null,
+        reminder: e.reminder_minutes_before != null,
+        members: ((e as any).members ?? [])
+          .map((m: any) => m?.user)
+          .filter((u: any): u is MemberLite => !!u && !!u.id),
+      })
+    }
+    return out.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plansByDay, eventsByDay, selectedDayKey, locale])
 
   const weekdays = locale === 'de'
     ? ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
-    : ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+    : ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
   const today = new Date()
+  // date-fns instead of toLocaleString — Hermes' Intl coverage varies.
+  const monthYear = format(cursor, 'LLLL yyyy', { locale: dateLocale })
+  const monthLabel = monthYear.charAt(0).toUpperCase() + monthYear.slice(1)
+  const dateHeading = format(selectedDay, locale === 'de' ? 'd. MMMM yyyy' : 'MMMM d, yyyy', { locale: dateLocale })
+  const count = dayItems.length
 
   return (
     <Screen background="#FFFFFF" noTapToDismiss>
@@ -142,148 +212,99 @@ export default function CalendarScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchPlans} tintColor="#0064E0" />}
       >
-        {/* Header row — month label + nav */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Text style={{ fontSize: 26, fontWeight: '900', color: '#0F172A', letterSpacing: -0.5 }}>
-            {format(cursor, 'MMMM yyyy', { locale: dateLocale })}
+        {/* Header — month label + segmented nav */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 8 }}>
+          <Text style={{ fontSize: 24, fontWeight: '900', color: '#111827', letterSpacing: -0.5, flexShrink: 1 }} numberOfLines={1}>
+            {monthLabel}
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F8FAFC', borderRadius: 999, padding: 4 }}>
-            <Pressable onPress={() => setCursor(addMonths(cursor, -1))} hitSlop={6} style={{ padding: 6 }}>
-              <ChevronLeft size={16} color="#0F172A" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 16, padding: 4 }}>
+            <Pressable onPress={() => setCursor(addMonths(cursor, -1))} hitSlop={6} style={{ width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronLeft size={20} color="#111827" />
             </Pressable>
             <Pressable
               onPress={() => { setCursor(new Date()); setSelectedDay(new Date()) }}
-              style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999, backgroundColor: '#FFFFFF' }}
+              style={{ height: 32, paddingHorizontal: 12, borderRadius: 12, marginHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' }}
             >
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#0F172A' }}>
-                {L('Heute', 'Today')}
-              </Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#111827' }}>{L('Heute', 'Today')}</Text>
             </Pressable>
-            <Pressable onPress={() => setCursor(addMonths(cursor, 1))} hitSlop={6} style={{ padding: 6 }}>
-              <ChevronRight size={16} color="#0F172A" />
+            <Pressable onPress={() => setCursor(addMonths(cursor, 1))} hitSlop={6} style={{ width: 32, height: 32, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronRight size={20} color="#111827" />
             </Pressable>
           </View>
         </View>
 
-        {/* Add row — anyone can add a calendar event; managerial roles
-            also get a "Plan" pill. */}
+        {/* Actions — "Ereignis hinzufügen" (web) + "Schicht anlegen" for
+            admin/dispatch (the web picks the shift type in the same sheet). */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-          {canCreate && (
-            <Pressable onPress={() => router.push('/plans/new')}>
-              <View
-                style={{
-                  backgroundColor: '#0064E0',
-                  borderRadius: 999,
-                  paddingHorizontal: 16,
-                  paddingVertical: 9,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Plus size={14} color="#FFFFFF" />
-                <Text style={{ marginLeft: 6, color: '#FFFFFF', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
-                  {L('Plan', 'Plan')}
-                </Text>
-              </View>
-            </Pressable>
-          )}
-          <Pressable
-            onPress={() =>
-              router.push(
-                `/calendar-events/new?date=${format(selectedDay, 'yyyy-MM-dd')}` as any,
-              )
-            }
-          >
-            <View
-              style={{
-                backgroundColor: '#FFFFFF',
-                borderRadius: 999,
-                borderWidth: 1.5,
-                borderColor: '#0064E0',
-                paddingHorizontal: 16,
-                paddingVertical: 9,
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <CalendarPlus size={14} color="#0064E0" />
-              <Text style={{ marginLeft: 6, color: '#0064E0', fontSize: 12, fontWeight: '900', letterSpacing: 0.2 }}>
-                {L('Termin', 'Event')}
+          <Pressable onPress={() => router.push(`/calendar-events/new?date=${selectedDayKey}` as any)}>
+            <View style={{ height: 44, borderRadius: 12, paddingHorizontal: 18, backgroundColor: '#0064E0', flexDirection: 'row', alignItems: 'center' }}>
+              <Plus size={18} color="#FFFFFF" />
+              <Text style={{ marginLeft: 6, color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                {L('Ereignis hinzufügen', 'New Event')}
               </Text>
             </View>
           </Pressable>
+          {canCreate ? (
+            <Pressable onPress={() => router.push(`/plans/new?date=${selectedDayKey}` as any)}>
+              <View style={{ height: 44, borderRadius: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center' }}>
+                <Clock size={16} color="#4B5563" />
+                <Text style={{ marginLeft: 6, color: '#4B5563', fontSize: 13, fontWeight: '700' }}>
+                  {L('Schicht anlegen', 'Add shift')}
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
         </View>
 
-        {/* Weekday headers */}
-        <View style={{ flexDirection: 'row', marginBottom: 4, borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 8 }}>
-          {weekdays.map((wd) => (
-            <View key={wd} style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
-              <Text style={{ fontSize: 10, fontWeight: '900', color: '#94A3B8', letterSpacing: 1.2 }}>
-                {wd}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Grid */}
-        <View style={{ borderWidth: 1, borderColor: '#F1F5F9', borderRadius: 12, overflow: 'hidden' }}>
+        {/* Grid card */}
+        <View style={{ borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 28, overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
+          <View style={{ flexDirection: 'row', backgroundColor: '#FAFAFB', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+            {weekdays.map((wd) => (
+              <View key={wd} style={{ flex: 1, alignItems: 'center', paddingVertical: 14 }}>
+                <Text style={{ fontSize: 10, fontWeight: '900', color: '#9CA3AF', letterSpacing: 1.5 }}>{wd}</Text>
+              </View>
+            ))}
+          </View>
           {Array.from({ length: 6 }).map((_, row) => (
-            <View key={row} style={{ flexDirection: 'row', borderBottomWidth: row === 5 ? 0 : 1, borderBottomColor: '#F1F5F9' }}>
+            <View key={row} style={{ flexDirection: 'row', borderBottomWidth: row === 5 ? 0 : 1, borderBottomColor: '#F3F4F6' }}>
               {grid.slice(row * 7, row * 7 + 7).map((day, col) => {
                 const inMonth = isSameMonth(day, cursor)
                 const isToday = isSameDay(day, today)
                 const isSelected = isSameDay(day, selectedDay)
-                const hasEvents = plansByDay.has(format(day, 'yyyy-MM-dd'))
+                const dayKey = format(day, 'yyyy-MM-dd')
+                const hasItems = plansByDay.has(dayKey) || eventsByDay.has(dayKey)
                 return (
                   <Pressable
                     key={day.toISOString()}
                     onPress={() => setSelectedDay(day)}
                     style={{
-                      flex: 1, height: 56, borderRightWidth: col === 6 ? 0 : 1, borderRightColor: '#F1F5F9',
-                      alignItems: 'center', justifyContent: 'center', gap: 2,
+                      flex: 1, height: 64, paddingTop: 8, alignItems: 'center',
+                      borderRightWidth: col === 6 ? 0 : 1, borderRightColor: '#F3F4F6',
+                      backgroundColor: isSelected ? 'rgba(239,246,255,0.6)' : inMonth ? '#FFFFFF' : '#FAFAFB',
+                      opacity: inMonth ? 1 : 0.4,
                     }}
                   >
                     <View
                       style={{
-                        width: 28, height: 28, borderRadius: 999,
+                        width: 26, height: 26, borderRadius: 999,
                         alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: isSelected ? '#0064E0' : 'transparent',
-                        borderWidth: isToday && !isSelected ? 1.5 : 0,
+                        backgroundColor: isToday ? '#0064E0' : 'transparent',
+                        borderWidth: isSelected && !isToday ? 2 : 0,
                         borderColor: '#0064E0',
                       }}
                     >
                       <Text
                         style={{
-                          fontSize: 13, fontWeight: isSelected || isToday ? '900' : '700',
-                          color: isSelected
-                            ? '#FFFFFF'
-                            : isToday
-                              ? '#0064E0'
-                              : inMonth
-                                ? '#0F172A'
-                                : '#CBD5E1',
+                          fontSize: 12, fontWeight: '700',
+                          color: isToday ? '#FFFFFF' : isSelected ? '#0064E0' : '#6B7280',
                         }}
                       >
                         {format(day, 'd')}
                       </Text>
                     </View>
-                    {(() => {
-                      const dayKey = format(day, 'yyyy-MM-dd')
-                      const hasPlan = plansByDay.has(dayKey)
-                      const hasEvent = eventsByDay.has(dayKey)
-                      if (!hasPlan && !hasEvent) return null
-                      if (isSelected) return null
-                      return (
-                        <View style={{ flexDirection: 'row', gap: 2 }}>
-                          {hasPlan && (
-                            <View style={{ width: 4, height: 4, borderRadius: 999, backgroundColor: '#0064E0' }} />
-                          )}
-                          {hasEvent && (
-                            <View style={{ width: 4, height: 4, borderRadius: 999, backgroundColor: '#F59E0B' }} />
-                          )}
-                        </View>
-                      )
-                    })()}
+                    <View style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: 8 }}>
+                      {hasItems ? <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: '#0064E0' }} /> : null}
+                    </View>
                   </Pressable>
                 )
               })}
@@ -291,109 +312,131 @@ export default function CalendarScreen() {
           ))}
         </View>
 
-        {/* Selected day's plans */}
-        <View style={{ marginTop: 20 }}>
-          <Text style={{ fontSize: 11, fontWeight: '900', color: '#94A3B8', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>
-            {format(selectedDay, locale === 'de' ? 'EEEE, d. MMMM' : 'EEEE, MMMM d', { locale: dateLocale })}
-          </Text>
-
-          {dayItemCount === 0 ? (
-            <Card style={{ alignItems: 'center', paddingVertical: 28 } as any}>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>
-                {L('Keine Pläne oder Termine an diesem Tag.', 'No plans or events on this day.')}
+        {/* Selected day's list */}
+        <View style={{ marginTop: 28 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#F3F4F6', paddingBottom: 14, marginBottom: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: '#111827', flexShrink: 1 }} numberOfLines={1}>{dateHeading}</Text>
+            <View style={{ backgroundColor: '#F3F4F6', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, marginLeft: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#9CA3AF' }}>
+                {count}{' '}
+                {locale === 'de' ? (count === 1 ? 'Termin' : 'Termine') : (count === 1 ? 'Event' : 'Events')}
               </Text>
-            </Card>
+            </View>
+          </View>
+
+          {count === 0 ? (
+            <View style={{ alignItems: 'center', paddingVertical: 36 }}>
+              <View style={{ width: 72, height: 72, borderRadius: 24, backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                <CalendarDays size={34} color="#D1D5DB" />
+              </View>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>
+                {L('Keine Ereignisse', 'No Events Today')}
+              </Text>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF', textAlign: 'center', maxWidth: 220, marginTop: 4, lineHeight: 17 }}>
+                {L('Genießen Sie Ihren Tag oder fügen Sie ein neues Ereignis hinzu.', 'Enjoy your day or add a new event using the button above.')}
+              </Text>
+            </View>
           ) : (
-            <>
-              {dayPlans.map((p) => (
-                <Pressable key={`plan-${p.id}`} onPress={() => router.push(`/plans/${p.id}` as any)}>
-                  <Card style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center' } as any}>
-                    <View style={{
-                      width: 40, height: 40, borderRadius: 12, backgroundColor: '#EFF6FF',
-                      alignItems: 'center', justifyContent: 'center', marginRight: 12,
-                    }}>
-                      <Briefcase size={18} color="#0064E0" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '900', color: '#0F172A' }}>
-                        {p.customer?.name ?? L('Einsatz', 'Shift')}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                        {format(parseISO(p.start_time), 'HH:mm')} – {format(parseISO(p.end_time), 'HH:mm')}
-                      </Text>
-                      {p.location && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
-                          <MapPin size={11} color="#94A3B8" />
-                          <Text style={{ fontSize: 11, color: '#94A3B8' }}>{p.location}</Text>
-                        </View>
+            dayItems.map((it) => (
+              <Pressable
+                key={it.key}
+                onPress={() => router.push((it.kind === 'plan' ? `/plans/${it.id}` : `/calendar-events/${it.id}`) as any)}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    padding: 16, marginBottom: 12, borderRadius: 20,
+                    backgroundColor: `${it.color}0D`, borderLeftWidth: 5, borderLeftColor: it.color,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <View
+                      style={{
+                        width: 40, height: 40, borderRadius: 16, marginRight: 14,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: `${it.color}26`, borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
+                      }}
+                    >
+                      {it.eventType === 'shift' ? (
+                        <Clock size={20} color={it.color} />
+                      ) : (
+                        <Text style={{ fontSize: 18 }}>{TYPE_EMOJI[it.eventType] ?? '📅'}</Text>
                       )}
                     </View>
-                    <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-                      <StatusBadge status={p.status} />
-                      <ArrowRight size={14} color="#CBD5E1" style={{ marginTop: 6 }} />
-                    </View>
-                  </Card>
-                </Pressable>
-              ))}
-              {dayEvents.map((e) => {
-                const color = e.color || '#0064E0'
-                return (
-                  <Pressable
-                    key={`event-${e.id}`}
-                    onPress={() => router.push(`/calendar-events/${e.id}` as any)}
-                  >
-                    <Card style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center' } as any}>
-                      <View
-                        style={{
-                          width: 40, height: 40, borderRadius: 12,
-                          backgroundColor: `${color}22`,
-                          alignItems: 'center', justifyContent: 'center', marginRight: 12,
-                        }}
-                      >
-                        <CalendarPlus size={18} color={color} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '900', color: '#0F172A' }}>
-                          {e.title}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827', flexShrink: 1 }} numberOfLines={1}>
+                          {it.title}
                         </Text>
-                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                          {e.is_all_day
-                            ? L('Ganztägig', 'All day')
-                            : `${format(parseISO(e.start_time), 'HH:mm')} – ${format(parseISO(e.end_time), 'HH:mm')}`}
-                        </Text>
-                        {e.location && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
-                            <MapPin size={11} color="#94A3B8" />
-                            <Text style={{ fontSize: 11, color: '#94A3B8' }}>{e.location}</Text>
-                          </View>
-                        )}
+                        {it.reminder ? <Bell size={12} color="#F59E0B" style={{ marginLeft: 6 }} /> : null}
                       </View>
-                      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-                        <View
-                          style={{
-                            paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
-                            backgroundColor: `${color}1F`,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color, fontSize: 9, fontWeight: '900',
-                              letterSpacing: 0.8, textTransform: 'uppercase',
-                            }}
-                          >
-                            {e.event_type}
-                          </Text>
+                      {it.location || it.members.length > 0 ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, gap: 8 }}>
+                          {it.location ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+                              <MapPin size={11} color="#9CA3AF" />
+                              <Text style={{ marginLeft: 3, fontSize: 10, fontWeight: '500', color: '#9CA3AF', flexShrink: 1 }} numberOfLines={1}>
+                                {it.location}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {it.members.length > 0 ? <SharedWith members={it.members} /> : null}
                         </View>
-                        <ArrowRight size={14} color="#CBD5E1" style={{ marginTop: 6 }} />
-                      </View>
-                    </Card>
-                  </Pressable>
-                )
-              })}
-            </>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', marginLeft: 10 }}>
+                    {it.allDay ? (
+                      <Text style={{ fontSize: 11, fontWeight: '900', color: '#9CA3AF', letterSpacing: 1, textTransform: 'uppercase' }}>
+                        {L('Ganztägig', 'All day')}
+                      </Text>
+                    ) : (
+                      <>
+                        <Text style={{ fontSize: 14, fontWeight: '900', color: '#111827' }}>{format(parseISO(it.start), 'HH:mm')}</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#9CA3AF', marginTop: 3 }}>– {format(parseISO(it.end), 'HH:mm')}</Text>
+                      </>
+                    )}
+                  </View>
+                </View>
+              </Pressable>
+            ))
           )}
         </View>
       </ScrollView>
     </Screen>
+  )
+}
+
+/** "Shared with" avatar strip — max 3 faces + overflow, like the web. */
+function SharedWith({ members }: { members: MemberLite[] }) {
+  const visible = members.slice(0, 3)
+  const overflow = members.length - visible.length
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <UsersIcon size={11} color="#9CA3AF" />
+      <View style={{ flexDirection: 'row', marginLeft: 4 }}>
+        {visible.map((m, i) => (
+          <View
+            key={m.id}
+            style={{
+              width: 16, height: 16, borderRadius: 999, marginLeft: i === 0 ? 0 : -5,
+              borderWidth: 1, borderColor: '#FFFFFF', backgroundColor: '#F3F4F6',
+              alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+            }}
+          >
+            {m.avatar_url ? (
+              <Image source={{ uri: m.avatar_url }} style={{ width: 16, height: 16 }} />
+            ) : (
+              <Text style={{ fontSize: 8, fontWeight: '900', color: '#6B7280' }}>{m.full_name?.[0]?.toUpperCase() || '?'}</Text>
+            )}
+          </View>
+        ))}
+        {overflow > 0 ? (
+          <View style={{ width: 16, height: 16, borderRadius: 999, marginLeft: -5, borderWidth: 1, borderColor: '#FFFFFF', backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 8, fontWeight: '900', color: '#6B7280' }}>+{overflow}</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
   )
 }

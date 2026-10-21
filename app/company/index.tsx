@@ -1,30 +1,46 @@
 /**
  * Company profile — admin-only edit of organization fields. Mirrors the
- * webapp's /dashboard/settings/company page: brand name, legal name,
- * email, phone, website, address, tax id, currency, timezone, logo,
- * plus the Spesen rate overrides used by the Stundenzettel export.
+ * webapp's /dashboard/settings/company page: "Allgemeine Informationen"
+ * (brand name, legal name, email, phone, website), "Adresse & Steuern"
+ * (address, tax id), "Firmenlogo" and "Lokalisierung" (currency,
+ * timezone), plus the mobile-only Spesen rate overrides used by the
+ * Stundenzettel export.
  *
  * Logo upload uses expo-image-picker → Supabase storage `org-logos`
- * bucket (web reads the same path). If the bucket does not exist yet
- * the upload errors and we surface the message; the rest of the form
- * keeps working.
+ * bucket. If the bucket does not exist yet the upload errors and we
+ * surface the message; the rest of the form keeps working.
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native'
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  Image,
+  Alert,
+  TextInput,
+  ActivityIndicator,
+  type TextInputProps,
+} from 'react-native'
 import { useRouter } from 'expo-router'
 import {
   ChevronLeft,
   Building2,
   Camera,
-  Loader,
+  Mail,
+  Phone,
+  Globe,
+  MapPin,
+  Receipt,
+  Save,
 } from 'lucide-react-native'
 import * as ImagePicker from 'expo-image-picker'
 
 import { Screen } from '@/components/Screen'
 import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
-import { FormField } from '@/components/FormField'
+import { PageHeader } from '@/components/PageHeader'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
@@ -33,10 +49,21 @@ import { useOrganization } from '@/hooks/useOrganization'
 import { getSupabase } from '@/lib/supabase/client'
 import { useSafeBack } from '@/lib/use-safe-back'
 
+// Same option sets as the web <select>s.
+const CURRENCIES: { value: string; label: string }[] = [
+  { value: 'EUR', label: 'EUR · €' },
+  { value: 'CHF', label: 'CHF · Fr.' },
+  { value: 'USD', label: 'USD · $' },
+  { value: 'GBP', label: 'GBP · £' },
+]
+const TIMEZONES = ['Europe/Berlin', 'Europe/Vienna', 'Europe/Zurich', 'Europe/London', 'UTC']
+
+const ICON_COLOR = '#94A3B8'
+
 export default function CompanyScreen() {
   const router = useRouter()
   const goBack = useSafeBack('/(tabs)/settings')
-  const { t, locale } = useTranslation()
+  const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role, profile } = useUser()
   const { organization, loading, updateOrganization } = useOrganization()
@@ -75,7 +102,7 @@ export default function CompanyScreen() {
   if (!canManageUsers(role)) {
     return (
       <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
+        <Text className="text-slate-400 text-center">
           {L(
             'Nur Administratoren können das Unternehmensprofil bearbeiten.',
             'Only administrators can edit the company profile.',
@@ -87,9 +114,9 @@ export default function CompanyScreen() {
 
   if (loading) {
     return (
-      <Screen background="#F9FAFB" noTapToDismiss>
+      <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
         <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 dark:text-slate-500">{t('common.loading')}</Text>
+          <ActivityIndicator size="large" color="#0064E0" />
         </View>
       </Screen>
     )
@@ -121,9 +148,9 @@ export default function CompanyScreen() {
         spesen_rate_partial: partial,
         spesen_rate_full: full,
       })
-      toast.success(L('Gespeichert', 'Saved'))
+      toast.success(L('Unternehmensprofil gespeichert', 'Company profile saved'))
     } catch (err: any) {
-      toast.error(err?.message ?? t('common.error'))
+      toast.error(err?.message || L('Speichern fehlgeschlagen', 'Save failed'))
     } finally {
       setSaving(false)
     }
@@ -174,197 +201,319 @@ export default function CompanyScreen() {
       setLogoUrl(publicUrl)
       toast.success(L('Logo aktualisiert', 'Logo updated'))
     } catch (err: any) {
-      toast.error(err?.message ?? t('common.error'))
+      toast.error(err?.message || L('Upload fehlgeschlagen', 'Upload failed'))
     } finally {
       setUploadingLogo(false)
     }
   }
 
+  // Keep a legacy value (e.g. "SEK") selectable even if it is not in the
+  // web's option list, so saving never silently rewrites it.
+  const currencyOptions = CURRENCIES.some((c) => c.value === currency)
+    ? CURRENCIES
+    : [{ value: currency, label: currency }, ...CURRENCIES]
+  const timezoneOptions = TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]
+
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Web: "‹ Einstellungen" back link above the H1 */}
+        <Pressable
+          onPress={goBack}
+          hitSlop={12}
+          className="flex-row items-center self-start mb-3"
+          accessibilityRole="button"
+          accessibilityLabel={L('Zurück', 'Back')}
+        >
+          <ChevronLeft size={12} color="#94A3B8" />
+          <Text className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
+            {L('Einstellungen', 'Settings')}
+          </Text>
         </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Unternehmensprofil', 'Company profile')}
-        </Text>
-      </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
-        {/* Header / logo */}
-        <View className="items-center mb-6">
-          <Pressable
-            onPress={pickLogo}
-            disabled={uploadingLogo}
-            style={{
-              width: 96,
-              height: 96,
-              borderRadius: 24,
-              backgroundColor: '#EFF6FF',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-            }}
-          >
-            {logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={{ width: 96, height: 96 }} resizeMode="cover" />
-            ) : (
-              <Building2 size={36} color="#0064E0" />
-            )}
-            <View
-              style={{
-                position: 'absolute',
-                right: -4,
-                bottom: -4,
-                width: 32,
-                height: 32,
-                borderRadius: 999,
-                backgroundColor: '#0064E0',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderColor: '#fff',
-                borderWidth: 3,
-              }}
-            >
-              {uploadingLogo ? (
-                <Loader size={16} color="#fff" />
-              ) : (
-                <Camera size={16} color="#fff" />
-              )}
-            </View>
-          </Pressable>
-          <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-3">
-            {uploadingLogo
-              ? L('Wird hochgeladen…', 'Uploading…')
-              : L('Tippen, um das Logo zu ändern', 'Tap to change the logo')}
-          </Text>
-        </View>
-
-        <Card className="mb-3 space-y-4">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-1 -mb-1">
-            {L('Identität', 'Identity')}
-          </Text>
-          <FormField
-            label={L('Markenname *', 'Brand name *')}
-            value={name}
-            onChangeText={setName}
-            placeholder="LokShift"
-          />
-          <FormField
-            label={L('Rechtlicher Name', 'Legal entity name')}
-            value={legalName}
-            onChangeText={setLegalName}
-            placeholder="LokShift GmbH"
-          />
-          <FormField
-            label={L('Steuernummer', 'Tax ID')}
-            value={taxId}
-            onChangeText={setTaxId}
-            placeholder="DE…"
-          />
-        </Card>
-
-        <Card className="mb-3 space-y-4">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-1 -mb-1">
-            {L('Kontakt', 'Contact')}
-          </Text>
-          <FormField
-            label={L('E-Mail', 'Email')}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="kontakt@firma.de"
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <FormField
-            label={L('Telefon', 'Phone')}
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="+49 …"
-            keyboardType="phone-pad"
-          />
-          <FormField
-            label={L('Webseite', 'Website')}
-            value={website}
-            onChangeText={setWebsite}
-            placeholder="https://…"
-            autoCapitalize="none"
-          />
-          <FormField
-            label={L('Geschäftsadresse', 'Office address')}
-            value={address}
-            onChangeText={setAddress}
-            placeholder={L('Straße, PLZ Ort, Land', 'Street, ZIP city, country')}
-            multiline
-          />
-        </Card>
-
-        <Card className="mb-3 space-y-4">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-1 -mb-1">
-            {L('Region', 'Region')}
-          </Text>
-          <View className="flex-row gap-3">
-            <View className="flex-1">
-              <FormField
-                label={L('Währung', 'Currency')}
-                value={currency}
-                onChangeText={setCurrency}
-                placeholder="EUR"
-                autoCapitalize="characters"
-              />
-            </View>
-            <View className="flex-1">
-              <FormField
-                label={L('Zeitzone', 'Timezone')}
-                value={timezone}
-                onChangeText={setTimezone}
-                placeholder="Europe/Berlin"
-                autoCapitalize="none"
-              />
-            </View>
-          </View>
-        </Card>
-
-        <Card className="mb-3 space-y-4">
-          <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 ml-1 -mb-1">
-            {L('Verpflegungspauschale (Spesen)', 'Per-diem rates')}
-          </Text>
-          <Text className="text-[12px] text-gray-500 dark:text-slate-400 -mt-1 ml-1">
-            {L(
-              'Wird beim Zeiterfassen automatisch berechnet und auf den Stundenzettel übernommen.',
-              'Auto-calculated on time entry and applied to the Stundenzettel PDF.',
-            )}
-          </Text>
-          <View className="flex-row gap-3">
-            <View className="flex-1">
-              <FormField
-                label={L('Teilsatz (€)', 'Partial day (€)')}
-                value={spesenPartial}
-                onChangeText={setSpesenPartial}
-                keyboardType="decimal-pad"
-                placeholder="14"
-              />
-            </View>
-            <View className="flex-1">
-              <FormField
-                label={L('Vollsatz (€)', 'Full day (€)')}
-                value={spesenFull}
-                onChangeText={setSpesenFull}
-                keyboardType="decimal-pad"
-                placeholder="28"
-              />
-            </View>
-          </View>
-        </Card>
-
-        <Button
-          label={saving ? t('common.loading') : L('Änderungen speichern', 'Save changes')}
-          onPress={submit}
-          loading={saving}
-          size="lg"
+        <PageHeader
+          title={L('Unternehmensprofil', 'Company Profile')}
+          subtitle={L(
+            'Firmendaten, Branding und Kontaktinformationen.',
+            'Company data, branding and contact information.',
+          )}
         />
+
+        <View style={{ gap: 16 }}>
+          {/* Allgemeine Informationen */}
+          <Card style={{ borderRadius: 24 }}>
+            <Text className="text-[16px] font-bold text-slate-900 mb-5">
+              {L('Allgemeine Informationen', 'General information')}
+            </Text>
+            <View style={{ gap: 16 }}>
+              <Field label={L('Markenname', 'Brand name') + ' *'}>
+                <WebInput value={name} onChangeText={setName} placeholder="LokShift" />
+              </Field>
+              <Field label={L('Rechtlicher Name', 'Legal entity name')}>
+                <WebInput value={legalName} onChangeText={setLegalName} placeholder="LokShift GmbH" />
+              </Field>
+              <Field label={L('Geschäfts-E-Mail', 'Business email') + ' *'}>
+                <WebInput
+                  icon={<Mail size={16} color={ICON_COLOR} />}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="kontakt@firma.de"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </Field>
+              <Field label={L('Telefon', 'Phone')}>
+                <WebInput
+                  icon={<Phone size={16} color={ICON_COLOR} />}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="+49 …"
+                  keyboardType="phone-pad"
+                />
+              </Field>
+              <Field label={L('Website', 'Website')}>
+                <WebInput
+                  icon={<Globe size={16} color={ICON_COLOR} />}
+                  value={website}
+                  onChangeText={setWebsite}
+                  placeholder="https://…"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+              </Field>
+            </View>
+          </Card>
+
+          {/* Adresse & Steuern */}
+          <Card style={{ borderRadius: 24 }}>
+            <Text className="text-[16px] font-bold text-slate-900 mb-5">
+              {L('Adresse & Steuern', 'Address & taxation')}
+            </Text>
+            <View style={{ gap: 16 }}>
+              <Field label={L('Geschäftsadresse', 'Office address') + ' *'}>
+                <WebInput
+                  icon={<MapPin size={16} color={ICON_COLOR} />}
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder={L('Straße, PLZ Stadt', 'Street, ZIP City')}
+                  multiline
+                />
+              </Field>
+              <Field label={L('USt-IdNr. / Steuer-ID', 'VAT / Tax ID')}>
+                <WebInput
+                  icon={<Receipt size={16} color={ICON_COLOR} />}
+                  value={taxId}
+                  onChangeText={setTaxId}
+                  placeholder="DE123456789"
+                  autoCapitalize="characters"
+                />
+              </Field>
+            </View>
+          </Card>
+
+          {/* Firmenlogo */}
+          <Card style={{ borderRadius: 24, alignItems: 'center' }}>
+            <Pressable
+              onPress={pickLogo}
+              disabled={uploadingLogo}
+              className="w-28 h-28 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 items-center justify-center overflow-hidden"
+            >
+              {logoUrl ? (
+                <Image source={{ uri: logoUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              ) : (
+                <Building2 size={40} color="#CBD5E1" />
+              )}
+              {uploadingLogo ? (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.4)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ActivityIndicator color="#fff" />
+                </View>
+              ) : null}
+            </Pressable>
+            <Text className="text-[14px] font-bold text-slate-900 mt-4">
+              {L('Firmenlogo', 'Company logo')}
+            </Text>
+            <Text className="text-[12px] text-slate-500 mt-1">PNG / JPG · max. 2 MB</Text>
+            <Pressable
+              onPress={pickLogo}
+              disabled={uploadingLogo}
+              className="mt-4 flex-row items-center px-4 py-2.5 rounded-xl border border-slate-200 bg-white"
+              style={{ opacity: uploadingLogo ? 0.6 : 1 }}
+            >
+              <Camera size={16} color="#334155" />
+              <Text className="text-[14px] font-semibold text-slate-700 ml-1.5">
+                {uploadingLogo ? L('Wird hochgeladen…', 'Uploading…') : L('Logo ändern', 'Change logo')}
+              </Text>
+            </Pressable>
+          </Card>
+
+          {/* Lokalisierung */}
+          <Card style={{ borderRadius: 24 }}>
+            <Text className="text-[16px] font-bold text-slate-900 mb-5">
+              {L('Lokalisierung', 'Localization')}
+            </Text>
+            <View style={{ gap: 16 }}>
+              <Field label={L('Währung', 'Currency')}>
+                <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                  {currencyOptions.map((c) => (
+                    <OptionChip
+                      key={c.value}
+                      label={c.label}
+                      selected={currency === c.value}
+                      onPress={() => setCurrency(c.value)}
+                    />
+                  ))}
+                </View>
+              </Field>
+              <Field label={L('Zeitzone', 'Timezone')}>
+                <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                  {timezoneOptions.map((tz) => (
+                    <OptionChip
+                      key={tz}
+                      label={tz}
+                      selected={timezone === tz}
+                      onPress={() => setTimezone(tz)}
+                    />
+                  ))}
+                </View>
+              </Field>
+              <Pressable
+                onPress={() => router.push('/settings/localization' as any)}
+                hitSlop={8}
+                className="items-center mt-1"
+              >
+                <Text className="text-[14px] font-semibold" style={{ color: '#2563EB' }}>
+                  {L('Erweiterte Lokalisierung →', 'Advanced localization →')}
+                </Text>
+              </Pressable>
+            </View>
+          </Card>
+
+          {/* Spesen (mobile extra — used by the Stundenzettel export) */}
+          <Card style={{ borderRadius: 24 }}>
+            <Text className="text-[16px] font-bold text-slate-900">
+              {L('Verpflegungspauschale (Spesen)', 'Per-diem rates')}
+            </Text>
+            <Text className="text-[12px] text-slate-500 mt-1 mb-5">
+              {L(
+                'Wird beim Zeiterfassen automatisch berechnet und auf den Stundenzettel übernommen.',
+                'Auto-calculated on time entry and applied to the Stundenzettel PDF.',
+              )}
+            </Text>
+            <View className="flex-row" style={{ gap: 12 }}>
+              <View className="flex-1">
+                <Field label={L('Teilsatz (€)', 'Partial day (€)')}>
+                  <WebInput
+                    value={spesenPartial}
+                    onChangeText={setSpesenPartial}
+                    keyboardType="decimal-pad"
+                    placeholder="14"
+                  />
+                </Field>
+              </View>
+              <View className="flex-1">
+                <Field label={L('Vollsatz (€)', 'Full day (€)')}>
+                  <WebInput
+                    value={spesenFull}
+                    onChangeText={setSpesenFull}
+                    keyboardType="decimal-pad"
+                    placeholder="28"
+                  />
+                </Field>
+              </View>
+            </View>
+          </Card>
+
+          <Button
+            label={L('Änderungen speichern', 'Save changes')}
+            leftIcon={<Save size={18} color="#fff" />}
+            onPress={submit}
+            loading={saving}
+            size="lg"
+          />
+        </View>
       </ScrollView>
     </Screen>
+  )
+}
+
+// --- small helpers (kept local, like the web page) ---
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View>
+      <Text className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+        {label}
+      </Text>
+      {children}
+    </View>
+  )
+}
+
+function WebInput({ icon, multiline, ...props }: TextInputProps & { icon?: React.ReactNode }) {
+  return (
+    <View
+      className="flex-row rounded-lg border border-slate-200 bg-slate-50 px-3"
+      style={{ minHeight: 44, alignItems: multiline ? 'flex-start' : 'center' }}
+    >
+      {icon ? <View style={{ marginRight: 8, marginTop: multiline ? 13 : 0 }}>{icon}</View> : null}
+      <TextInput
+        placeholderTextColor="#CBD5E1"
+        multiline={multiline}
+        style={{
+          flex: 1,
+          fontSize: 14,
+          fontWeight: '500',
+          color: '#334155',
+          paddingVertical: 11,
+          textAlignVertical: multiline ? 'top' : 'center',
+          minHeight: multiline ? 64 : undefined,
+        }}
+        {...props}
+      />
+    </View>
+  )
+}
+
+function OptionChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string
+  selected: boolean
+  onPress: () => void
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="px-3 py-2 rounded-lg border"
+      style={{
+        backgroundColor: selected ? '#EFF6FF' : '#F8FAFC',
+        borderColor: selected ? '#0064E0' : '#E2E8F0',
+      }}
+    >
+      <Text
+        className="text-[13px] font-semibold"
+        style={{ color: selected ? '#0064E0' : '#334155' }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   )
 }

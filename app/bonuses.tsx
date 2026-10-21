@@ -1,45 +1,43 @@
 /**
- * Holiday Bonus screen — mirrors web /dashboard/holiday-bonus.
+ * Sonderzahlungen (Kundenfeedback Punkt 6, formerly "Urlaubsgeld") —
+ * phone replica of the webapp's app/dashboard/holiday-bonus/page.tsx.
  *
- * Employee view: read-only YTD total + history list.
+ * Employee view: blue "Summe {Jahr}" hero + own payments (read-only).
  *
- * Managerial view: hero card + 2 stats tiles + search + employee filter
- * + CSV/Excel/PDF exports + paginated list with inline delete + grant
- * sheet behind a FAB.
+ * Admin / dispatch: header + Excel / PDF (+ CSV) + "Sonderzahlung anlegen",
+ * stat tiles (Summe · Anzahl Zahlungen · Empfänger), search + employee
+ * filter, one card per table row (Mitarbeiter, Bezeichnung, Art,
+ * Abrechnung, Betrag, Bemerkung, edit / delete with inline confirm),
+ * pagination and the create / edit sheet.
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  RefreshControl,
-  TextInput,
-  Alert,
-} from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { View, Text, ScrollView, Pressable, RefreshControl, TextInput, ActivityIndicator } from 'react-native'
+import { useRouter } from 'expo-router'
 import {
   Plus,
   Gift,
   Search,
   Download,
-  FileSpreadsheet,
   FileText,
   Trash2,
+  Pencil,
   Users as UsersIcon,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react-native'
 import { format } from 'date-fns'
-import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
 import { safeFormatDate, safeNumber } from '@/lib/safe-format'
+import { formatEuro } from '@/lib/time/format'
+import { paymentPeriodLabel } from '@/lib/special-payments'
+import type { HolidayBonus } from '@/lib/types'
 import { captureError } from '@/lib/monitoring'
-import { Card } from '@/components/Card'
 import { PageHeader } from '@/components/PageHeader'
 import { AppHeader } from '@/components/AppHeader'
+import { Button } from '@/components/Button'
 import { HolidayBonusSheet, bonusTypeLabel } from '@/components/HolidayBonusSheet'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -53,22 +51,24 @@ import { exportCsv } from '@/lib/csv/exportCsv'
 const ITEMS_PER_PAGE = 10
 
 export default function HolidayBonusScreen() {
+  const router = useRouter()
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
   const canGrant = canApproveTimes(role)
-  const dateLocale = locale === 'de' ? deLocale : enUS
-  const insets = useSafeAreaInsets()
 
-  const { items, loading, fetchItems, grantBonus, deleteBonus, ytdTotal } = useHolidayBonus()
+  const { items, loading, fetchItems, createPayment, updatePayment, deletePayment, ytdTotal } = useHolidayBonus()
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [editing, setEditing] = useState<HolidayBonus | null>(null)
   const [search, setSearch] = useState('')
   const [employeeFilter, setEmployeeFilter] = useState<string>('all')
   const [employeePickerOpen, setEmployeePickerOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [busy, setBusy] = useState<'csv' | 'xlsx' | 'pdf' | null>(null)
 
   const stamp = format(new Date(), 'yyyy-MM-dd')
+  const year = new Date().getFullYear()
 
   const localize = (key: string) => bonusTypeLabel(key as any, locale)
 
@@ -76,13 +76,11 @@ export default function HolidayBonusScreen() {
   const employeeOptions = useMemo(() => {
     const map = new Map<string, string>()
     for (const b of items) {
-      if (b.employee_id && b.employee?.full_name) {
-        map.set(b.employee_id, b.employee.full_name)
-      }
+      if (b.employee_id && b.employee?.full_name) map.set(b.employee_id, b.employee.full_name)
     }
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => a.name.localeCompare(b.name, 'de'))
   }, [items])
 
   const filtered = useMemo(() => {
@@ -90,11 +88,12 @@ export default function HolidayBonusScreen() {
     return items.filter((b) => {
       if (employeeFilter !== 'all' && b.employee_id !== employeeFilter) return false
       if (!q) return true
-      const name = b.employee?.full_name?.toLowerCase() ?? ''
-      const notes = b.notes?.toLowerCase() ?? ''
-      return name.includes(q) || notes.includes(q) || String(b.amount).includes(q)
+      return [b.employee?.full_name, b.title, b.notes, localize(b.bonus_type), String(b.amount)]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
     })
-  }, [items, employeeFilter, search])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, employeeFilter, search, locale])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE))
   const paginated = useMemo(
@@ -112,12 +111,16 @@ export default function HolidayBonusScreen() {
     if (page > totalPages) setPage(Math.max(1, totalPages))
   }, [page, totalPages])
 
-  const filteredTotal = useMemo(
-    () => filtered.reduce((s, b) => s + (Number(b.amount) || 0), 0),
-    [filtered],
-  )
+  const recipients = useMemo(() => new Set(items.map((b) => b.employee_id)).size, [items])
 
-  const noMatches = filtered.length === 0 && !loading
+  const exportError = (err: any) => {
+    captureError(err, {
+      tags: { area: 'bonuses.export' },
+      extra: { rowCount: filtered.length, employeeFilter, search },
+      message: 'Special payment export failed',
+    })
+    toast.error(err?.message ?? L('Export fehlgeschlagen.', 'Export failed.'))
+  }
 
   const onCsv = async () => {
     if (filtered.length === 0) {
@@ -128,28 +131,20 @@ export default function HolidayBonusScreen() {
     try {
       const headers =
         locale === 'de'
-          ? ['Mitarbeiter', 'Art', 'Betrag €', 'Notizen', 'Auszahlungsdatum']
-          : ['Employee', 'Type', 'Amount €', 'Notes', 'Date Paid']
+          ? ['Mitarbeiter', 'Art', 'Bezeichnung', 'Betrag €', 'Abrechnung', 'Bemerkung', 'Angelegt am']
+          : ['Employee', 'Type', 'Title', 'Amount €', 'Billing', 'Note', 'Created']
       const rows = filtered.map((b) => [
         b.employee?.full_name ?? b.employee_id,
         localize(b.bonus_type),
+        (b.title ?? '').replace(/[,;]/g, ' '),
         safeNumber(b.amount),
+        paymentPeriodLabel(b, locale).replace(/[,;]/g, ' '),
         (b.notes ?? '').replace(/[,;]/g, ' '),
         safeFormatDate(b.created_at, 'dd.MM.yyyy'),
       ])
-      await exportCsv({
-        headers,
-        rows,
-        filename: `urlaubsgeld_${stamp}`,
-        dialogTitle: L('Urlaubsgeld', 'Holiday Bonus'),
-      })
+      await exportCsv({ headers, rows, filename: `sonderzahlungen_${stamp}`, dialogTitle: L('Sonderzahlungen', 'Special payments') })
     } catch (err: any) {
-      captureError(err, {
-        tags: { area: 'bonuses.export' },
-        extra: { rowCount: filtered.length, employeeFilter, search },
-        message: 'Holiday bonus export failed',
-      })
-      toast.error(err?.message ?? L('Export fehlgeschlagen.', 'Export failed.'))
+      exportError(err)
     } finally {
       setBusy(null)
     }
@@ -163,18 +158,13 @@ export default function HolidayBonusScreen() {
     setBusy('xlsx')
     try {
       await exportHolidayBonusXlsx(filtered, {
-        sheetName: L('Urlaubsgeld', 'Holiday Bonus'),
-        filename: `urlaubsgeld_${stamp}`,
+        sheetName: L('Sonderzahlungen', 'Special payments'),
+        filename: `sonderzahlungen_${stamp}`,
         locale,
         bonusTypeLabel: localize,
       })
     } catch (err: any) {
-      captureError(err, {
-        tags: { area: 'bonuses.export' },
-        extra: { rowCount: filtered.length, employeeFilter, search },
-        message: 'Holiday bonus export failed',
-      })
-      toast.error(err?.message ?? L('Export fehlgeschlagen.', 'Export failed.'))
+      exportError(err)
     } finally {
       setBusy(null)
     }
@@ -188,56 +178,27 @@ export default function HolidayBonusScreen() {
     setBusy('pdf')
     try {
       await exportHolidayBonusPdf(filtered, {
-        title: L('Urlaubsgeld-Bericht', 'Holiday Bonus Report'),
-        subtitle: L(
-          `Stand ${format(new Date(), 'dd.MM.yyyy')}`,
-          `As of ${format(new Date(), 'yyyy-MM-dd')}`,
-        ),
-        filename: `urlaubsgeld_${stamp}`,
+        title: L('Sonderzahlungen', 'Special payments'),
+        subtitle: L(`Stand ${format(new Date(), 'dd.MM.yyyy')}`, `As of ${format(new Date(), 'yyyy-MM-dd')}`),
+        filename: `sonderzahlungen_${stamp}`,
         locale,
         bonusTypeLabel: localize,
       })
     } catch (err: any) {
-      captureError(err, {
-        tags: { area: 'bonuses.export' },
-        extra: { rowCount: filtered.length, employeeFilter, search },
-        message: 'Holiday bonus export failed',
-      })
-      toast.error(err?.message ?? L('Export fehlgeschlagen.', 'Export failed.'))
+      exportError(err)
     } finally {
       setBusy(null)
     }
   }
 
-  const confirmDelete = (id: string, amount: number, employeeName?: string) => {
-    const amt = safeNumber(amount)
-    Alert.alert(
-      L('Bonus löschen?', 'Delete bonus?'),
-      L(
-        `€${amt}${employeeName ? ` · ${employeeName}` : ''} — kann nicht rückgängig gemacht werden.`,
-        `€${amt}${employeeName ? ` · ${employeeName}` : ''} — this cannot be undone.`,
-      ),
-      [
-        { text: L('Abbrechen', 'Cancel'), style: 'cancel' },
-        {
-          text: L('Löschen', 'Delete'),
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteBonus(id)
-              toast.success(L('Bonus gelöscht', 'Bonus deleted'))
-            } catch (err: any) {
-              captureError(err, {
-                tags: { area: 'bonuses.delete' },
-                extra: { bonusId: id },
-                message: 'Holiday bonus delete failed',
-              })
-              toast.error(err?.message ?? L('Löschen fehlgeschlagen', 'Delete failed'))
-            }
-          },
-        },
-      ],
-    )
+  const openCreate = () => {
+    setEditing(null)
+    setSheetOpen(true)
+  }
+  const openEdit = (b: HolidayBonus) => {
+    setConfirmDelete(null)
+    setEditing(b)
+    setSheetOpen(true)
   }
 
   const selectedEmployeeName =
@@ -245,6 +206,179 @@ export default function HolidayBonusScreen() {
       ? L('Alle Mitarbeiter', 'All employees')
       : (employeeOptions.find((e) => e.id === employeeFilter)?.name ?? '—')
 
+  const emptyCard = (
+    <View
+      style={{
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 16,
+        paddingVertical: 44,
+        alignItems: 'center',
+      }}
+    >
+      <Gift size={24} color="#D1D5DB" />
+      <Text style={{ fontSize: 14, color: '#9CA3AF', marginTop: 8, textAlign: 'center' }}>
+        {search.trim() || employeeFilter !== 'all'
+          ? L('Keine passenden Sonderzahlungen.', 'No matching special payments.')
+          : L('Keine Sonderzahlungen vorhanden.', 'No special payments yet.')}
+      </Text>
+    </View>
+  )
+
+  const renderRow = (b: HolidayBonus, showEmployee: boolean) => {
+    const confirming = confirmDelete === b.id
+    const body = (
+      <View
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderWidth: 1,
+          borderColor: '#E5E7EB',
+          borderRadius: 16,
+          padding: 16,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+            {showEmployee ? (
+              <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 2 }}>
+                {b.employee?.full_name ?? '—'}
+              </Text>
+            ) : null}
+            <Text numberOfLines={2} style={{ fontSize: 14, fontWeight: '600', color: showEmployee ? '#374151' : '#111827' }}>
+              {b.title || localize(b.bonus_type)}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#059669', fontVariant: ['tabular-nums'] }}>
+            {formatEuro(b.amount, locale)}
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', marginTop: 12 }}>
+          <View style={{ width: '40%', paddingRight: 8 }}>
+            <Text style={labelStyle}>{L('Art', 'Type')}</Text>
+            <Text numberOfLines={1} style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>{localize(b.bonus_type)}</Text>
+          </View>
+          <View style={{ width: '60%' }}>
+            <Text style={labelStyle}>{L('Abrechnung', 'Billing')}</Text>
+            <Text numberOfLines={2} style={{ fontSize: 13, color: '#4B5563', marginTop: 2 }}>{paymentPeriodLabel(b, locale)}</Text>
+          </View>
+        </View>
+
+        <View style={{ marginTop: 10 }}>
+          <Text style={labelStyle}>{L('Bemerkung', 'Note')}</Text>
+          <Text numberOfLines={2} style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>{b.notes || '—'}</Text>
+        </View>
+
+        {canGrant ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              marginTop: 12,
+              paddingTop: 10,
+              borderTopWidth: 1,
+              borderTopColor: '#F9FAFB',
+              gap: 8,
+            }}
+          >
+            {confirming ? (
+              <>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280' }}>{L('Löschen?', 'Delete?')}</Text>
+                <Pressable
+                  onPress={() => {
+                    setConfirmDelete(null)
+                    void deletePayment(b.id)
+                  }}
+                  style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#EF4444' }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#FFFFFF' }}>{L('Ja', 'Yes')}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setConfirmDelete(null)}
+                  style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#F3F4F6' }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#4B5563' }}>{L('Nein', 'No')}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => openEdit(b)}
+                  accessibilityLabel={L('Bearbeiten', 'Edit')}
+                  hitSlop={6}
+                  style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Pencil size={15} color="#2563EB" />
+                </Pressable>
+                <Pressable
+                  onPress={() => setConfirmDelete(b.id)}
+                  accessibilityLabel={L('Löschen', 'Delete')}
+                  hitSlop={6}
+                  style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Trash2 size={15} color="#EF4444" />
+                </Pressable>
+              </>
+            )}
+          </View>
+        ) : null}
+      </View>
+    )
+    return <View key={b.id}>{body}</View>
+  }
+
+  // ─── Employee view ─────────────────────────────────────────
+  if (!canGrant) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <AppHeader />
+        <Screen background="#FFFFFF" noTapToDismiss>
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 }}
+            refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchItems} tintColor="#0064E0" />}
+          >
+            <PageHeader
+              showBack
+              title={L('Sonderzahlungen', 'Special payments')}
+              subtitle={L('Ihre zusätzlichen Zahlungen und Vereinbarungen', 'Your additional payments and agreements')}
+            />
+
+            <View style={{ backgroundColor: '#0064E0', borderRadius: 16, paddingVertical: 28, paddingHorizontal: 20, alignItems: 'center', marginBottom: 24 }}>
+              <Text style={{ fontSize: 14, fontWeight: '500', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>
+                {L(`Summe ${year}`, `Total ${year}`)}
+              </Text>
+              <Text
+                style={{ fontSize: 44, fontWeight: '700', color: '#FFFFFF', letterSpacing: -1, fontVariant: ['tabular-nums'] }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {formatEuro(ytdTotal, locale)}
+              </Text>
+              <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 10, textAlign: 'center' }}>
+                {L('Die Zahlungen erscheinen auch in Ihrem ', 'Payments also appear in your ')}
+                <Text onPress={() => router.push('/reports/monthly')} style={{ fontWeight: '700', textDecorationLine: 'underline', color: 'rgba(255,255,255,0.85)' }}>
+                  {L('Monatsnachweis', 'monthly statement')}
+                </Text>
+                {'.'}
+              </Text>
+            </View>
+
+            {loading && items.length === 0 ? (
+              <ActivityIndicator size="small" color="#D1D5DB" style={{ marginTop: 12 }} />
+            ) : items.length === 0 ? (
+              emptyCard
+            ) : (
+              <View style={{ gap: 10 }}>{items.map((b) => renderRow(b, false))}</View>
+            )}
+          </ScrollView>
+        </Screen>
+      </View>
+    )
+  }
+
+  // ─── Admin / Dispatcher view ───────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <AppHeader />
@@ -252,328 +386,171 @@ export default function HolidayBonusScreen() {
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 }}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchItems} tintColor="#0064E0" />}
+          keyboardShouldPersistTaps="handled"
         >
           <PageHeader
             showBack
-            title={L('Urlaubsgeld', 'Holiday Bonus')}
-            subtitle={L('Urlaubsgeld & Sonderzahlungen', 'Holiday & special payments')}
+            title={L('Sonderzahlungen', 'Special payments')}
+            subtitle={L(
+              'Urlaubsgeld, Prämien und weitere Zahlungen – erscheinen automatisch im Monatsnachweis',
+              'Holiday pay, bonuses and other payments – shown automatically in the monthly statement',
+            )}
           />
 
-          <View
-            style={{
-              backgroundColor: '#0064E0',
-              borderRadius: 28,
-              padding: 24,
-              marginBottom: 16,
-            }}
-          >
-            <Text className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              {L('Jahresbetrag', 'Year-to-date')} {new Date().getFullYear()}
-            </Text>
-            <Text
-              style={{ fontSize: 36, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5, marginTop: 6 }}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              €{safeNumber(ytdTotal)}
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 4 }}>
-              {L(
-                'Summe aller dieses Jahr ausgezahlten Bonuszahlungen.',
-                'Sum of all bonus payments issued this year.',
-              )}
-            </Text>
+          {/* Header actions — web: Excel · PDF (outline) + "Sonderzahlung anlegen" */}
+          <View style={{ marginTop: -8, marginBottom: 24, gap: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <OutlineButton label="Excel" onPress={onExcel} loading={busy === 'xlsx'} disabled={busy !== null} icon={<Download size={14} color="#4B5563" />} />
+              <OutlineButton label="PDF" onPress={onPdf} loading={busy === 'pdf'} disabled={busy !== null} icon={<Download size={14} color="#4B5563" />} />
+              <OutlineButton label="CSV" onPress={onCsv} loading={busy === 'csv'} disabled={busy !== null} icon={<FileText size={14} color="#4B5563" />} />
+            </View>
+            <Button
+              label={L('Sonderzahlung anlegen', 'Add special payment')}
+              onPress={openCreate}
+              leftIcon={<Plus size={18} color="#fff" />}
+            />
           </View>
 
-          {canGrant && (
-            <>
-              <View className="flex-row gap-3 mb-4">
-                <StatTile
-                  label={L('Im Filter', 'In filter')}
-                  value={`€${safeNumber(filteredTotal)}`}
-                  color="#0064E0"
-                />
-                <StatTile
-                  label={L('Einträge', 'Entries')}
-                  value={String(filtered.length)}
-                  color="#0F172A"
-                />
-              </View>
+          {/* Stat tiles */}
+          <View style={{ gap: 12, marginBottom: 24 }}>
+            <View style={{ backgroundColor: '#0064E0', borderRadius: 16, padding: 20 }}>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>
+                {L(`Summe ${year}`, `Total ${year}`)}
+              </Text>
+              <Text
+                style={{ fontSize: 30, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.5, fontVariant: ['tabular-nums'] }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {formatEuro(ytdTotal, locale)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <StatTile label={L('Anzahl Zahlungen', 'Number of payments')} value={String(items.length)} />
+              <StatTile label={L('Empfänger', 'Recipients')} value={String(recipients)} />
+            </View>
+          </View>
 
-              <View className="flex-row flex-wrap gap-2 mb-4">
-                <ExportChip
-                  icon={<Download size={14} color="#0064E0" />}
-                  label="CSV"
-                  onPress={onCsv}
-                  loading={busy === 'csv'}
-                  disabled={busy !== null}
-                />
-                <ExportChip
-                  icon={<FileSpreadsheet size={14} color="#0064E0" />}
-                  label="Excel"
-                  onPress={onExcel}
-                  loading={busy === 'xlsx'}
-                  disabled={busy !== null}
-                />
-                <ExportChip
-                  icon={<FileText size={14} color="#0064E0" />}
-                  label="PDF"
-                  onPress={onPdf}
-                  loading={busy === 'pdf'}
-                  disabled={busy !== null}
-                />
-              </View>
-
-              <View className="flex-row gap-2 mb-4">
-                <View
-                  style={{
-                    flex: 1,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: '#F8FAFC',
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
-                    borderRadius: 14,
-                    paddingHorizontal: 12,
-                    height: 44,
-                  }}
+          {/* Search + employee filter */}
+          <View style={{ gap: 10, marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#FFFFFF',
+                borderWidth: 1,
+                borderColor: '#E5E7EB',
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                height: 42,
+              }}
+            >
+              <Search size={16} color="#9CA3AF" />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={L('Suche nach Name, Bezeichnung, Bemerkung …', 'Search name, title, note …')}
+                placeholderTextColor="#9CA3AF"
+                style={{ flex: 1, marginLeft: 8, fontSize: 14, color: '#111827' }}
+                autoCapitalize="none"
+              />
+            </View>
+            <Pressable onPress={() => setEmployeePickerOpen((v) => !v)}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
+                  backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                  height: 42,
+                }}
+              >
+                <UsersIcon size={16} color={employeeFilter === 'all' ? '#9CA3AF' : '#0064E0'} />
+                <Text
+                  numberOfLines={1}
+                  style={{ flex: 1, marginLeft: 8, fontSize: 14, fontWeight: '600', color: employeeFilter === 'all' ? '#374151' : '#0064E0' }}
                 >
-                  <Search size={16} color="#94A3B8" />
-                  <TextInput
-                    value={search}
-                    onChangeText={setSearch}
-                    placeholder={L('Suchen…', 'Search…')}
-                    placeholderTextColor="#94A3B8"
-                    style={{ flex: 1, marginLeft: 8, fontSize: 13, fontWeight: '600', color: '#0F172A' }}
-                    autoCapitalize="none"
-                  />
-                </View>
-                <Pressable onPress={() => setEmployeePickerOpen((v) => !v)}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 14,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      borderColor: employeeFilter === 'all' ? '#E5E7EB' : '#0064E0',
-                      backgroundColor: employeeFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
-                      height: 44,
-                    }}
-                  >
-                    <UsersIcon size={14} color={employeeFilter === 'all' ? '#475569' : '#0064E0'} />
-                    <Text
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 12,
-                        fontWeight: '800',
-                        color: employeeFilter === 'all' ? '#475569' : '#0064E0',
-                      }}
-                    >
-                      {employeeFilter === 'all' ? L('Alle', 'All') : (selectedEmployeeName ?? '—').split(' ')[0]}
-                    </Text>
-                  </View>
-                </Pressable>
+                  {selectedEmployeeName}
+                </Text>
+                <ChevronDown size={16} color="#9CA3AF" />
               </View>
-
-              {employeePickerOpen && (
-                <View className="flex-row flex-wrap gap-2 mb-4">
+            </Pressable>
+            {employeePickerOpen ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ id: 'all', name: L('Alle Mitarbeiter', 'All employees') }, ...employeeOptions].map((e) => (
                   <FilterPill
-                    label={L('Alle Mitarbeiter', 'All employees')}
-                    active={employeeFilter === 'all'}
+                    key={e.id}
+                    label={e.name}
+                    active={employeeFilter === e.id}
                     onPress={() => {
-                      setEmployeeFilter('all')
+                      setEmployeeFilter(e.id)
                       setEmployeePickerOpen(false)
                     }}
                   />
-                  {employeeOptions.map((e) => (
-                    <FilterPill
-                      key={e.id}
-                      label={e.name}
-                      active={employeeFilter === e.id}
-                      onPress={() => {
-                        setEmployeeFilter(e.id)
-                        setEmployeePickerOpen(false)
-                      }}
-                    />
-                  ))}
-                </View>
-              )}
-            </>
-          )}
-
-          {noMatches ? (
-            <Card className="items-center py-10">
-              <Gift size={32} color="#D1D5DB" />
-              <Text className="text-[14px] text-gray-400 dark:text-slate-500 mt-3">
-                {search.trim() || employeeFilter !== 'all'
-                  ? L('Keine passenden Bonuszahlungen.', 'No matching bonus payments.')
-                  : L('Keine Bonuszahlungen.', 'No bonus payments yet.')}
-              </Text>
-            </Card>
-          ) : null}
-
-          {paginated.map((b) => (
-            <Card key={b.id} className="mb-2 flex-row items-center">
-              <View className="w-12 h-12 rounded-2xl bg-emerald-50 items-center justify-center mr-3 shrink-0">
-                <Gift size={20} color="#10B981" />
+                ))}
               </View>
-              <View className="flex-1" style={{ minWidth: 0 }}>
-                <Text
-                  className="text-[16px] font-black text-gray-900 dark:text-white"
-                  numberOfLines={1}
-                >
-                  €{safeNumber(b.amount)}
-                </Text>
-                <Text
-                  className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5"
-                  numberOfLines={1}
-                >
-                  {localize(b.bonus_type)}
-                  {' · '}
-                  {safeFormatDate(b.created_at, 'dd MMM yyyy', { locale: dateLocale })}
-                </Text>
-                {b.notes ? (
-                  <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5" numberOfLines={2}>
-                    {b.notes}
-                  </Text>
-                ) : null}
-                {canGrant && b.employee?.full_name ? (
-                  <Text
-                    className="text-[11px] text-gray-500 dark:text-slate-400 mt-1"
-                    numberOfLines={1}
-                  >
-                    {b.employee.full_name}
-                  </Text>
-                ) : null}
-              </View>
-              {canGrant && (
-                <Pressable
-                  onPress={() =>
-                    confirmDelete(b.id, Number(b.amount) || 0, b.employee?.full_name ?? undefined)
-                  }
-                  accessibilityLabel={L('Löschen', 'Delete')}
-                >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 12,
-                      backgroundColor: '#FEE2E2',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginLeft: 8,
-                    }}
-                  >
-                    <Trash2 size={16} color="#DC2626" />
-                  </View>
-                </Pressable>
-              )}
-            </Card>
-          ))}
+            ) : null}
+          </View>
 
-          {totalPages > 1 && (
-            <View className="flex-row items-center justify-between mt-4 mb-2">
-              <Pressable
-                onPress={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-              >
-                <View
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
-                    backgroundColor: '#FFFFFF',
-                    opacity: page === 1 ? 0.4 : 1,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <ChevronLeft size={14} color="#475569" />
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#4B5563', marginLeft: 4 }}>
-                    {L('Zurück', 'Prev')}
-                  </Text>
-                </View>
-              </Pressable>
-              <Text className="text-[12px] font-black text-gray-700">
-                {page} / {totalPages}
-              </Text>
-              <Pressable
-                onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-              >
-                <View
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
-                    backgroundColor: '#FFFFFF',
-                    opacity: page === totalPages ? 0.4 : 1,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#4B5563', marginRight: 4 }}>
-                    {L('Weiter', 'Next')}
-                  </Text>
-                  <ChevronRight size={14} color="#475569" />
-                </View>
-              </Pressable>
+          {loading && items.length === 0 ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#D1D5DB" />
             </View>
+          ) : filtered.length === 0 ? (
+            emptyCard
+          ) : (
+            <>
+              <View style={{ gap: 10 }}>{paginated.map((b) => renderRow(b, true))}</View>
+              {totalPages > 1 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+                  <PageArrow dir="prev" disabled={page === 1} onPress={() => setPage((p) => Math.max(1, p - 1))} />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280' }}>{`${page} / ${totalPages}`}</Text>
+                  <PageArrow dir="next" disabled={page === totalPages} onPress={() => setPage((p) => Math.min(totalPages, p + 1))} />
+                </View>
+              ) : null}
+            </>
           )}
         </ScrollView>
 
-        {canGrant && (
-          <Pressable
-            onPress={() => setSheetOpen(true)}
-            className="absolute right-6 w-16 h-16 rounded-full bg-brand items-center justify-center shadow-xl"
-            style={{ bottom: insets.bottom + 96 }}
-          >
-            <Plus size={28} color="#fff" />
-          </Pressable>
-        )}
-
-        <HolidayBonusSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={grantBonus} />
+        <HolidayBonusSheet
+          open={sheetOpen}
+          initial={editing}
+          onClose={() => {
+            setSheetOpen(false)
+            setEditing(null)
+          }}
+          onSubmit={(data) => (editing ? updatePayment(editing.id, data) : createPayment(data))}
+        />
       </Screen>
     </View>
   )
 }
 
-function StatTile({ label, value, color }: { label: string; value: string; color: string }) {
+const labelStyle = {
+  fontSize: 10,
+  fontWeight: '600' as const,
+  color: '#9CA3AF',
+  textTransform: 'uppercase' as const,
+  letterSpacing: 0.8,
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 0,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        borderRadius: 16,
-        padding: 14,
-        backgroundColor: '#FFFFFF',
-      }}
-    >
-      <Text
-        className="text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500"
-        numberOfLines={1}
-      >
+    <View style={{ flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 16, padding: 18, backgroundColor: '#FFFFFF' }}>
+      <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF', marginBottom: 4 }} numberOfLines={1}>
         {label}
       </Text>
-      <Text
-        style={{ fontSize: 22, fontWeight: '900', color, letterSpacing: -0.5, marginTop: 6 }}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-      >
+      <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', fontVariant: ['tabular-nums'] }} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
     </View>
   )
 }
 
-function ExportChip({
+function OutlineButton({
   icon,
   label,
   onPress,
@@ -593,55 +570,57 @@ function ExportChip({
           flexDirection: 'row',
           alignItems: 'center',
           paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderRadius: 14,
+          height: 36,
+          borderRadius: 12,
           borderWidth: 1,
           borderColor: '#E5E7EB',
           backgroundColor: '#FFFFFF',
-          marginRight: 8,
-          marginBottom: 8,
-          opacity: disabled ? 0.5 : 1,
+          opacity: disabled && !loading ? 0.5 : 1,
         }}
       >
-        {icon}
-        <Text style={{ fontSize: 12, fontWeight: '900', color: '#374151', marginLeft: 6 }}>
-          {loading ? '…' : label}
-        </Text>
+        {loading ? <ActivityIndicator size="small" color="#4B5563" /> : icon}
+        <Text style={{ fontSize: 12, fontWeight: '500', color: '#374151', marginLeft: 6 }}>{label}</Text>
       </View>
     </Pressable>
   )
 }
 
-function FilterPill({
-  label,
-  active,
-  onPress,
-}: {
-  label: string
-  active: boolean
-  onPress: () => void
-}) {
+function PageArrow({ dir, disabled, onPress }: { dir: 'prev' | 'next'; disabled: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {dir === 'prev' ? <ChevronLeft size={16} color="#4B5563" /> : <ChevronRight size={16} color="#4B5563" />}
+    </Pressable>
+  )
+}
+
+function FilterPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress}>
       <View
         style={{
-          paddingHorizontal: 14,
-          paddingVertical: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
           borderRadius: 999,
           borderWidth: 1,
           borderColor: active ? '#0064E0' : '#E5E7EB',
           backgroundColor: active ? '#0064E0' : '#FFFFFF',
         }}
       >
-        <Text
-          style={{
-            fontSize: 12,
-            fontWeight: '700',
-            color: active ? '#FFFFFF' : '#475569',
-          }}
-        >
-          {label}
-        </Text>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#FFFFFF' : '#475569' }}>{label}</Text>
       </View>
     </Pressable>
   )

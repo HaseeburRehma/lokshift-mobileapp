@@ -14,6 +14,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
 import { readCache, writeCache } from '@/lib/cache'
 import type { TimeEntry } from '@/lib/types'
+import { TIME_ENTRY_SELECT } from '@/lib/times/entry-status'
 
 export function useTimeEntries() {
   const supabase = getSupabase()
@@ -33,11 +34,11 @@ export function useTimeEntries() {
     setLoading(true)
     let query = supabase
       .from('time_entries')
-      .select('*, employee:profiles!employee_id(id, full_name, avatar_url), customer:customers(id, name)')
+      .select(TIME_ENTRY_SELECT)
       .eq('organization_id', profile.organization_id)
       .order('date', { ascending: false })
       .order('start_time', { ascending: false })
-      .limit(200)
+      .limit(500)
 
     if (!isManagerial) query = query.eq('employee_id', myId)
 

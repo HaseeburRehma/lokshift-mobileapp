@@ -1,23 +1,30 @@
 /**
- * Unified Shift Dashboard — Wilson SaaS-style week grid.
+ * Wochenplanung (Kundenfeedback Punkte 7 + 8) — admin & dispatch.
+ * Mobile replica of the webapp's app/dashboard/plans/week/page.tsx.
  *
- * Issue 5 in the client bug brief. Renders all employees as rows and
- * the seven days of the selected week as columns. Each cell shows the
- * latest plan for (employee, date) or an empty slot. Admin actions:
+ * Employees in rows, Monday–Sunday side by side. Shifts appear on the day
+ * they start (local calendar day); night shifts show "+1" on the card and
+ * a "↳ bis 06:00" continuation chip on the next day. Vacation / sick days
+ * are drawn into the cells, unassigned shifts get their own row. The
+ * employee column and the day header row stay visible while scrolling:
+ * the name column lives outside the horizontal ScrollView, the day header
+ * is a sticky header of the vertical ScrollView whose content follows the
+ * grid's horizontal offset (native-driven Animated value).
  *
  *   Tap empty cell        → /plans/new with employee + date prefilled
- *   Tap filled cell       → /plans/[id] detail
- *   Long-press filled     → quick-action sheet (Reassign, Move date, Delete)
+ *   Tap shift             → /plans/[id] detail
+ *   Long-press shift      → quick-action sheet (Reassign, Move date, Delete)
+ *   Web                   → drag a shift onto another employee / day
  *
- * Drag-and-drop on a 3-inch wide screen is fiddly; the long-press
- * action sheet is what mobile users expect for "move this elsewhere"
- * and is functionally identical. The two-step Reassign sheet (pick
- * employee, pick day) is faster than drag-aim-drop with a thumb.
+ * Reassigning shows old → new with warnings (overlap, absence, expired
+ * documents, already started) and notifies both drivers; started shifts
+ * are locked unless confirmed. Week switch: ‹ KW › arrows, "Heute" and
+ * "Woche wählen" (KW or date).
  *
- * Admin / dispatcher only. Employees see /plans personal view instead.
+ * Admin / dispatcher only. Employees see /plans/my-week instead.
  */
 
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -29,77 +36,84 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
+  Alert,
+  Animated,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Search,
   Calendar as CalendarIcon,
+  CalendarDays,
   Users as UsersIcon,
   Plus,
   Edit2,
   Move,
   Trash2,
   X,
-  AlertTriangle,
   Mail,
   Phone,
   Briefcase,
   ExternalLink,
+  Lock,
+  Moon,
+  Check,
 } from 'lucide-react-native'
-import {
-  addDays,
-  addWeeks,
-  format,
-  startOfWeek,
-  isSameDay,
-  isToday,
-} from 'date-fns'
+import { addWeeks, format, isSameDay } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 
 import { Screen } from '@/components/Screen'
 import { PageHeader } from '@/components/PageHeader'
 import { AppHeader } from '@/components/AppHeader'
-import { Card } from '@/components/Card'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { useProfiles } from '@/hooks/useProfiles'
-import { useDashboardWeek } from '@/hooks/useDashboardWeek'
+import { usePlanningWeek } from '@/hooks/usePlanningWeek'
+import { useOrgRules } from '@/hooks/useOrgRules'
+import { getSupabase } from '@/lib/supabase/client'
+import { WEEK_PLAN_SELECT } from '@/hooks/usePlanningWeek'
+import {
+  absenceOn,
+  hasStarted,
+  isoWeek,
+  planEndDay,
+  planStartDay,
+  reassignWarnings,
+  weekDays,
+  weekStartOf,
+} from '@/lib/plans/week'
+import { addDays, localDateKey } from '@/lib/time/shift-hours'
+import { formatDateDE, weekdayName } from '@/lib/time/format'
+import { publicHolidayName } from '@/lib/time/zuschlag'
+import { describePlan, notifyPlanCancelled, notifyPlanChanged } from '@/lib/plans/notify'
+import { dbErrorMessage } from '@/lib/times/entry-status'
 import { useSafeBack } from '@/lib/use-safe-back'
-import { safeFormatTime } from '@/lib/safe-format'
 import { canCreatePlans } from '@/lib/rbac/permissions'
 import type { Plan, Profile } from '@/lib/types'
+import { ReassignSheet, UNASSIGNED, warningText } from '@/components/plans/ReassignSheet'
+import { WeekPickerSheet } from '@/components/plans/WeekPickerSheet'
+import { Chip, PLAN_STATUS, ABSENCE_STYLE } from '@/components/plans/planStatus'
+import {
+  DAY_COL_W,
+  EMP_COL_W,
+  GRID,
+  HEADER_H,
+  ROW_MIN_H,
+  TOTALS_H,
+  WeekGridRow,
+  weekCellHeight,
+  type WeekGridHandlers,
+  type WeekRowModel,
+} from '@/components/plans/WeekGrid'
 
-const DAY_COL_W = 130
-const EMP_COL_W = 150
-const ROW_H = 84
+const EMPTY_PLANS: Plan[] = []
 
-// Wilson-inspired palette — soft teal for assigned shifts, slate for chrome.
-const C = {
-  bg: '#FFFFFF',
-  chrome: '#F8FAFC',
-  border: '#E2E8F0',
-  borderSoft: '#F1F5F9',
-  text: '#0F172A',
-  textMuted: '#64748B',
-  textFaint: '#94A3B8',
-
-  shiftBg: '#E6FAF5',          // pale mint cell background
-  shiftAccent: '#0F766E',      // teal text
-  shiftBorder: '#A7F3D0',
-  shiftCodeBg: '#FBFEFD',      // header pill inside cell
-  warning: '#DC2626',          // red triangle
-
-  cancelledBg: '#FEE2E2',
-  cancelledText: '#7F1D1D',
-
-  todayBg: '#E0F2FE',
-  todayText: '#0369A1',
-
-  dragTargetBg: '#BFDBFE',
-  dragTargetBorder: '#3B82F6',
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d)
 }
 
 export default function DashboardScreen() {
@@ -109,69 +123,52 @@ export default function DashboardScreen() {
   const goBack = useSafeBack('/plans')
   const router = useRouter()
   const { role, ready } = useUser()
+  const params = useLocalSearchParams<{ date?: string }>()
+  const { surchargeRules } = useOrgRules()
 
-  const [weekAnchor, setWeekAnchor] = useState<Date>(new Date())
+  const [weekAnchor, setWeekAnchor] = useState<Date>(() => {
+    const d = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : null
+    if (!d) return new Date()
+    return dateFromKey(d)
+  })
+  const weekStart = useMemo(() => weekStartOf(localDateKey(weekAnchor)), [weekAnchor])
+  const [reassignTarget, setReassignTarget] = useState<string | null | undefined>(undefined)
   const [search, setSearch] = useState('')
   const [customerFilter, setCustomerFilter] = useState<string>('all')
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false)
+  const [onlyWithShifts, setOnlyWithShifts] = useState(false)
+  const [showAllRoles, setShowAllRoles] = useState(false)
+  const [weekPickerOpen, setWeekPickerOpen] = useState(false)
   const [actionPlan, setActionPlan] = useState<Plan | null>(null)
   const [reassignOpen, setReassignOpen] = useState(false)
   const [moveDateOpen, setMoveDateOpen] = useState(false)
-  // Wilson-style employee hover card. Web: opens on mouse-enter of the
-  // employee column. Mobile: opens on tap of the avatar/name.
+  // Employee info card. Web: hover on the name. Mobile: tap on the name.
   const [hoveredEmployee, setHoveredEmployee] = useState<Profile | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Web drag-and-drop state — ref avoids stale-closure in onDrop
   const dragRef = useRef<{ planId: string; employeeId: string; date: string } | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+  // Horizontal offset of the grid body — drives the sticky day header.
+  const scrollX = useRef(new Animated.Value(0)).current
 
-  // Wilson dashboard shows every member of the org (active + inactive)
-  // so dispatchers can see the full roster, including people on leave.
-  // Pass `true` so inactive profiles are NOT filtered out.
+  // Every member of the org is loaded (active + inactive) so a shift of
+  // an inactive member never disappears from the grid.
   const { profiles, loading: loadingProfiles, error: profilesError } =
     useProfiles(true)
   const {
     plans,
-    byCell,
+    employees: planningEmployees,
+    absences,
+    qualifications,
     loading: loadingPlans,
-    range,
     refetch,
-    updatePlanField,
-    deletePlan,
-  } = useDashboardWeek(weekAnchor)
+    reassign,
+  } = usePlanningWeek(weekStart)
 
-  // Permission gate — employees never reach this route (link is hidden
-  // on plans list) but if they deep-link here, show a friendly notice.
-  // Guard with `ready` so we don't false-fire before the profile loads.
-  if (ready && !canCreatePlans(role)) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-        <AppHeader />
-        <Screen className="px-6 items-center justify-center" noTapToDismiss>
-          <Text className="text-gray-400 dark:text-slate-500 text-center">
-            {L(
-              'Nur Admins oder Disponenten dürfen das Dashboard öffnen.',
-              'Only admins or dispatchers can open the dashboard.',
-            )}
-          </Text>
-        </Screen>
-      </View>
-    )
-  }
-
-  // Days in the visible week.
-  const days = useMemo(() => {
-    const start = startOfWeek(weekAnchor, { weekStartsOn: 1 })
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i))
-  }, [weekAnchor])
-
-  // Filtered employee list (by search). Inactive profiles already excluded.
-  const filteredEmployees = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return profiles
-      .filter((p) => (p.full_name ?? '').toLowerCase().includes(q))
-      .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
-  }, [profiles, search])
+  const today = localDateKey()
+  const dayKeys = useMemo(() => weekDays(weekStart), [weekStart])
+  // Days in the visible week (Date objects for the move-date sheet).
+  const days = useMemo(() => dayKeys.map(dateFromKey), [dayKeys])
 
   // Customer options from the visible plans — keeps the dropdown small
   // and contextual to what's actually scheduled this week.
@@ -182,584 +179,545 @@ export default function DashboardScreen() {
     }
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => a.name.localeCompare(b.name, 'de'))
   }, [plans])
 
-  // Customer filter applied to cell lookups.
-  const planMatchesFilter = (p: Plan): boolean => {
-    if (customerFilter === 'all') return true
-    return p.customer?.id === customerFilter
-  }
+  const visiblePlans = useMemo(
+    () => (customerFilter === 'all' ? plans : plans.filter((p) => p.customer?.id === customerFilter)),
+    [plans, customerFilter],
+  )
 
-  const cellPlans = (employeeId: string, day: Date): Plan[] => {
-    const key = `${employeeId}|${format(day, 'yyyy-MM-dd')}`
-    return (byCell.get(key) ?? []).filter(planMatchesFilter)
-  }
-
-  const weekLabel = useMemo(() => {
-    const start = days[0]
-    const end = days[6]
-    if (!start || !end) return ''
-    if (start.getMonth() === end.getMonth()) {
-      return `${format(start, 'd.', { locale: dateLocale })} – ${format(end, 'd. MMMM yyyy', { locale: dateLocale })}`
+  // Local calendar day decides the column (a shift belongs to the day it
+  // starts). Key: `${employeeId | UNASSIGNED}|YYYY-MM-DD`. Night shifts
+  // from earlier days are indexed as continuations of the following days.
+  const cellIndex = useMemo(() => {
+    const starts = new Map<string, Plan[]>()
+    const conts = new Map<string, Plan[]>()
+    const inWeek = new Set(dayKeys)
+    const push = (m: Map<string, Plan[]>, k: string, p: Plan) => {
+      const arr = m.get(k)
+      if (arr) arr.push(p)
+      else m.set(k, [p])
     }
-    return `${format(start, 'd. MMM', { locale: dateLocale })} – ${format(end, 'd. MMM yyyy', { locale: dateLocale })}`
-  }, [days, dateLocale])
+    for (const p of visiblePlans) {
+      const row = p.employee_id ?? UNASSIGNED
+      const s = planStartDay(p)
+      if (inWeek.has(s)) push(starts, `${row}|${s}`, p)
+      const e = planEndDay(p)
+      if (e > s) for (const d of dayKeys) if (d > s && d <= e) push(conts, `${row}|${d}`, p)
+    }
+    return { starts, conts }
+  }, [visiblePlans, dayKeys])
+
+  const weekPlans = useMemo(() => {
+    const inWeek = new Set(dayKeys)
+    return visiblePlans.filter((p) => inWeek.has(planStartDay(p)))
+  }, [visiblePlans, dayKeys])
+  const unassignedPlans = useMemo(() => weekPlans.filter((p) => !p.employee_id), [weekPlans])
+
+  const phoneById = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const e of planningEmployees) m.set(e.id, e.phone)
+    return m
+  }, [planningEmployees])
+
+  // Rows like the web: active drivers (employee / technician), plus anyone
+  // with a shift in the loaded range; "auch Admin/Disposition" adds the
+  // office roles, "nur mit Schichten" hides rows without a shift this week.
+  const filteredEmployees = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const withPlans = new Set<string>()
+    for (const p of visiblePlans) if (p.employee_id) withPlans.add(p.employee_id)
+    const withWeekPlans = new Set<string>()
+    for (const p of weekPlans) if (p.employee_id) withWeekPlans.add(p.employee_id)
+    return profiles
+      .filter((p) => {
+        if (withPlans.has(p.id)) return true
+        if (p.is_active === false) return false
+        const r = String(p.role ?? '').toLowerCase()
+        return showAllRoles || r === 'employee' || r === 'technician'
+      })
+      .filter((p) => !q || (p.full_name ?? '').toLowerCase().includes(q))
+      .filter((p) => !onlyWithShifts || withWeekPlans.has(p.id))
+      .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? '', 'de'))
+  }, [profiles, search, showAllRoles, onlyWithShifts, visiblePlans, weekPlans])
+
+  const rows = useMemo(() => {
+    const build = (key: string, employeeId: string | null, inactive?: boolean): WeekRowModel => {
+      let height = ROW_MIN_H
+      let weekCount = 0
+      const cells = dayKeys.map((day) => {
+        const cell = {
+          day,
+          plans: cellIndex.starts.get(`${key}|${day}`) ?? EMPTY_PLANS,
+          conts: cellIndex.conts.get(`${key}|${day}`) ?? EMPTY_PLANS,
+          absence: employeeId ? absenceOn(absences, employeeId, day) : undefined,
+        }
+        weekCount += cell.plans.length
+        height = Math.max(height, weekCellHeight(cell))
+        return cell
+      })
+      return { key, employeeId, cells, height, weekCount, inactive }
+    }
+    const out: { model: WeekRowModel; profile: Profile | null }[] = []
+    if (unassignedPlans.length > 0) out.push({ model: build(UNASSIGNED, null), profile: null })
+    for (const emp of filteredEmployees) out.push({ model: build(emp.id, emp.id, emp.is_active === false), profile: emp })
+    return out
+  }, [dayKeys, cellIndex, absences, unassignedPlans.length, filteredEmployees])
+
+  const dayTotals = useMemo(
+    () => dayKeys.map((_, i) => rows.reduce((s, r) => s + (r.model.cells[i]?.plans.length ?? 0), 0)),
+    [rows, dayKeys],
+  )
+
+  const holidays = useMemo(() => dayKeys.map((d) => publicHolidayName(d, surchargeRules)), [dayKeys, surchargeRules])
+
+  const weekLabel = `KW ${isoWeek(weekStart)} · ${formatDateDE(weekStart).slice(0, 6)}–${formatDateDE(addDays(weekStart, 6))}`
 
   const onPrev = () => setWeekAnchor((d) => addWeeks(d, -1))
   const onNext = () => setWeekAnchor((d) => addWeeks(d, 1))
   const onToday = () => setWeekAnchor(new Date())
-
-  const onCellTap = (employeeId: string, day: Date, plans: Plan[]) => {
-    if (plans.length === 0) {
-      const date = format(day, 'yyyy-MM-dd')
-      router.push(`/plans/new?employeeId=${employeeId}&date=${date}` as any)
-      return
-    }
-    // One plan → straight to detail. Multiple → open detail of the first
-    // (admin can then navigate). Listing multiples inside a 100×72 cell
-    // doesn't read on mobile.
-    router.push(`/plans/${plans[0].id}` as any)
-  }
-
-  const onCellLongPress = (plans: Plan[]) => {
-    if (plans.length === 0) return
-    setActionPlan(plans[0])
+  const jumpTo = (date: string) => {
+    setWeekAnchor(dateFromKey(date))
+    setWeekPickerOpen(false)
   }
 
   const closeActions = () => {
     setActionPlan(null)
     setReassignOpen(false)
     setMoveDateOpen(false)
+    setReassignTarget(undefined)
   }
 
-  const doReassign = async (newEmployeeId: string) => {
-    if (!actionPlan) return
-    try {
-      await updatePlanField(actionPlan.id, { employee_id: newEmployeeId })
-      const newName = filteredEmployees.find((e) => e.id === newEmployeeId)?.full_name ?? '—'
-      toast.success(
-        L(`Plan an ${newName} übertragen`, `Plan reassigned to ${newName}`),
-      )
-      closeActions()
-    } catch (err: any) {
-      toast.error(err?.message ?? L('Übertragung fehlgeschlagen', 'Reassign failed'))
-    }
-  }
-
-  const doMoveDate = async (newDay: Date) => {
-    if (!actionPlan) return
-    try {
-      // Preserve the time portion; shift the calendar day only.
-      const oldStart = new Date(actionPlan.start_time)
-      const oldEnd = new Date(actionPlan.end_time)
-      const newStart = new Date(newDay)
-      newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), 0, 0)
-      const newEnd = new Date(newDay)
-      newEnd.setHours(oldEnd.getHours(), oldEnd.getMinutes(), 0, 0)
-      // Preserve overnight roll-over.
-      if (newEnd.getTime() <= newStart.getTime()) {
-        newEnd.setDate(newEnd.getDate() + 1)
-      }
-      await updatePlanField(actionPlan.id, {
-        start_time: newStart.toISOString(),
-        end_time: newEnd.toISOString(),
-      })
-      toast.success(
+  /** Asks before touching a shift that already started (Punkt 8). */
+  const confirmStarted = (plan: Plan, what: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (!hasStarted(plan)) return resolve(true)
+      Alert.alert(
+        L('Schicht hat bereits begonnen', 'Shift already started'),
         L(
-          `Plan auf ${format(newDay, 'EEEE, dd.MM.', { locale: dateLocale })} verschoben`,
-          `Plan moved to ${format(newDay, 'EEE, dd.MM.', { locale: dateLocale })}`,
+          `${describePlan(plan)}\n\nBegonnene oder abgeschlossene Schichten sind gesperrt. ${what} nur in Ausnahmefällen.`,
+          `Started or finished shifts are locked. ${what} only in exceptional cases.`,
+        ),
+        [
+          { text: L('Abbrechen', 'Cancel'), style: 'cancel', onPress: () => resolve(false) },
+          { text: L('Trotzdem', 'Continue anyway'), style: 'destructive', onPress: () => resolve(true) },
+        ],
+      )
+    })
+
+  const doMoveDate = async (newDay: Date, target: Plan | null = actionPlan) => {
+    const plan = target
+    if (!plan) return
+    // Preserve the time portion and the duration; shift the calendar day only.
+    const oldStart = new Date(plan.start_time)
+    const duration = new Date(plan.end_time).getTime() - oldStart.getTime()
+    const newStart = new Date(newDay)
+    newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), 0, 0)
+    const newEnd = new Date(newStart.getTime() + duration)
+    if (localDateKey(newStart) === planStartDay(plan)) {
+      closeActions()
+      return
+    }
+    if (!(await confirmStarted(plan, L('Verschieben', 'Moving')))) return
+    const moved = { ...plan, start_time: newStart.toISOString(), end_time: newEnd.toISOString() }
+    const warnings = plan.employee_id
+      ? reassignWarnings(moved, plan.employee_id, { plans, absences, qualifications }).filter((w) => w.kind !== 'started')
+      : []
+    if (warnings.length) {
+      const ok = await new Promise<boolean>((resolve) =>
+        Alert.alert(
+          L('Hinweise zum neuen Tag', 'Warnings for the new day'),
+          warnings.map((w) => `• ${warningText(w, locale)}`).join('\n'),
+          [
+            { text: L('Abbrechen', 'Cancel'), style: 'cancel', onPress: () => resolve(false) },
+            { text: L('Trotzdem verschieben', 'Move anyway'), onPress: () => resolve(true) },
+          ],
         ),
       )
-      closeActions()
-    } catch (err: any) {
-      toast.error(err?.message ?? L('Verschieben fehlgeschlagen', 'Move failed'))
+      if (!ok) return
     }
+    const { data, error } = await getSupabase()
+      .from('plans')
+      .update({
+        start_time: moved.start_time,
+        end_time: moved.end_time,
+        // A moved shift has to be confirmed again.
+        status: plan.employee_id ? 'assigned' : plan.status,
+        rejection_reason: null,
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', plan.id)
+      .select(WEEK_PLAN_SELECT)
+      .single()
+    if (error) {
+      toast.error(dbErrorMessage(error, locale, L('Verschieben fehlgeschlagen', 'Move failed')))
+      return
+    }
+    if (plan.employee_id) void notifyPlanChanged(data as Plan, plan.employee_id, plan)
+    toast.success(
+      L(
+        `Schicht auf ${format(newDay, 'EEEE, dd.MM.', { locale: dateLocale })} verschoben${plan.employee_id ? ' – Mitarbeiter benachrichtigt' : ''}`,
+        `Shift moved to ${format(newDay, 'EEE, dd.MM.', { locale: dateLocale })}${plan.employee_id ? ' – employee notified' : ''}`,
+      ),
+    )
+    closeActions()
+    refetch(true)
   }
 
-  const doDelete = async () => {
-    if (!actionPlan) return
-    try {
-      await deletePlan(actionPlan.id)
-      toast.success(L('Plan gelöscht', 'Plan deleted'))
-      closeActions()
-    } catch (err: any) {
-      toast.error(err?.message ?? L('Löschen fehlgeschlagen', 'Delete failed'))
-    }
+  const doDelete = () => {
+    const plan = actionPlan
+    if (!plan) return
+    Alert.alert(
+      L('Schicht löschen?', 'Delete shift?'),
+      `${describePlan(plan)}${hasStarted(plan) ? L('\n\nAchtung: Die Schicht hat bereits begonnen.', '\n\nNote: the shift already started.') : ''}${plan.employee_id ? L('\n\nDer Mitarbeiter wird benachrichtigt.', '\n\nThe employee will be notified.') : ''}`,
+      [
+        { text: L('Abbrechen', 'Cancel'), style: 'cancel' },
+        {
+          text: L('Löschen', 'Delete'),
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await getSupabase().from('plans').delete().eq('id', plan.id)
+            if (error) {
+              toast.error(dbErrorMessage(error, locale, L('Löschen fehlgeschlagen', 'Delete failed')))
+              return
+            }
+            if (plan.employee_id && new Date(plan.end_time) > new Date()) void notifyPlanCancelled(plan, plan.employee_id)
+            toast.success(L('Schicht gelöscht', 'Shift deleted'))
+            closeActions()
+            refetch(true)
+          },
+        },
+      ],
+    )
   }
 
   // ── Web drag-and-drop handlers ──────────────────────────────────────────
-  const handleDragStart = (planId: string, empId: string, d: string) => {
-    dragRef.current = { planId, employeeId: empId, date: d }
-  }
-  const handleDragOver = (empId: string, d: string) => {
-    setDragOverKey(`${empId}|${d}`)
-  }
-  const handleDragEnd = () => {
-    dragRef.current = null
-    setDragOverKey(null)
-  }
   const handleDrop = async (targetEmpId: string, targetDate: string) => {
     const src = dragRef.current
     dragRef.current = null
     setDragOverKey(null)
     if (!src || (src.employeeId === targetEmpId && src.date === targetDate)) return
-    try {
-      const patch: { employee_id?: string; start_time?: string; end_time?: string } = {}
-      if (src.employeeId !== targetEmpId) patch.employee_id = targetEmpId
-      if (src.date !== targetDate) {
-        const plan = plans.find((p) => p.id === src.planId)
-        if (plan) {
-          const oldStart = new Date(plan.start_time)
-          const oldEnd = new Date(plan.end_time)
-          const [yr, mo, dy] = targetDate.split('-').map(Number)
-          const newStart = new Date(yr, mo - 1, dy, oldStart.getHours(), oldStart.getMinutes(), 0, 0)
-          const newEnd = new Date(yr, mo - 1, dy, oldEnd.getHours(), oldEnd.getMinutes(), 0, 0)
-          if (newEnd.getTime() <= newStart.getTime()) newEnd.setDate(newEnd.getDate() + 1)
-          patch.start_time = newStart.toISOString()
-          patch.end_time = newEnd.toISOString()
-        }
-      }
-      await updatePlanField(src.planId, patch)
-      const newEmpName = filteredEmployees.find((e) => e.id === targetEmpId)?.full_name ?? '—'
-      const sameEmp = src.employeeId === targetEmpId
-      toast.success(
-        sameEmp
-          ? L(`Plan auf ${targetDate} verschoben`, `Plan moved to ${targetDate}`)
-          : L(`Plan an ${newEmpName} übertragen`, `Plan reassigned to ${newEmpName}`),
-      )
-    } catch (err: any) {
-      toast.error(err?.message ?? L('Drag fehlgeschlagen', 'Drag failed'))
+    const plan = plans.find((p) => p.id === src.planId)
+    if (!plan) return
+    if (src.employeeId !== targetEmpId && src.date !== targetDate) {
+      toast.error(L('Bitte entweder den Tag oder den Mitarbeiter ändern – nicht beides zugleich.', 'Change either the day or the employee – not both at once.'))
+      return
+    }
+    if (src.employeeId !== targetEmpId) {
+      // Same day, other employee → reassign sheet with the target preselected.
+      setActionPlan(plan)
+      setReassignTarget(targetEmpId === UNASSIGNED ? null : targetEmpId)
+      setReassignOpen(true)
+    } else {
+      void doMoveDate(dateFromKey(targetDate), plan)
     }
   }
+  // Latest drop implementation behind a stable callback, so the memoized
+  // grid rows don't re-render on every parent render.
+  const dropRef = useRef(handleDrop)
+  dropRef.current = handleDrop
+
+  const onPlanPress = useCallback((p: Plan) => router.push(`/plans/${p.id}` as any), [router])
+  const onPlanLongPress = useCallback((p: Plan) => setActionPlan(p), [])
+  const onEmptyPress = useCallback(
+    (employeeId: string | null, day: string) =>
+      router.push((employeeId ? `/plans/new?employeeId=${employeeId}&date=${day}` : `/plans/new?date=${day}`) as any),
+    [router],
+  )
+  const onDragStart = useCallback((planId: string, empId: string, d: string) => {
+    dragRef.current = { planId, employeeId: empId, date: d }
+  }, [])
+  const onDragOver = useCallback((empId: string, d: string) => setDragOverKey(`${empId}|${d}`), [])
+  const onDragEnd = useCallback(() => {
+    dragRef.current = null
+    setDragOverKey(null)
+  }, [])
+  const onDrop = useCallback((empId: string, d: string) => {
+    void dropRef.current(empId, d)
+  }, [])
+  const handlers: WeekGridHandlers = useMemo(
+    () => ({ onPlanPress, onPlanLongPress, onEmptyPress, onDragStart, onDragOver, onDragEnd, onDrop }),
+    [onPlanPress, onPlanLongPress, onEmptyPress, onDragStart, onDragOver, onDragEnd, onDrop],
+  )
+
+  const onGridScroll = useMemo(
+    () => Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: Platform.OS !== 'web' }),
+    [scrollX],
+  )
+  const headerShift = useMemo(() => Animated.multiply(scrollX, -1), [scrollX])
+
+  // Permission gate — after all hooks so the hook order never changes.
+  // Employees never reach this route (link hidden) but on a deep link they
+  // see a friendly notice. Guard with `ready` so it doesn't fire early.
+  if (ready && !canCreatePlans(role)) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <AppHeader />
+        <Screen className="px-6 items-center justify-center" noTapToDismiss>
+          <Text className="text-gray-400 dark:text-slate-500 text-center">
+            {L(
+              'Nur Admins oder Disponenten dürfen die Wochenplanung öffnen.',
+              'Only admins or dispatchers can open the weekly planning.',
+            )}
+          </Text>
+        </Screen>
+      </View>
+    )
+  }
+
+  const loading = loadingPlans || loadingProfiles
+  const createDate = dayKeys.includes(today) ? today : weekStart
+  const customerLabel =
+    customerFilter === 'all'
+      ? L('Alle Kunden', 'All customers')
+      : customerOptions.find((c) => c.id === customerFilter)?.name ?? '—'
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <AppHeader />
       <Screen background="#FFFFFF" noTapToDismiss>
         <ScrollView
-          stickyHeaderIndices={[0]}
+          stickyHeaderIndices={[1]}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
-              refreshing={loadingPlans || loadingProfiles}
+              refreshing={loading}
               onRefresh={refetch}
               tintColor="#0064E0"
             />
           }
         >
-          <View style={{ backgroundColor: '#FFFFFF', zIndex: 10 }}>
-            <View className="px-5 pt-2 pb-3">
-              <PageHeader
-                showBack
-                title={L('Dashboard', 'Dashboard')}
-                subtitle={L('Wöchentliche Übersicht aller Schichten', 'Weekly view of all shifts')}
-                onBack={goBack}
-              />
+          {/* [0] Title, week switcher, filters, legend */}
+          <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, backgroundColor: '#FFFFFF' }}>
+            <PageHeader
+              showBack
+              title={L('Wochenplanung', 'Weekly planning')}
+              subtitle={L(
+                'Schicht lange drücken zum Umverteilen – beide Mitarbeiter werden benachrichtigt.',
+                'Long-press a shift to reassign – both employees are notified.',
+              )}
+              onBack={goBack}
+            />
 
-              {/* Toolbar — Wilson-style: PERIOD label · date · navigation · summary chip */}
-              <View
-                className="flex-row items-center mb-3"
-                style={{
-                  backgroundColor: C.chrome,
-                  borderWidth: 1,
-                  borderColor: C.border,
-                  borderRadius: 14,
-                  padding: 8,
-                  gap: 8,
-                }}
-              >
-                <Pressable
-                  onPress={onPrev}
-                  accessibilityLabel={L('Vorherige Woche', 'Previous week')}
-                >
-                  <View
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: C.border,
-                      backgroundColor: C.bg,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <ChevronLeft size={16} color={C.textMuted} />
-                  </View>
+            {/* ‹ KW 43 · 20.10.–26.10.2026 ›  ·  Heute */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -8, marginBottom: 8 }}>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 12, borderWidth: 1, borderColor: GRID.border, backgroundColor: '#FFFFFF' }}>
+                <Pressable onPress={onPrev} hitSlop={6} accessibilityLabel={L('Vorwoche', 'Previous week')} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronLeft size={18} color="#334155" />
                 </Pressable>
-
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 9,
-                      fontWeight: '900',
-                      color: C.textFaint,
-                      letterSpacing: 1.2,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {L('Zeitraum', 'Period')}
-                  </Text>
-                  <Text
-                    style={{ fontSize: 13, fontWeight: '900', color: C.text, marginTop: 1 }}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                  >
+                <Pressable onPress={() => setWeekPickerOpen(true)} style={{ flex: 1 }} accessibilityLabel={L('Woche wählen', 'Pick week')}>
+                  <Text style={{ textAlign: 'center', fontSize: 13, fontWeight: '900', color: '#1E293B' }} numberOfLines={1} adjustsFontSizeToFit>
                     {weekLabel}
                   </Text>
-                </View>
-
-                <Pressable onPress={onToday}>
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 10,
-                      backgroundColor: '#0064E0',
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '900', color: '#FFFFFF' }}>
-                      {L('Heute', 'Today')}
-                    </Text>
-                  </View>
                 </Pressable>
-
-                <Pressable
-                  onPress={onNext}
-                  accessibilityLabel={L('Nächste Woche', 'Next week')}
-                >
-                  <View
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: C.border,
-                      backgroundColor: C.bg,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <ChevronRight size={16} color={C.textMuted} />
-                  </View>
+                <Pressable onPress={onNext} hitSlop={6} accessibilityLabel={L('Folgewoche', 'Next week')} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronRight size={18} color="#334155" />
                 </Pressable>
               </View>
+              <Pressable onPress={onToday}>
+                <View style={{ height: 44, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: GRID.border, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#0F172A' }}>{L('Heute', 'Today')}</Text>
+                </View>
+              </Pressable>
+            </View>
 
-              {/* Search + customer filter */}
-              <View className="flex-row gap-2 mb-2">
+            {/* Woche/Datum wählen  ·  + Schicht anlegen */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Pressable onPress={() => setWeekPickerOpen(true)} style={{ flex: 1 }} accessibilityLabel={L('Woche wählen', 'Pick week')}>
+                <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: GRID.border, backgroundColor: '#FFFFFF' }}>
+                  <CalendarDays size={16} color="#94A3B8" />
+                  <Text style={{ marginLeft: 8, fontSize: 13, fontWeight: '700', color: '#334155', flex: 1 }} numberOfLines={1}>
+                    {formatDateDE(weekStart)}
+                  </Text>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#0064E0' }}>{L('KW / Datum', 'CW / date')}</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={() => router.push(`/plans/new?date=${createDate}` as any)}>
+                <View style={{ height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, borderRadius: 12, backgroundColor: '#0064E0' }}>
+                  <Plus size={16} color="#FFFFFF" />
+                  <Text style={{ marginLeft: 4, fontSize: 13, fontWeight: '800', color: '#FFFFFF' }}>{L('Schicht anlegen', 'Add shift')}</Text>
+                </View>
+              </Pressable>
+            </View>
+
+            {/* Search */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 12, borderWidth: 1, borderColor: GRID.border, backgroundColor: '#FFFFFF', paddingHorizontal: 12, marginBottom: 8 }}>
+              <Search size={15} color="#94A3B8" />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder={L('Mitarbeiter suchen …', 'Search employee …')}
+                placeholderTextColor="#94A3B8"
+                style={{ flex: 1, marginLeft: 8, fontSize: 14, color: '#0F172A' }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {search ? (
+                <Pressable onPress={() => setSearch('')} hitSlop={8}>
+                  <X size={14} color="#94A3B8" />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* Customer select + toggles */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <Pressable onPress={() => setCustomerPickerOpen((v) => !v)}>
                 <View
                   style={{
-                    flex: 1,
+                    height: 36,
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: '#F8FAFC',
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
+                    paddingHorizontal: 12,
                     borderRadius: 12,
-                    paddingHorizontal: 10,
-                    height: 40,
+                    borderWidth: 1,
+                    borderColor: customerFilter === 'all' ? GRID.border : '#0064E0',
+                    backgroundColor: customerFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
+                    maxWidth: 220,
                   }}
                 >
-                  <Search size={14} color="#94A3B8" />
-                  <TextInput
-                    value={search}
-                    onChangeText={setSearch}
-                    placeholder={L('Mitarbeiter suchen…', 'Search employees…')}
-                    placeholderTextColor="#94A3B8"
-                    style={{ flex: 1, marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#0F172A' }}
-                    autoCapitalize="none"
-                  />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: customerFilter === 'all' ? '#334155' : '#0064E0' }} numberOfLines={1}>
+                    {customerLabel}
+                  </Text>
+                  <ChevronDown size={14} color={customerFilter === 'all' ? '#94A3B8' : '#0064E0'} style={{ marginLeft: 6 }} />
                 </View>
-                <Pressable onPress={() => setCustomerPickerOpen((v) => !v)}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 12,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: customerFilter === 'all' ? '#E5E7EB' : '#0064E0',
-                      backgroundColor: customerFilter === 'all' ? '#FFFFFF' : '#EFF6FF',
-                      height: 40,
-                    }}
-                  >
-                    <UsersIcon size={12} color={customerFilter === 'all' ? '#475569' : '#0064E0'} />
-                    <Text
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 11,
-                        fontWeight: '800',
-                        color: customerFilter === 'all' ? '#475569' : '#0064E0',
-                      }}
-                      numberOfLines={1}
-                    >
-                      {customerFilter === 'all'
-                        ? L('Alle Kunden', 'All customers')
-                        : (customerOptions.find((c) => c.id === customerFilter)?.name ?? '—').split(' ')[0]}
-                    </Text>
-                  </View>
-                </Pressable>
-              </View>
+              </Pressable>
+              <ToggleChip label={L('nur mit Schichten', 'only with shifts')} value={onlyWithShifts} onChange={setOnlyWithShifts} />
+              <ToggleChip
+                label={L('auch Admin/Disposition', 'include admin/dispatch')}
+                value={showAllRoles}
+                onChange={setShowAllRoles}
+                icon={<UsersIcon size={13} color="#475569" />}
+              />
+            </View>
 
-              {customerPickerOpen && (
-                <View className="flex-row flex-wrap gap-2 mb-2">
+            {customerPickerOpen ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                <FilterPill
+                  label={L('Alle Kunden', 'All customers')}
+                  active={customerFilter === 'all'}
+                  onPress={() => {
+                    setCustomerFilter('all')
+                    setCustomerPickerOpen(false)
+                  }}
+                />
+                {customerOptions.map((c) => (
                   <FilterPill
-                    label={L('Alle Kunden', 'All customers')}
-                    active={customerFilter === 'all'}
+                    key={c.id}
+                    label={c.name}
+                    active={customerFilter === c.id}
                     onPress={() => {
-                      setCustomerFilter('all')
+                      setCustomerFilter(c.id)
                       setCustomerPickerOpen(false)
                     }}
                   />
-                  {customerOptions.map((c) => (
-                    <FilterPill
-                      key={c.id}
-                      label={c.name}
-                      active={customerFilter === c.id}
-                      onPress={() => {
-                        setCustomerFilter(c.id)
-                        setCustomerPickerOpen(false)
-                      }}
-                    />
-                  ))}
-                </View>
-              )}
+                ))}
+              </View>
+            ) : null}
+
+            {/* Legend */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 12 }}>
+              {(['assigned', 'confirmed', 'rejected'] as const).map((s) => (
+                <Chip key={s} label={locale === 'de' ? PLAN_STATUS[s].de : PLAN_STATUS[s].en} bg={PLAN_STATUS[s].bg} fg={PLAN_STATUS[s].fg} border={PLAN_STATUS[s].border} />
+              ))}
+              <Chip label={L('Unbesetzt', 'Unassigned')} bg="#FFFBEB" fg="#B45309" border="#FDE68A" dashed />
+              <LegendIcon icon={<Lock size={10} color="#64748B" />} label={L('begonnen', 'started')} />
+              <LegendIcon icon={<Moon size={10} color="#4338CA" />} label={L('+1 Folgetag', '+1 next day')} fg="#4338CA" bg="#EEF2FF" />
+              <Chip label={L('Urlaub', 'Vacation')} bg={ABSENCE_STYLE.vacation.bg} fg={ABSENCE_STYLE.vacation.fg} />
+              <Chip label={L('Krank', 'Sick')} bg={ABSENCE_STYLE.sick.bg} fg={ABSENCE_STYLE.sick.fg} />
             </View>
           </View>
 
-          {/* Grid — horizontal scroll for days + employee column */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator
-            contentContainerStyle={{ paddingBottom: 8 }}
-          >
-            <View>
-              {/* Day header row */}
-              <View
-                style={{
-                  flexDirection: 'row',
-                  borderBottomWidth: 2,
-                  borderColor: C.border,
-                  backgroundColor: C.chrome,
-                }}
-              >
-                <View
-                  style={{
-                    width: EMP_COL_W,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRightWidth: 1,
-                    borderColor: C.border,
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 9,
-                      fontWeight: '900',
-                      letterSpacing: 1.4,
-                      textTransform: 'uppercase',
-                      color: C.textFaint,
-                    }}
-                  >
-                    {L('Mitarbeiter', 'User')} · {filteredEmployees.length}
-                  </Text>
-                </View>
-                {days.map((d) => {
-                  const today = isToday(d)
+          {/* [1] Sticky day header — corner stays put, days follow the grid */}
+          <View style={{ flexDirection: 'row', height: HEADER_H, backgroundColor: GRID.chrome, borderTopWidth: 1, borderBottomWidth: 1, borderColor: GRID.border }}>
+            <View style={{ width: EMP_COL_W, paddingHorizontal: 10, justifyContent: 'center', borderRightWidth: 1, borderColor: GRID.border, backgroundColor: GRID.chrome, zIndex: 2 }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', letterSpacing: 1.4, textTransform: 'uppercase', color: '#94A3B8' }} numberOfLines={1}>
+                {L('Mitarbeiter', 'Employee')}
+              </Text>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#CBD5E1', marginTop: 1 }}>{filteredEmployees.length}</Text>
+            </View>
+            <View style={{ flex: 1, overflow: 'hidden' }}>
+              <Animated.View style={{ flexDirection: 'row', width: DAY_COL_W * 7, transform: [{ translateX: headerShift }] }}>
+                {dayKeys.map((d, i) => {
+                  const isTodayCol = d === today
+                  const holiday = holidays[i]
                   return (
                     <View
-                      key={d.toISOString()}
+                      key={d}
                       style={{
                         width: DAY_COL_W,
-                        paddingVertical: 8,
-                        paddingHorizontal: 6,
-                        alignItems: 'center',
-                        backgroundColor: today ? C.todayBg : C.chrome,
-                        borderRightWidth: 1,
-                        borderColor: C.border,
+                        height: HEADER_H - 2,
+                        paddingHorizontal: 8,
+                        justifyContent: 'center',
+                        borderLeftWidth: 1,
+                        borderColor: GRID.border,
+                        backgroundColor: isTodayCol ? GRID.today : GRID.chrome,
                       }}
                     >
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          fontWeight: '900',
-                          color: today ? C.todayText : C.text,
-                          letterSpacing: -0.2,
-                        }}
-                      >
-                        {format(d, 'dd.MM.')}
+                      <Text style={{ fontSize: 12, fontWeight: '900', color: isTodayCol ? '#0064E0' : '#1E293B' }} numberOfLines={1}>
+                        {weekdayName(d, locale, true)} {formatDateDE(d).slice(0, 6)}
                       </Text>
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '900',
-                          letterSpacing: 1,
-                          textTransform: 'uppercase',
-                          color: today ? C.todayText : C.textMuted,
-                          marginTop: 2,
-                        }}
-                      >
-                        {format(d, 'EEE', { locale: dateLocale })}
-                      </Text>
-                      {/* Time tick row — 00:00 · 08:00 · 16:00 — Wilson's
-                          time-subdivision markers. Slightly larger so they
-                          stay legible at 130px column width. */}
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          justifyContent: 'space-between',
-                          width: '100%',
-                          marginTop: 6,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 9,
-                            color: today ? C.todayText : C.textMuted,
-                            fontWeight: '700',
-                          }}
-                        >
-                          00:00
+                      {holiday ? (
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: '#B45309', marginTop: 1 }} numberOfLines={1}>
+                          {holiday}
                         </Text>
-                        <Text
-                          style={{
-                            fontSize: 9,
-                            color: today ? C.todayText : C.textMuted,
-                            fontWeight: '700',
-                          }}
-                        >
-                          08:00
+                      ) : isTodayCol ? (
+                        <Text style={{ fontSize: 9, fontWeight: '900', letterSpacing: 1, color: '#0064E0', marginTop: 1, textTransform: 'uppercase' }}>
+                          {L('Heute', 'Today')}
                         </Text>
-                        <Text
-                          style={{
-                            fontSize: 9,
-                            color: today ? C.todayText : C.textMuted,
-                            fontWeight: '700',
-                          }}
-                        >
-                          16:00
-                        </Text>
-                      </View>
+                      ) : null}
                     </View>
                   )
                 })}
-              </View>
+              </Animated.View>
+            </View>
+          </View>
 
-              {/* Employee rows — empty state needs to distinguish three cases:
-                   1) profile has no organization_id (broken account)
-                   2) org has zero members (fresh org, hint at invites)
-                   3) search filtered everyone out (just say so) */}
-              {filteredEmployees.length === 0 && !loadingProfiles ? (
-                <View style={{ padding: 24, alignItems: 'center', gap: 6 }}>
-                  {profilesError?.kind === 'missing_org' ? (
-                    <>
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          color: C.warning,
-                          fontWeight: '900',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {L(
-                          'Ihr Konto ist keiner Organisation zugeordnet.',
-                          'Your account is not linked to an organization.',
-                        )}
-                      </Text>
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          color: C.textMuted,
-                          textAlign: 'center',
-                          maxWidth: 320,
-                        }}
-                      >
-                        {profilesError.message}
-                      </Text>
-                    </>
-                  ) : search.trim().length > 0 ? (
-                    <Text style={{ fontSize: 13, color: C.textFaint }}>
-                      {L(
-                        `Keine Mitarbeiter passen zu „${search}".`,
-                        `No employees match "${search}".`,
-                      )}
-                    </Text>
-                  ) : profiles.length === 0 ? (
-                    <>
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          color: C.textMuted,
-                          fontWeight: '800',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {L(
-                          'Noch keine Mitarbeiter in dieser Organisation.',
-                          'No employees in this organization yet.',
-                        )}
-                      </Text>
-                      <Pressable onPress={() => router.push('/users' as any)}>
-                        <View
-                          style={{
-                            marginTop: 4,
-                            paddingHorizontal: 14,
-                            paddingVertical: 8,
-                            borderRadius: 10,
-                            backgroundColor: '#0064E0',
-                          }}
-                        >
-                          <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>
-                            {L('Mitarbeiter einladen', 'Invite members')}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <Text style={{ fontSize: 13, color: C.textFaint }}>
-                      {L('Keine Mitarbeiter gefunden.', 'No employees found.')}
-                    </Text>
-                  )}
-                </View>
-              ) : null}
-
-              {filteredEmployees.map((emp, rowIdx) => {
-                const initials = (emp.full_name ?? emp.email ?? '?')
-                  .split(' ')
-                  .map((w) => w[0])
-                  .slice(0, 2)
-                  .join('')
-                  .toUpperCase()
-                return (
-                  <View
-                    key={emp.id}
-                    style={{
-                      flexDirection: 'row',
-                      borderBottomWidth: 1,
-                      borderColor: C.borderSoft,
-                      // Wilson uses an alternating pale teal band so the eye
-                      // can track each employee's row across the seven-day
-                      // grid. Inactive members get desaturated.
-                      backgroundColor: !emp.is_active
-                        ? '#F8FAFC'
-                        : rowIdx % 2 === 0
-                          ? C.bg
-                          : '#F0FBF7',
-                      opacity: emp.is_active ? 1 : 0.75,
-                    }}
-                  >
+          {/* [2] Grid body — pinned name column + horizontally scrolling days */}
+          {rows.length === 0 ? (
+            <View style={{ padding: 24, alignItems: 'center', gap: 6 }}>
+              {loading ? (
+                <ActivityIndicator color="#0064E0" />
+              ) : profilesError?.kind === 'missing_org' ? (
+                <>
+                  <Text style={{ fontSize: 13, color: '#DC2626', fontWeight: '900', textAlign: 'center' }}>
+                    {L('Ihr Konto ist keiner Organisation zugeordnet.', 'Your account is not linked to an organization.')}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#64748B', textAlign: 'center', maxWidth: 320 }}>{profilesError.message}</Text>
+                </>
+              ) : search.trim().length > 0 ? (
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#94A3B8' }}>
+                  {L(`Keine Mitarbeiter passen zu „${search}".`, `No employees match "${search}".`)}
+                </Text>
+              ) : profiles.length === 0 ? (
+                <>
+                  <Text style={{ fontSize: 13, color: '#64748B', fontWeight: '800', textAlign: 'center' }}>
+                    {L('Noch keine Mitarbeiter in dieser Organisation.', 'No employees in this organization yet.')}
+                  </Text>
+                  <Pressable onPress={() => router.push('/users' as any)}>
+                    <View style={{ marginTop: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: '#0064E0' }}>
+                      <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>{L('Mitarbeiter einladen', 'Invite members')}</Text>
+                    </View>
+                  </Pressable>
+                </>
+              ) : (
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#94A3B8' }}>{L('Keine Mitarbeiter gefunden.', 'No employees found.')}</Text>
+              )}
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row' }}>
+              {/* Pinned employee column */}
+              <View style={{ width: EMP_COL_W, borderRightWidth: 1, borderColor: GRID.border, backgroundColor: '#FFFFFF', zIndex: 2 }}>
+                {rows.map(({ model, profile }) =>
+                  profile ? (
                     <Pressable
-                      // Wilson-style: hover over the employee chip on web,
-                      // tap on mobile, to reveal a small info card with
-                      // email / phone / profession. On web we use the
-                      // onHoverIn/Out hooks that RNW exposes on Pressable.
-                      onPress={() => setHoveredEmployee(emp)}
+                      key={model.key}
+                      onPress={() => setHoveredEmployee({ ...profile, phone: profile.phone ?? phoneById.get(profile.id) ?? null })}
                       onHoverIn={() => {
                         if (Platform.OS !== 'web') return
                         if (hoverTimer.current) clearTimeout(hoverTimer.current)
                         hoverTimer.current = setTimeout(
-                          () => setHoveredEmployee(emp),
+                          () => setHoveredEmployee({ ...profile, phone: profile.phone ?? phoneById.get(profile.id) ?? null }),
                           120,
                         )
                       }}
@@ -768,239 +726,92 @@ export default function DashboardScreen() {
                         if (hoverTimer.current) clearTimeout(hoverTimer.current)
                       }}
                       style={{
-                        width: EMP_COL_W,
-                        height: ROW_H,
+                        height: model.height,
                         paddingHorizontal: 10,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: 'transparent',
-                        borderRightWidth: 1,
-                        borderColor: C.border,
+                        paddingVertical: 8,
+                        borderBottomWidth: 1,
+                        borderColor: GRID.borderSoft,
+                        opacity: model.inactive ? 0.75 : 1,
                       }}
                     >
-                      <View
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: 999,
-                          backgroundColor: '#EEF2FF',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginRight: 8,
-                        }}
-                      >
-                        <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 11 }}>
-                          {initials}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text
-                          style={{ fontSize: 12, fontWeight: '900', color: C.text }}
-                          numberOfLines={1}
-                        >
-                          {emp.full_name}
-                        </Text>
-                        <Text
-                          style={{ fontSize: 10, color: C.textFaint, marginTop: 1 }}
-                          numberOfLines={1}
-                        >
-                          {emp.role}
-                        </Text>
-                      </View>
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#0F172A' }} numberOfLines={2}>
+                        {profile.full_name || profile.email || '—'}
+                      </Text>
+                      <Text style={{ fontSize: 10, fontWeight: '600', color: '#94A3B8', marginTop: 2 }} numberOfLines={2}>
+                        {phoneById.get(profile.id) ? `${phoneById.get(profile.id)} · ` : ''}
+                        {model.weekCount} {L('Schicht(en)', 'shift(s)')}
+                        {model.inactive ? ` · ${L('inaktiv', 'inactive')}` : ''}
+                      </Text>
                     </Pressable>
-                    {days.map((d) => {
-                      const cell = cellPlans(emp.id, d)
-                      const cellDate = format(d, 'yyyy-MM-dd')
-                      const todayCol = isToday(d)
-                      return (
-                        <DashboardCell
-                          key={`${emp.id}|${d.toISOString()}`}
-                          plans={cell}
-                          employeeId={emp.id}
-                          date={cellDate}
-                          isToday={todayCol}
-                          onTap={() => onCellTap(emp.id, d, cell)}
-                          onLongPress={() => onCellLongPress(cell)}
-                          isDragTarget={dragOverKey === `${emp.id}|${cellDate}`}
-                          onDragStart={handleDragStart}
-                          onDragOver={handleDragOver}
-                          onDragEnd={handleDragEnd}
-                          onDrop={handleDrop}
-                        />
-                      )
-                    })}
-                  </View>
-                )
-              })}
-
-              {(loadingPlans || loadingProfiles) && filteredEmployees.length === 0 ? (
-                <View style={{ padding: 24, alignItems: 'center' }}>
-                  <ActivityIndicator color="#0064E0" />
-                </View>
-              ) : null}
-
-              {/* Per-day totals row (Wilson-style footer) */}
-              {filteredEmployees.length > 0 && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    borderTopWidth: 2,
-                    borderBottomWidth: 1,
-                    borderColor: C.border,
-                    backgroundColor: C.chrome,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: EMP_COL_W,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderRightWidth: 1,
-                      borderColor: C.border,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 9,
-                        fontWeight: '900',
-                        letterSpacing: 1.4,
-                        textTransform: 'uppercase',
-                        color: C.textFaint,
-                      }}
+                  ) : (
+                    <View
+                      key={model.key}
+                      style={{ height: model.height, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#FFFBEB', borderBottomWidth: 1, borderColor: '#FDE68A' }}
                     >
-                      {L('Schichten / Tag', 'Shifts / day')}
-                    </Text>
-                  </View>
-                  {days.map((d) => {
-                    const key = format(d, 'yyyy-MM-dd')
-                    let count = 0
-                    for (const emp of filteredEmployees) {
-                      count += (byCell.get(`${emp.id}|${key}`) ?? []).filter(planMatchesFilter)
-                        .length
-                    }
-                    const todayCol = isToday(d)
-                    return (
-                      <View
-                        key={`total-${key}`}
-                        style={{
-                          width: DAY_COL_W,
-                          paddingVertical: 12,
-                          alignItems: 'center',
-                          backgroundColor: todayCol ? C.todayBg : 'transparent',
-                          borderRightWidth: 1,
-                          borderColor: C.border,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 16,
-                            fontWeight: '900',
-                            color: count > 0 ? '#D97706' : C.textFaint,
-                          }}
-                        >
-                          {count}
-                        </Text>
-                      </View>
-                    )
-                  })}
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#92400E' }}>{L('Unbesetzt', 'Unassigned')}</Text>
+                      <Text style={{ fontSize: 10, fontWeight: '600', color: '#B45309', marginTop: 2 }}>
+                        {unassignedPlans.length} {L('Schicht(en)', 'shift(s)')}
+                      </Text>
+                    </View>
+                  ),
+                )}
+                <View style={{ height: TOTALS_H, paddingHorizontal: 10, justifyContent: 'center', backgroundColor: GRID.chrome, borderTopWidth: 1, borderColor: GRID.border }}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase', color: '#94A3B8' }} numberOfLines={2}>
+                    {L('Schichten / Tag', 'Shifts / day')}
+                  </Text>
                 </View>
-              )}
-            </View>
-          </ScrollView>
+              </View>
 
-          {/* Summary strip + help text — Wilson's right-rail collapsed for mobile */}
-          <View
-            style={{
-              paddingHorizontal: 20,
-              paddingTop: 12,
-              paddingBottom: 24,
-              flexDirection: 'row',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}
-          >
-            <View
-              style={{
-                flex: 1,
-                minWidth: 140,
-                backgroundColor: C.chrome,
-                borderWidth: 1,
-                borderColor: C.border,
-                borderRadius: 14,
-                padding: 12,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 9,
-                  fontWeight: '900',
-                  letterSpacing: 1.4,
-                  textTransform: 'uppercase',
-                  color: C.textFaint,
-                }}
+              {/* Scrolling day columns */}
+              <Animated.ScrollView
+                horizontal
+                showsHorizontalScrollIndicator
+                onScroll={onGridScroll}
+                scrollEventThrottle={16}
+                style={{ flex: 1 }}
               >
-                {range.startDate} – {range.endDate}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: C.textMuted,
-                  fontWeight: '700',
-                  marginTop: 4,
-                }}
-              >
-                {L('Sichtbarer Zeitraum', 'Visible period')}
-              </Text>
+                <View style={{ width: DAY_COL_W * 7 }}>
+                  {rows.map(({ model }) => (
+                    <WeekGridRow
+                      key={model.key}
+                      row={model}
+                      today={today}
+                      locale={locale}
+                      dragOverDay={dragOverKey && dragOverKey.startsWith(`${model.key}|`) ? dragOverKey.slice(model.key.length + 1) : null}
+                      handlers={handlers}
+                    />
+                  ))}
+                  <View style={{ flexDirection: 'row', height: TOTALS_H, backgroundColor: GRID.chrome, borderTopWidth: 1, borderColor: GRID.border }}>
+                    {dayKeys.map((d, i) => (
+                      <View
+                        key={`total-${d}`}
+                        style={{ width: DAY_COL_W, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderColor: GRID.border, backgroundColor: d === today ? GRID.today : 'transparent' }}
+                      >
+                        <Text style={{ fontSize: 15, fontWeight: '900', color: dayTotals[i] > 0 ? '#0F172A' : '#CBD5E1' }}>{dayTotals[i]}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </Animated.ScrollView>
             </View>
-            <View
-              style={{
-                flex: 1,
-                minWidth: 140,
-                backgroundColor: C.chrome,
-                borderWidth: 1,
-                borderColor: C.border,
-                borderRadius: 14,
-                padding: 12,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 9,
-                  fontWeight: '900',
-                  letterSpacing: 1.4,
-                  textTransform: 'uppercase',
-                  color: C.textFaint,
-                }}
-              >
-                {L('Schichten gesamt', 'Total shifts')}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 18,
-                  color: C.text,
-                  fontWeight: '900',
-                  marginTop: 2,
-                }}
-              >
-                {plans.filter(planMatchesFilter).length}
-              </Text>
-            </View>
-            <View
-              style={{
-                width: '100%',
-                marginTop: 6,
-                backgroundColor: '#FFFBEB',
-                borderWidth: 1,
-                borderColor: '#FEF3C7',
-                borderRadius: 14,
-                padding: 12,
-              }}
-            >
-              <Text style={{ fontSize: 11, color: '#92400E', lineHeight: 16 }} numberOfLines={4}>
+          )}
+
+          {/* [3] Summary + help */}
+          <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32, gap: 10 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748B' }}>
+              {weekPlans.length} {L('Schicht(en) in KW', 'shift(s) in CW')} {isoWeek(weekStart)}
+              {unassignedPlans.length ? (
+                <Text style={{ color: '#B45309', fontWeight: '800' }}>
+                  {' · '}
+                  {unassignedPlans.length} {L('unbesetzt', 'unassigned')}
+                </Text>
+              ) : null}
+            </Text>
+            <View style={{ backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: GRID.border, borderRadius: 16, padding: 12 }}>
+              <Text style={{ fontSize: 12, color: '#475569', lineHeight: 17 }}>
                 {L(
-                  'Tippen Sie auf eine leere Zelle, um eine Schicht anzulegen. Tippen Sie auf eine bestehende für Details. Langes Drücken (oder Drag-and-Drop auf Web): Verschieben, Übertragen, Löschen.',
-                  'Tap an empty cell to assign a shift. Tap an existing cell for detail. Long-press (or drag on web): move, reassign, delete.',
+                  'Leere Zelle antippen: Schicht anlegen (Mitarbeiter und Datum vorausgefüllt). Schicht antippen: Details. Schicht lange drücken (Web: ziehen): umverteilen, verschieben, löschen – mit Warnungen und Benachrichtigung der Mitarbeiter.',
+                  'Tap an empty cell to create a shift (employee and date prefilled). Tap a shift for details. Long-press a shift (web: drag) to reassign, move or delete – with warnings and employee notifications.',
                 )}
               </Text>
             </View>
@@ -1032,12 +843,23 @@ export default function DashboardScreen() {
 
       <ReassignSheet
         visible={reassignOpen}
-        employees={filteredEmployees}
-        currentEmployeeId={actionPlan?.employee_id ?? null}
-        onPick={(id) => {
-          void doReassign(id)
+        plan={actionPlan}
+        initialTarget={reassignTarget}
+        employees={planningEmployees}
+        plans={plans}
+        absences={absences}
+        qualifications={qualifications}
+        onConfirm={async (plan, target, notify) => {
+          const ok = await reassign(plan, target, notify)
+          if (ok) closeActions()
+          return ok
         }}
-        onClose={() => setReassignOpen(false)}
+        onClose={() => {
+          setReassignOpen(false)
+          setReassignTarget(undefined)
+          // Opened by drag & drop: close the whole flow.
+          if (reassignTarget !== undefined) setActionPlan(null)
+        }}
       />
 
       <MoveDateSheet
@@ -1050,6 +872,13 @@ export default function DashboardScreen() {
         onClose={() => setMoveDateOpen(false)}
       />
 
+      <WeekPickerSheet
+        visible={weekPickerOpen}
+        weekStart={weekStart}
+        onPick={jumpTo}
+        onClose={() => setWeekPickerOpen(false)}
+      />
+
       <EmployeeCard
         profile={hoveredEmployee}
         visible={!!hoveredEmployee}
@@ -1059,272 +888,49 @@ export default function DashboardScreen() {
   )
 }
 
-// ─── Cell ─────────────────────────────────────────────────────────────────
+// ─── Toggle chip (web: checkbox) ──────────────────────────────────────────
 
-function DashboardCell({
-  plans,
-  employeeId,
-  date,
-  isToday: isTodayCol,
-  onTap,
-  onLongPress,
-  isDragTarget,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
-  onDrop,
+function ToggleChip({
+  label,
+  value,
+  onChange,
+  icon,
 }: {
-  plans: Plan[]
-  employeeId: string
-  date: string
-  isToday: boolean
-  onTap: () => void
-  onLongPress: () => void
-  isDragTarget: boolean
-  onDragStart: (planId: string, empId: string, d: string) => void
-  onDragOver: (empId: string, d: string) => void
-  onDragEnd: () => void
-  onDrop: (empId: string, d: string) => void
+  label: string
+  value: boolean
+  onChange: (v: boolean) => void
+  icon?: React.ReactNode
 }) {
-  const has = plans.length > 0
-  const first = plans[0]
-  // Shift code (Wilson reference shows codes like "TB-KAW 70200"). Prefer
-  // an explicit start-location short_code; fall back to customer name; then
-  // free-text location.
-  const shiftCode =
-    first?.start_location?.short_code ??
-    first?.customer?.name ??
-    first?.location ??
-    '—'
-  // Secondary location codes — start → destination short codes,
-  // e.g. "DE_K… → DE_R…". Falls back to free-text location.
-  const startLoc = first?.start_location?.short_code ?? ''
-  const destLoc = first?.destination_location?.short_code ?? ''
-  const locLine =
-    startLoc && destLoc && startLoc !== destLoc
-      ? `${startLoc} → ${destLoc}`
-      : startLoc || destLoc || first?.location || ''
-  const time = first
-    ? `${safeFormatTime(first.start_time)}–${safeFormatTime(first.end_time)}`
-    : ''
-  const status = first?.status ?? ''
-  const isCancelled = status === 'cancelled' || status === 'rejected'
-  // Surface a quick conflict signal: overnight shift, missing location, or
-  // an "issue" tag on the plan. Drives the warning triangle.
-  const hasWarning = (() => {
-    if (!first) return false
-    if (isCancelled) return false
-    if (!first.start_location_id && !first.location) return true
-    // Heuristic: end before start without overnight flag → bad data.
-    try {
-      const s = new Date(first.start_time).getTime()
-      const e = new Date(first.end_time).getTime()
-      if (e <= s) return true
-    } catch {}
-    return false
-  })()
-
-  // HTML5 drag-and-drop (web only). RNW forwards unrecognised props to the DOM.
-  const webDragProps =
-    Platform.OS === 'web'
-      ? {
-          draggable: has || undefined,
-          onDragStart: has
-            ? (e: any) => {
-                e.dataTransfer?.setData('text/plain', first!.id)
-                onDragStart(first!.id, employeeId, date)
-              }
-            : undefined,
-          onDragOver: (e: any) => {
-            e.preventDefault()
-            onDragOver(employeeId, date)
-          },
-          onDrop: (e: any) => {
-            e.preventDefault()
-            onDrop(employeeId, date)
-          },
-          onDragEnd,
-        }
-      : {}
-
-  // Cell chrome colours derived from C palette. Today's column gets a
-  // faint sky tint when empty so the vertical "today" line stays visible
-  // even in rows with no shifts.
-  const cellBg = isDragTarget
-    ? C.dragTargetBg
-    : has
-      ? isCancelled
-        ? C.cancelledBg
-        : C.shiftBg
-      : isTodayCol
-        ? '#F0F9FF'
-        : C.bg
-  const cellBorder = isDragTarget ? C.dragTargetBorder : C.borderSoft
-
   return (
-    <Pressable
-      onPress={onTap}
-      onLongPress={onLongPress}
-      delayLongPress={350}
-      {...(webDragProps as any)}
-      style={{ width: DAY_COL_W, height: ROW_H }}
-    >
-      <View
-        style={{
-          width: DAY_COL_W,
-          height: ROW_H,
-          padding: 5,
-          backgroundColor: cellBg,
-          borderRightWidth: 1,
-          borderColor: cellBorder,
-        }}
-      >
-      {has ? (
-        // Wilson cell — top header bar with warning + shift code, then two
-        // location codes side-by-side, then start | end times row.
+    <Pressable onPress={() => onChange(!value)} accessibilityRole="checkbox" accessibilityState={{ checked: value }}>
+      <View style={{ height: 36, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}>
         <View
           style={{
-            flex: 1,
-            backgroundColor: isCancelled ? '#FECACA' : '#D1FAE5',
-            borderRadius: 6,
-            borderWidth: 1,
-            borderColor: isCancelled ? '#F87171' : '#6EE7B7',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Header — warning triangle + shift code */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 4,
-              paddingTop: 3,
-              paddingBottom: 1,
-              gap: 3,
-            }}
-          >
-            {hasWarning ? (
-              <AlertTriangle size={9} color={C.warning} fill={C.warning} />
-            ) : null}
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 10,
-                fontWeight: '900',
-                letterSpacing: -0.2,
-                color: isCancelled ? C.cancelledText : '#0F172A',
-                textDecorationLine: isCancelled ? 'line-through' : 'none',
-              }}
-              numberOfLines={1}
-            >
-              {shiftCode}
-            </Text>
-            {plans.length > 1 ? (
-              <View
-                style={{
-                  backgroundColor: C.shiftAccent,
-                  borderRadius: 999,
-                  paddingHorizontal: 4,
-                  paddingVertical: 0,
-                }}
-              >
-                <Text style={{ fontSize: 7, color: '#FFFFFF', fontWeight: '900' }}>
-                  +{plans.length - 1}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          {/* Two location codes side-by-side — the Wilson signature row */}
-          <View
-            style={{
-              flexDirection: 'row',
-              paddingHorizontal: 4,
-              gap: 4,
-              marginTop: 1,
-            }}
-          >
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 8.5,
-                fontWeight: '800',
-                color: isCancelled ? '#991B1B' : '#0E7490',
-                letterSpacing: 0.1,
-              }}
-              numberOfLines={1}
-            >
-              {startLoc || '—'}
-            </Text>
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 8.5,
-                fontWeight: '800',
-                color: isCancelled ? '#991B1B' : '#0E7490',
-                letterSpacing: 0.1,
-                textAlign: 'right',
-              }}
-              numberOfLines={1}
-            >
-              {destLoc || (startLoc ? '' : '—')}
-            </Text>
-          </View>
-
-          {/* Time row — start | end */}
-          <View
-            style={{
-              marginTop: 'auto',
-              flexDirection: 'row',
-              paddingHorizontal: 4,
-              paddingVertical: 2,
-              gap: 4,
-              backgroundColor: isCancelled ? '#FCA5A5' : '#A7F3D0',
-            }}
-          >
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 9,
-                fontWeight: '900',
-                color: isCancelled ? '#7F1D1D' : '#064E3B',
-              }}
-              numberOfLines={1}
-            >
-              {safeFormatTime(first!.start_time)}
-            </Text>
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 9,
-                fontWeight: '900',
-                color: isCancelled ? '#7F1D1D' : '#064E3B',
-                textAlign: 'right',
-              }}
-              numberOfLines={1}
-            >
-              {safeFormatTime(first!.end_time)}
-            </Text>
-          </View>
-        </View>
-      ) : (
-        <View
-          style={{
-            flex: 1,
+            width: 18,
+            height: 18,
+            borderRadius: 5,
+            borderWidth: 1.5,
+            borderColor: value ? '#0064E0' : '#CBD5E1',
+            backgroundColor: value ? '#0064E0' : '#FFFFFF',
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: 8,
-            borderWidth: 1,
-            borderStyle: 'dashed',
-            borderColor: C.border,
-            backgroundColor: '#FCFCFD',
           }}
         >
-          <Plus size={14} color={C.textFaint} />
+          {value ? <Check size={12} color="#FFFFFF" strokeWidth={3} /> : null}
         </View>
-      )}
+        {icon ? <View style={{ marginLeft: 6 }}>{icon}</View> : null}
+        <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#475569' }}>{label}</Text>
       </View>
     </Pressable>
+  )
+}
+
+function LegendIcon({ icon, label, fg = '#64748B', bg = '#F8FAFC' }: { icon: React.ReactNode; label: string; fg?: string; bg?: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 6, borderWidth: 1, borderColor: bg === '#F8FAFC' ? '#E2E8F0' : bg, backgroundColor: bg, paddingHorizontal: 6, paddingVertical: 2 }}>
+      {icon}
+      <Text style={{ marginLeft: 3, fontSize: 10, lineHeight: 14, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase', color: fg }}>{label}</Text>
+    </View>
   )
 }
 
@@ -1391,11 +997,7 @@ function ActionSheet({
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   if (!plan) return null
-  const title =
-    plan.customer?.name ??
-    plan.start_location?.short_code ??
-    plan.location ??
-    L('Schicht', 'Shift')
+  const title = describePlan(plan)
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -1409,7 +1011,7 @@ function ActionSheet({
           style={{ maxWidth: 520 }}
         >
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-[16px] font-black text-gray-900 dark:text-white" numberOfLines={1}>
+            <Text className="text-[14px] font-black text-gray-900 dark:text-white" numberOfLines={2} style={{ flex: 1, marginRight: 8 }}>
               {title}
             </Text>
             <Pressable onPress={onClose} className="p-1">
@@ -1426,9 +1028,17 @@ function ActionSheet({
             label={L('Bearbeiten', 'Edit')}
             onPress={onEdit}
           />
+          {hasStarted(plan) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 12, padding: 10, marginBottom: 6 }}>
+              <Lock size={14} color="#475569" />
+              <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: '700', color: '#475569', flex: 1 }}>
+                {L('Schicht hat bereits begonnen – Änderungen nur mit Bestätigung.', 'Shift already started – changes need confirmation.')}
+              </Text>
+            </View>
+          )}
           <SheetAction
             icon={<UsersIcon size={18} color="#0064E0" />}
-            label={L('An anderen Mitarbeiter übertragen', 'Reassign to another employee')}
+            label={L('Mitarbeiter ändern (umverteilen)', 'Change employee (reassign)')}
             onPress={onReassign}
           />
           <SheetAction
@@ -1484,81 +1094,6 @@ function SheetAction({
         </Text>
       </View>
     </Pressable>
-  )
-}
-
-function ReassignSheet({
-  visible,
-  employees,
-  currentEmployeeId,
-  onPick,
-  onClose,
-}: {
-  visible: boolean
-  employees: { id: string; full_name: string | null; role: string }[]
-  currentEmployeeId: string | null
-  onPick: (id: string) => void
-  onClose: () => void
-}) {
-  const { locale } = useTranslation()
-  const L = (de: string, en: string) => (locale === 'de' ? de : en)
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 justify-end" onPress={onClose}>
-        <Pressable
-          className="w-full bg-white dark:bg-slate-900 rounded-t-3xl p-5"
-          onPress={(e) => e.stopPropagation()}
-          style={{ maxWidth: 520, maxHeight: '80%' }}
-        >
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-[16px] font-black text-gray-900 dark:text-white">
-              {L('Übertragen an…', 'Reassign to…')}
-            </Text>
-            <Pressable onPress={onClose} className="p-1">
-              <X size={20} color="#94A3B8" />
-            </Pressable>
-          </View>
-          <ScrollView style={{ maxHeight: 400 }}>
-            {employees.map((e) => {
-              const active = e.id === currentEmployeeId
-              return (
-                <Pressable
-                  key={e.id}
-                  onPress={() => onPick(e.id)}
-                >
-                  <View
-                    style={{
-                      paddingVertical: 12,
-                      paddingHorizontal: 4,
-                      borderBottomWidth: 1,
-                      borderColor: '#F1F5F9',
-                      backgroundColor: active ? '#EFF6FF' : 'transparent',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: active ? '900' : '700',
-                        color: active ? '#0064E0' : '#0F172A',
-                      }}
-                      numberOfLines={1}
-                    >
-                      {e.full_name ?? '—'}
-                    </Text>
-                    <Text
-                      style={{ fontSize: 11, color: '#94A3B8', fontWeight: '600', marginTop: 2 }}
-                      numberOfLines={1}
-                    >
-                      {e.role}
-                    </Text>
-                  </View>
-                </Pressable>
-              )
-            })}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
   )
 }
 

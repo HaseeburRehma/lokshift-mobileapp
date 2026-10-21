@@ -1,74 +1,79 @@
 /**
- * First-login onboarding — 3-slide walkthrough then a permissions screen.
- * Mirrors the webapp's app/(auth)/onboarding/page.tsx + WalkthroughCarousel
- * + PermissionsScreen.
+ * First-login onboarding — mirrors the webapp's app/(auth)/onboarding/page.tsx
+ * with WalkthroughCarousel + PermissionsScreen:
+ *
+ *   Walkthrough (3 slides): back chevron · progress pills (w-12 active /
+ *   w-4 gray-100) · square illustration (zoom-in) · 26px extrabold title +
+ *   15px gray-400 body · "Weiter >" (brand) + "Überspringen" (outlined).
+ *
+ *   Permissions: back chevron · 4 progress pills · walkthrough4 illustration ·
+ *   "Benachrichtigungen erlauben" (requests the OS permission, then finishes)
+ *   + "Nicht jetzt" (finishes).
  *
  * Only employees that haven't set profiles.onboarding_completed=true land
  * here — the AuthGuard handles the routing.
  */
 
-import React, { useState } from 'react'
-import { View, Text, Image, Pressable } from 'react-native'
+import React, { useEffect, useRef, useState } from 'react'
+import { View, Text, Image, Pressable, Animated, Easing } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft, Bell, MapPin, CheckCircle2 } from 'lucide-react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ChevronLeft } from 'lucide-react-native'
 import * as Notifications from 'expo-notifications'
 
 import { Screen } from '@/components/Screen'
-import { Button } from '@/components/Button'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
 import { toast } from '@/components/Toast'
+
+const BRAND = '#0064E0'
 
 const SLIDE_ASSETS = [
   require('../assets/walkthrough1.png'),
   require('../assets/walkthrough2.png'),
   require('../assets/walkthrough3.png'),
 ]
+const PERMISSION_ASSET = require('../assets/walkthrough4.png')
 
 export default function OnboardingScreen() {
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { session, refreshProfile } = useUser()
   const router = useRouter()
+  const insets = useSafeAreaInsets()
 
   // 0..2 = walkthrough, 3 = permissions
   const [step, setStep] = useState(0)
-  const [notifGranted, setNotifGranted] = useState(false)
+  const [requesting, setRequesting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Web: illustration "animate-in zoom-in-95 duration-500" on every slide.
+  const imgIn = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    imgIn.setValue(0)
+    Animated.timing(imgIn, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+  }, [step, imgIn])
 
   const SLIDES = [
     { title: t('onboarding.slide1.title'), body: t('onboarding.slide1.body') },
     { title: t('onboarding.slide2.title'), body: t('onboarding.slide2.body') },
     { title: t('onboarding.slide3.title'), body: t('onboarding.slide3.body') },
   ]
+  const onPermissions = step >= SLIDES.length
 
   const next = () => {
     if (step < SLIDES.length - 1) setStep(step + 1)
     else setStep(SLIDES.length) // → permissions
   }
-  const back = () => { if (step > 0) setStep(step - 1) }
-  const skip = () => setStep(SLIDES.length) // jump straight to permissions
-
-  const requestNotifications = async () => {
-    try {
-      // expo-notifications v0.32 changed the response shape from
-      // { status, granted, … } to a richer object — `granted` is the
-      // canonical boolean field on both versions, so we use that.
-      const existing: any = await Notifications.getPermissionsAsync()
-      let granted = !!existing?.granted
-      if (!granted) {
-        const requested: any = await Notifications.requestPermissionsAsync()
-        granted = !!requested?.granted
-      }
-      setNotifGranted(granted)
-    } catch (err) {
-      console.warn('[Onboarding] notifications permission failed:', err)
-    }
+  const back = () => {
+    if (step > 0) setStep(step - 1)
   }
+  // Web: "Skip" completes the carousel and opens the permissions screen.
+  const skip = () => setStep(SLIDES.length)
 
   const finish = async () => {
-    if (!session?.user?.id) return
+    if (!session?.user?.id || submitting) return
     setSubmitting(true)
     try {
       await getSupabase()
@@ -85,156 +90,167 @@ export default function OnboardingScreen() {
     }
   }
 
-  // Walkthrough phase
-  if (step < SLIDES.length) {
-    const slide = SLIDES[step]
-    const asset = SLIDE_ASSETS[step]
-    return (
-      <Screen background="#FFFFFF" noTapToDismiss>
-        {/* Header: back chevron + progress dots */}
-        <View className="flex-row items-center justify-between px-6 pt-4">
-          <View className="w-10">
-            {step > 0 && (
-              <Pressable onPress={back} className="p-2 -ml-2">
-                <ChevronLeft size={22} color="#0064E0" />
+  const allowNotifications = async () => {
+    if (requesting || submitting) return
+    setRequesting(true)
+    try {
+      // expo-notifications v0.32 changed the response shape — `granted`
+      // is the canonical boolean field on both versions.
+      const existing: any = await Notifications.getPermissionsAsync()
+      if (!existing?.granted && existing?.canAskAgain !== false) {
+        await Notifications.requestPermissionsAsync()
+      }
+    } catch (err) {
+      console.warn('[Onboarding] notifications permission failed:', err)
+    } finally {
+      setRequesting(false)
+      // Web: finishes onboarding regardless of the user's choice.
+      finish()
+    }
+  }
+
+  const slide = onPermissions ? null : SLIDES[step]
+  const asset = onPermissions ? PERMISSION_ASSET : SLIDE_ASSETS[step]
+  const title = onPermissions
+    ? L('Bleiben Sie informiert mit Push-Benachrichtigungen', 'Stay Informed with Push Notification')
+    : slide?.title ?? ''
+  const body = onPermissions ? t('onboarding.permissions.notifications_body') : slide?.body ?? ''
+
+  const primaryLabel = onPermissions
+    ? requesting
+      ? L('Wird angefragt…', 'Requesting...')
+      : submitting
+        ? t('common.loading')
+        : L('Benachrichtigungen erlauben', 'Allow Notifications')
+    : step === SLIDES.length - 1
+      ? `${t('onboarding.start')} >`
+      : `${t('onboarding.next')} >`
+  const secondaryLabel = onPermissions ? L('Nicht jetzt', 'Not Now') : t('onboarding.skip')
+  const busy = requesting || submitting
+
+  return (
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <View style={{ flex: 1, width: '100%', maxWidth: 448, alignSelf: 'center' }}>
+        {/* Header & progress */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 16 }}>
+          <View style={{ width: 40 }}>
+            {step > 0 ? (
+              <Pressable
+                onPress={onPermissions ? () => setStep(SLIDES.length - 1) : back}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel={L('Zurück', 'Back')}
+                style={{ padding: 8, marginLeft: -8, borderRadius: 999 }}
+              >
+                <ChevronLeft size={24} color={BRAND} />
               </Pressable>
-            )}
+            ) : null}
           </View>
-          <View className="flex-row items-center gap-2">
-            {SLIDES.map((_, i) => (
-              <View
-                key={i}
-                className="h-1.5 rounded-full"
-                style={{
-                  width: i === step ? 48 : 16,
-                  backgroundColor: i === step ? '#0064E0' : '#E5E7EB',
-                }}
-              />
-            ))}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {(onPermissions ? [0, 1, 2, 3] : SLIDES.map((_, i) => i)).map((i) => {
+              const active = onPermissions ? i === 3 : i === step
+              return (
+                <View
+                  key={i}
+                  style={{
+                    height: 6,
+                    borderRadius: 999,
+                    width: onPermissions || active ? 48 : 16,
+                    backgroundColor: active ? BRAND : '#F3F4F6',
+                  }}
+                />
+              )
+            })}
           </View>
-          <View className="w-10" />
+          <View style={{ width: 40 }} />
         </View>
 
         {/* Illustration */}
-        <View className="flex-1 items-center justify-center px-8">
-          <Image
-            source={asset}
-            resizeMode="contain"
-            style={{ width: '100%', aspectRatio: 1 }}
-          />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+          <Animated.View
+            style={{
+              width: '100%',
+              aspectRatio: 1,
+              maxHeight: '100%',
+              opacity: imgIn,
+              transform: [{ scale: imgIn.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) }],
+            }}
+          >
+            <Image source={asset} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+          </Animated.View>
         </View>
 
-        {/* Text */}
-        <View className="px-10 pb-8 items-center">
-          <Text className="text-[24px] font-black text-gray-900 dark:text-white text-center tracking-tight leading-tight mb-2">
-            {slide.title}
+        {/* Text content */}
+        <View style={{ paddingHorizontal: 40, paddingBottom: 32, alignItems: 'center' }}>
+          <Text
+            style={{
+              fontSize: 26,
+              lineHeight: 32,
+              fontWeight: '800',
+              color: '#111827',
+              textAlign: 'center',
+              letterSpacing: -0.4,
+              marginBottom: 12,
+            }}
+          >
+            {title}
           </Text>
-          <Text className="text-[14px] text-gray-400 dark:text-slate-500 text-center font-medium px-2 leading-relaxed">
-            {slide.body}
+          <Text
+            style={{
+              fontSize: 15,
+              lineHeight: 24,
+              fontWeight: '500',
+              color: '#9CA3AF',
+              textAlign: 'center',
+              paddingHorizontal: 8,
+            }}
+          >
+            {body}
           </Text>
         </View>
 
         {/* Actions */}
-        <View className="px-6 pb-8 space-y-3">
-          <Button
-            label={step === SLIDES.length - 1 ? t('onboarding.start') : t('onboarding.next')}
-            onPress={next}
-            size="lg"
-          />
-          {step < SLIDES.length - 1 && (
-            <Pressable onPress={skip} className="h-12 items-center justify-center">
-              <Text className="text-brand text-[14px] font-bold">{t('onboarding.skip')}</Text>
-            </Pressable>
-          )}
+        <View style={{ paddingHorizontal: 32, paddingBottom: Math.max(insets.bottom, 16) + 24, gap: 12 }}>
+          <Pressable
+            onPress={onPermissions ? allowNotifications : next}
+            disabled={busy}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              height: 56,
+              borderRadius: 12,
+              backgroundColor: pressed ? '#0050B3' : BRAND,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: busy ? 0.5 : 1,
+              transform: [{ scale: pressed ? 0.98 : 1 }],
+              shadowColor: '#3B82F6',
+              shadowOpacity: 0.2,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 3,
+            })}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>{primaryLabel}</Text>
+          </Pressable>
+          <Pressable
+            onPress={onPermissions ? finish : skip}
+            disabled={busy}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              height: 56,
+              borderRadius: 12,
+              borderWidth: 2,
+              borderColor: '#EBF2FF',
+              backgroundColor: pressed ? '#EFF6FF' : '#FFFFFF',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: busy ? 0.5 : 1,
+            })}
+          >
+            <Text style={{ color: BRAND, fontSize: 16, fontWeight: '700' }}>{secondaryLabel}</Text>
+          </Pressable>
         </View>
-      </Screen>
-    )
-  }
-
-  // Permissions phase
-  return (
-    <Screen background="#FFFFFF" noTapToDismiss>
-      <View className="flex-row items-center px-6 pt-4">
-        <Pressable onPress={() => setStep(SLIDES.length - 1)} className="p-2 -ml-2">
-          <ChevronLeft size={22} color="#0064E0" />
-        </Pressable>
-      </View>
-
-      <View className="flex-1 px-8 pt-4">
-        <Text className="text-[26px] font-black text-gray-900 dark:text-white tracking-tight">
-          {t('onboarding.permissions.title')}
-        </Text>
-        <Text className="text-[14px] text-gray-500 dark:text-slate-400 mt-2 mb-8">
-          {t('onboarding.permissions.body')}
-        </Text>
-
-        <PermissionRow
-          icon={<Bell size={22} color="#0064E0" />}
-          title={t('onboarding.permissions.notifications')}
-          body={t('onboarding.permissions.notifications_body')}
-          granted={notifGranted}
-          onPress={requestNotifications}
-        />
-
-        {/* Location row — informational only; actually requesting the
-            permission requires expo-location which isn't installed in
-            v1. We surface it here so the user knows the app will ask
-            again later when needed. */}
-        <PermissionRow
-          icon={<MapPin size={22} color="#0064E0" />}
-          title={t('onboarding.permissions.location')}
-          body={t('onboarding.permissions.location_body')}
-          granted={false}
-          onPress={() => toast.info(L('Wird beim Ein-/Ausstempeln angefordert.', "Asked when clocking in/out."))}
-          subtle
-        />
-      </View>
-
-      <View className="px-6 pb-8">
-        <Button
-          label={submitting ? t('common.loading') : t('onboarding.finish')}
-          onPress={finish}
-          loading={submitting}
-          size="lg"
-        />
       </View>
     </Screen>
-  )
-}
-
-function PermissionRow({
-  icon, title, body, granted, onPress, subtle,
-}: {
-  icon: React.ReactNode
-  title: string
-  body: string
-  granted: boolean
-  onPress: () => void
-  subtle?: boolean
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl p-4 flex-row items-center mb-3 active:bg-gray-50 dark:bg-slate-950"
-    >
-      <View className="w-12 h-12 rounded-2xl bg-brand/10 dark:bg-brand/20 items-center justify-center mr-3">
-        {icon}
-      </View>
-      <View className="flex-1">
-        <Text className="text-[14px] font-black text-gray-900 dark:text-white">{title}</Text>
-        <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">{body}</Text>
-      </View>
-      {granted ? (
-        <View className="w-8 h-8 rounded-full bg-emerald-50 items-center justify-center">
-          <CheckCircle2 size={20} color="#10B981" />
-        </View>
-      ) : (
-        <View className="px-3 py-1.5 rounded-full bg-brand/10 dark:bg-brand/20">
-          <Text className="text-brand text-[11px] font-bold">
-            {subtle ? 'Later' : 'Allow'}
-          </Text>
-        </View>
-      )}
-    </Pressable>
   )
 }

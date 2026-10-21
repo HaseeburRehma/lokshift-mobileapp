@@ -20,6 +20,7 @@
 
 import React from 'react'
 import { View, Text, Pressable } from 'react-native'
+import { router } from 'expo-router'
 
 import { captureError } from '@/lib/monitoring'
 
@@ -49,6 +50,17 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   reset = () => this.setState({ error: null })
+
+  /** A screen that crashes on every render would crash again after a plain
+   *  retry — leave it for the home screen first. */
+  goHome = () => {
+    try {
+      router.replace('/(tabs)/home')
+    } catch {
+      // Navigation not ready (root boundary) — a plain reset is all we can do.
+    }
+    this.setState({ error: null })
+  }
 
   render() {
     if (!this.state.error) return this.props.children
@@ -98,10 +110,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         >
           Der Fehler wurde an das LokShift-Team gemeldet. Sie können diese Seite neu laden oder die App neu starten.
         </Text>
-        <Pressable
-          onPress={this.reset}
-          accessibilityLabel="Erneut versuchen"
-        >
+        <Pressable onPress={this.goHome} accessibilityLabel="Zur Startseite" style={{ marginBottom: 12 }}>
           <View
             style={{
               backgroundColor: '#0064E0',
@@ -110,7 +119,23 @@ export class ErrorBoundary extends React.Component<Props, State> {
               borderRadius: 16,
             }}
           >
-            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14 }}>
+            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14 }}>Zur Startseite</Text>
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={this.reset}
+          accessibilityLabel="Erneut versuchen"
+        >
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: '#CBD5E1',
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              borderRadius: 16,
+            }}
+          >
+            <Text style={{ color: '#334155', fontWeight: '800', fontSize: 14 }}>
               Erneut versuchen
             </Text>
           </View>

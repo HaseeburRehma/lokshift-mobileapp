@@ -11,7 +11,6 @@ import { ChevronLeft, PenSquare } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
 import { PlanForm } from '@/components/forms/PlanForm'
-import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { canCreatePlans } from '@/lib/rbac/permissions'
@@ -70,6 +69,9 @@ export default function EditPlanScreen() {
     return (
       <Screen className="items-center justify-center" noTapToDismiss>
         <ActivityIndicator color="#0064E0" />
+        <Text style={{ marginTop: 10, fontSize: 10, fontWeight: '900', letterSpacing: 1.4, textTransform: 'uppercase', color: '#94A3B8' }}>
+          {L('Plan wird geladen …', 'Loading plan …')}
+        </Text>
       </Screen>
     )
   }
@@ -77,42 +79,57 @@ export default function EditPlanScreen() {
   if (notFound || !plan) {
     return (
       <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
-          {L('Plan nicht gefunden.', 'Plan not found.')}
+        <Text style={{ fontSize: 22, fontWeight: '900', color: '#0F172A', textAlign: 'center' }}>
+          {L('Plan nicht gefunden', 'Plan not found')}
         </Text>
+        <Pressable onPress={() => router.replace('/plans')} style={{ marginTop: 12 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#64748B' }}>← {L('Zurück zu Plänen', 'Back to Plans')}</Text>
+        </Pressable>
       </Screen>
     )
   }
 
   return (
-    <Screen className="bg-gray-50 dark:bg-slate-950" background="#F9FAFB" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16 }}>
+        <Pressable onPress={goBack} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', height: 40, marginLeft: -6 }}>
+          <ChevronLeft size={18} color="#64748B" />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#64748B', marginLeft: 2 }}>{L('Zurück', 'Back')}</Text>
         </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Plan bearbeiten', 'Edit plan')}
-        </Text>
-      </View>
-
-      <View className="flex-row items-center px-5 mb-2">
-        <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-          <PenSquare size={24} color="#fff" />
-        </View>
-        <View className="flex-1">
-          <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-            {L('Schicht anpassen', 'Update shift')}
-          </Text>
-          <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-            {L('Einsatzdetails aktualisieren', 'Update assignment details')}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 24,
+              backgroundColor: '#2563EB',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 14,
+              shadowColor: '#2563EB',
+              shadowOpacity: 0.25,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 4,
+            }}
+          >
+            <PenSquare size={24} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 24, fontWeight: '900', letterSpacing: -0.4, color: '#111827', lineHeight: 28 }}>
+              {L('Plan bearbeiten', 'Edit Plan')}
+            </Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: '#9CA3AF', marginTop: 4 }}>
+              {L('Einsatzdetails aktualisieren', 'Update assignment details')}
+            </Text>
+          </View>
         </View>
       </View>
 
       <PlanForm
         initialPlan={plan}
         onSuccess={() => {
-          toast.success(L('Plan gespeichert', 'Plan saved'))
+          // PlanForm already shows the "Plan gespeichert" toast.
           router.replace(`/plans/${plan.id}`)
         }}
       />

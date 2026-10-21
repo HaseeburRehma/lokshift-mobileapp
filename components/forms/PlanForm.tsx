@@ -6,9 +6,10 @@
  */
 
 import React, { useState } from 'react'
-import { View, Text, ScrollView, Pressable, Switch } from 'react-native'
+import { View, Text, ScrollView, Pressable, Switch, TextInput } from 'react-native'
 import { useRouter } from 'expo-router'
 import { format } from 'date-fns'
+import { ArrowDown, ArrowRight, Check, Hotel, Moon, Pencil, Users as UsersIcon } from 'lucide-react-native'
 
 import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
@@ -21,7 +22,10 @@ import { ShiftTemplatePicker } from '@/components/forms/ShiftTemplatePicker'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
-import { calculateShiftTimes } from '@/lib/time/shift-hours'
+import { calculateShiftTimes, isValidDate, isValidTime, localDateKey } from '@/lib/time/shift-hours'
+import { formatDateDE, formatEuro } from '@/lib/time/format'
+import { useOrgRules } from '@/hooks/useOrgRules'
+import { notifyPlanAssigned, notifyPlanChanged, notifyPlanRemoved } from '@/lib/plans/notify'
 import type { Plan } from '@/lib/types'
 
 interface PlanFormProps {
@@ -40,8 +44,11 @@ function timeFromIso(iso: string): string {
 }
 
 function dateFromIso(iso: string): string {
-  return iso.slice(0, 10)
+  return localDateKey(new Date(iso))
 }
+
+const PLAN_JOINS =
+  '*, customer:customers(name), start_location:operational_locations!start_location_id(name, short_code), destination_location:operational_locations!destination_location_id(name, short_code)'
 
 export function PlanForm({
   initialPlan,
@@ -55,6 +62,7 @@ export function PlanForm({
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const router = useRouter()
   const { profile, session } = useUser()
+  const { spesenRates } = useOrgRules()
 
   const [date, setDate] = useState(
     initialPlan
@@ -75,6 +83,7 @@ export function PlanForm({
   const [customerId, setCustomerId] = useState(initialPlan?.customer_id ?? '')
   const [location, setLocation] = useState(initialPlan?.location ?? '')
   const [route, setRoute] = useState(initialPlan?.route ?? '')
+  const [shiftName, setShiftName] = useState(initialPlan?.shift_name ?? '')
   const [notes, setNotes] = useState(initialPlan?.notes ?? '')
   const [startLocationId, setStartLocationId] = useState(initialPlan?.start_location_id ?? '')
   const [destinationLocationId, setDestinationLocationId] = useState(
@@ -86,33 +95,52 @@ export function PlanForm({
   const [saving, setSaving] = useState(false)
 
   const submit = async () => {
-    if (!employeeId) {
-      toast.error(L('Bitte einen Mitarbeiter auswählen.', 'Pick an employee.'))
-      return
-    }
-    if (!date || !startTime || !endTime) {
+    // Validate before anything is saved or anyone is notified.
+    const dateValue = date.trim()
+    const startValue = startTime.trim()
+    const endValue = endTime.trim()
+    if (!dateValue || !startValue || !endValue) {
       toast.error(L('Datum und Zeiten sind erforderlich.', 'Date and times are required.'))
       return
     }
-    if (overnightStay && !hotelAddress.trim()) {
-      toast.error(L('Bitte Hoteladresse angeben.', 'Hotel address required for overnight stay.'))
+    // isValidDate only checks the shape — also reject 2026-02-31 & co.
+    const [yy, mm, dd] = dateValue.split('-').map(Number)
+    if (!isValidDate(dateValue) || localDateKey(new Date(yy, mm - 1, dd)) !== dateValue) {
+      toast.error(L('Bitte ein gültiges Datum im Format JJJJ-MM-TT angeben.', 'Please enter a valid date (YYYY-MM-DD).'))
       return
     }
+    if (!isValidTime(startValue) || !isValidTime(endValue)) {
+      toast.error(L('Bitte gültige Zeiten im Format HH:MM angeben (00:00–23:59).', 'Please enter valid times (HH:MM, 00:00–23:59).'))
+      return
+    }
+    const shift = calculateShiftTimes(dateValue, startValue, endValue, 0)
+    if (!(shift.grossHours > 0)) {
+      toast.error(L('Die Schicht dauert 0 Stunden – Start- und Endzeit dürfen nicht gleich sein.', 'The shift lasts 0 hours – start and end time must differ.'))
+      return
+    }
+    // Hotel address is optional with "Übernachtung" (same as the webapp).
     if (!profile?.organization_id || !session?.user?.id) return
 
     setSaving(true)
     try {
-      const shift = calculateShiftTimes(date, startTime, endTime, 0)
 
       if (isEditing && initialPlan) {
         const supabase = getSupabase()
-        const { error } = await supabase
+        const newEmployeeId = employeeId || null
+        const employeeChanged = newEmployeeId !== initialPlan.employee_id
+        const timeChanged =
+          shift.startISO !== new Date(initialPlan.start_time).toISOString() ||
+          shift.endISO !== new Date(initialPlan.end_time).toISOString()
+        const { data: updated, error } = await supabase
           .from('plans')
           .update({
-            employee_id: employeeId,
+            employee_id: newEmployeeId,
+            // A changed assignment or time must be confirmed again.
+            ...(employeeChanged || timeChanged ? { status: 'assigned', rejection_reason: null } : {}),
             customer_id: customerId || null,
             start_time: shift.startISO,
             end_time: shift.endISO,
+            shift_name: shiftName.trim() || null,
             route: route || null,
             location: location || null,
             notes: notes || null,
@@ -124,24 +152,20 @@ export function PlanForm({
             updated_at: new Date().toISOString(),
           } as any)
           .eq('id', initialPlan.id)
+          .select(PLAN_JOINS)
+          .single()
 
         if (error) throw error
 
-        if (employeeId !== initialPlan.employee_id) {
-          try {
-            await supabase.from('notifications').insert({
-              user_id: employeeId,
-              title: '📋 Schicht aktualisiert',
-              body: L(
-                `Schicht am ${format(new Date(shift.startISO), 'dd.MM.yyyy HH:mm')}`,
-                `Shift on ${format(new Date(shift.startISO), 'MMM dd yyyy HH:mm')}`,
-              ),
-              type: 'plans',
-              is_read: false,
-            } as any)
-          } catch (e) {
-            console.warn('[PlanForm] notification insert failed (non-fatal):', e)
+        try {
+          if (employeeChanged) {
+            if (initialPlan.employee_id) await notifyPlanRemoved(updated as any, initialPlan.employee_id)
+            if (newEmployeeId) await notifyPlanAssigned(updated as any, newEmployeeId)
+          } else if (timeChanged && newEmployeeId) {
+            await notifyPlanChanged(updated as any, newEmployeeId, initialPlan)
           }
+        } catch (e) {
+          console.warn('[PlanForm] notification failed (non-fatal):', e)
         }
 
         toast.success(L('Plan gespeichert', 'Plan saved'))
@@ -153,12 +177,13 @@ export function PlanForm({
       const payload: Record<string, unknown> = {
         organization_id: profile.organization_id,
         creator_id: session.user.id,
-        employee_id: employeeId,
+        employee_id: employeeId || null,
         start_time: shift.startISO,
         end_time: shift.endISO,
         status: 'assigned',
         customer_id: customerId || null,
         location: location || null,
+        shift_name: shiftName.trim() || null,
         route: route || null,
         notes: notes || null,
         start_location_id: startLocationId || null,
@@ -172,24 +197,17 @@ export function PlanForm({
       const { data, error } = await supabase
         .from('plans')
         .insert(payload as any)
-        .select()
+        .select(PLAN_JOINS)
         .single()
 
       if (error) throw error
 
-      try {
-        await supabase.from('notifications').insert({
-          user_id: employeeId,
-          title: '📋 Neue Schicht zugewiesen',
-          body: L(
-            `Schicht am ${format(new Date(shift.startISO), 'dd.MM.yyyy HH:mm')}`,
-            `Shift on ${format(new Date(shift.startISO), 'MMM dd yyyy HH:mm')}`,
-          ),
-          type: 'plans',
-          is_read: false,
-        } as any)
-      } catch (e) {
-        console.warn('[PlanForm] notification insert failed (non-fatal):', e)
+      if (employeeId) {
+        try {
+          await notifyPlanAssigned(data as any, employeeId)
+        } catch (e) {
+          console.warn('[PlanForm] notification failed (non-fatal):', e)
+        }
       }
 
       toast.success(L('Plan erstellt', 'Plan created'))
@@ -225,138 +243,274 @@ export function PlanForm({
     toast.success(L(`Vorlage „${tpl.name}" angewendet`, `Template "${tpl.name}" applied`))
   }
 
+  // Snapshot for "Als Vorlage speichern" (web buildTemplatePayload).
+  const templatePayload = () => ({
+    customer_id: customerId || null,
+    start_time: startTime,
+    end_time: endTime,
+    duration_days: 1,
+    route: route || null,
+    location: location || null,
+    overnight_stay: overnightStay,
+    hotel_address: overnightStay ? hotelAddress || null : null,
+    notes: notes || null,
+  })
+
+  // Night shift hint — same rule the save uses (end before start = next day).
+  const shiftPreview = calculateShiftTimes(date, startTime, endTime, 0)
+
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
       {!isEditing && (
-        <Card className="mb-3">
-          <ShiftTemplatePicker onSelect={applyTemplate} />
-        </Card>
+        <View style={{ borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', backgroundColor: '#F8FAFC', padding: 14, marginBottom: 12 }}>
+          <ShiftTemplatePicker onSelect={applyTemplate} getCurrentPayload={templatePayload} />
+        </View>
       )}
 
-      <Card className="mb-3 space-y-4">
-        <EmployeePicker mode="single" value={employeeId} onChange={setEmployeeId} />
-        <FormField
-          label={t('times.date')}
-          value={date}
-          onChangeText={setDate}
-          placeholder="YYYY-MM-DD"
-        />
-        <View className="flex-row gap-3">
-          <View className="flex-1">
-            <FormField
-              label={t('times.start')}
-              value={startTime}
-              onChangeText={setStartTime}
-              placeholder="08:00"
-            />
-          </View>
-          <View className="flex-1">
-            <FormField
-              label={t('times.end')}
-              value={endTime}
-              onChangeText={setEndTime}
-              placeholder="16:00"
-            />
-          </View>
+      {/* Zuweisung — Personal & Kunden */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Zuweisung', 'Assignment')} subtitle={L('Personal & Kunden', 'Personnel & Clients')} />
+        <View className="space-y-4">
+          <EmployeePicker mode="single" value={employeeId} onChange={setEmployeeId} />
+          {!employeeId ? (
+            <Text className="text-[11px] font-semibold text-amber-700">
+              {L('Ohne Auswahl wird die Schicht als „unbesetzt“ gespeichert.', 'Without a selection the shift is saved as unassigned.')}
+            </Text>
+          ) : null}
+          <CustomerPicker value={customerId} onChange={setCustomerId} label={L('Kunde / Projekt', 'Customer / Project')} />
         </View>
-        <CustomerPicker value={customerId} onChange={setCustomerId} />
       </Card>
 
-      <Card className="mb-3 space-y-4">
+      {/* Logistik — Routen & Koordinaten */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Logistik', 'Logistics')} subtitle={L('Routen & Koordinaten', 'Routes & Coordinates')} />
+        <View className="space-y-4">
+          <FormField
+            label={L('Schichtbezeichnung', 'Shift name')}
+            value={shiftName}
+            onChangeText={setShiftName}
+            placeholder={L('z. B. D-ZILB SN 2', 'e.g. D-ZILB SN 2')}
+          />
+          <FormField
+            label={L('Strecke / Route (optional)', 'Route (optional)')}
+            value={route}
+            onChangeText={setRoute}
+            placeholder={L('z. B. Frankfurt Hbf — Nachtschicht', 'e.g. Frankfurt Main Hub - Night Shift')}
+          />
+          <FormField
+            label={L('Physischer Standort (optional)', 'Physical Location (optional)')}
+            value={location}
+            onChangeText={setLocation}
+            placeholder={L('Straße oder GPS-Koordinaten', 'Street Address or GPS Coordinates')}
+          />
+        </View>
+      </Card>
+
+      {/* Start- & Zielort — Betriebsstellen · Fahrtart */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Start- & Zielort', 'Start & Destination')} subtitle={L('Betriebsstellen · Fahrtart', 'Operational Locations · Travel Mode')} />
         <OperationalLocationPicker
           value={startLocationId}
+          excludeId={destinationLocationId || null}
           onChange={setStartLocationId}
           label={L('Startort', 'Start location')}
         />
+        <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+          <ArrowDown size={16} color="#CBD5E1" />
+        </View>
         <OperationalLocationPicker
           value={destinationLocationId}
+          excludeId={startLocationId || null}
           onChange={setDestinationLocationId}
           label={L('Zielort', 'Destination')}
         />
-        <FormField
-          label={L('Strecke', 'Route')}
-          value={route}
-          onChangeText={setRoute}
-          placeholder={L('z. B. Köln – Aachen', 'e.g. Köln – Aachen')}
+        <ToggleCard
+          icon={<UsersIcon size={18} color="#2563EB" />}
+          title={L('Gastfahrt', 'Passenger Travel (Gastfahrt)')}
+          subtitle={L('Mitarbeiter reist als Beifahrer (kein aktives Fahren)', 'Employee travels as passenger (not driving)')}
+          value={isGastfahrt}
+          onChange={setIsGastfahrt}
         />
-        <FormField label={t('times.location')} value={location} onChangeText={setLocation} />
       </Card>
 
-      <Card className="mb-3 space-y-4">
-        <View className="flex-row items-center justify-between">
-          <View className="flex-1 pr-3">
-            <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-              {L('Gastfahrt (Mitfahrer)', 'Guest ride (passenger)')}
-            </Text>
-            <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L('Stunden werden separat ausgewiesen.', 'Hours are reported separately.')}
-            </Text>
-          </View>
-          <Switch
-            value={isGastfahrt}
-            onValueChange={setIsGastfahrt}
-            trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
+      {/* Zeitplan — Einsatzfenster */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Zeitplan', 'Timeline')} subtitle={L('Einsatzfenster', 'Operational Window')} />
+        <View className="space-y-4">
+          <FormField
+            label={L('Startdatum', 'Start date')}
+            value={date}
+            onChangeText={setDate}
+            placeholder={L('JJJJ-MM-TT', 'YYYY-MM-DD')}
+            keyboardType="numbers-and-punctuation"
           />
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <FormField
+                label={L('Startzeit', 'Start time')}
+                value={startTime}
+                onChangeText={setStartTime}
+                placeholder="08:00"
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+            <View className="flex-1">
+              <FormField
+                label={L('Endzeit', 'End time')}
+                value={endTime}
+                onChangeText={setEndTime}
+                placeholder="16:00"
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
+          </View>
         </View>
-
-        <View className="flex-row items-center justify-between">
-          <View className="flex-1 pr-3">
-            <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-              {t('times.overnight')}
-            </Text>
-            <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+        {shiftPreview.isOvernight ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E0E7FF', backgroundColor: '#EEF2FF', paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Moon size={15} color="#4338CA" />
+            <Text style={{ marginLeft: 8, flex: 1, fontSize: 12, fontWeight: '700', color: '#4338CA' }}>
               {L(
-                'Löst die volle Verpflegungspauschale aus.',
-                'Triggers the full per-diem rate.',
+                `Nachtschicht – Ende am Folgetag (${formatDateDE(shiftPreview.endDate)})`,
+                `Night shift – ends next day (${shiftPreview.endDate})`,
               )}
             </Text>
           </View>
-          <Switch
-            value={overnightStay}
-            onValueChange={setOvernightStay}
-            trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
-          />
-        </View>
-
-        {overnightStay && (
-          <FormField
-            label={t('times.hotel')}
-            value={hotelAddress}
-            onChangeText={setHotelAddress}
-            placeholder={L('Adresse oder Hotelname', 'Address or hotel name')}
-          />
-        )}
+        ) : null}
+        {showBulkCta && !isEditing ? (
+          <Pressable onPress={() => router.push('/plans/bulk')} style={{ marginTop: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 16, borderWidth: 1, borderColor: '#DBEAFE', backgroundColor: '#F5F9FF', padding: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F172A' }}>{L('Täglich wiederholen / mehrere zuweisen', 'Repeat daily / assign multiple')}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: 2 }}>
+                  {L('Mehrere Tage und Mitarbeiter auf einmal anlegen', 'Create for several days and employees at once')}
+                </Text>
+              </View>
+              <ArrowRight size={16} color="#0064E0" />
+            </View>
+          </Pressable>
+        ) : null}
       </Card>
 
-      <Card className="mb-3">
-        <FormField label={t('times.notes')} value={notes} onChangeText={setNotes} multiline />
+      {/* Notizen — Einsatzhinweise */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Notizen', 'Mission Notes')} subtitle={L('Einsatzhinweise', 'Operational Directives')} />
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+          placeholder={L(
+            'Ausführliche Einsatzanweisungen, Sicherheitshinweise oder interne Hinweise…',
+            'Detailed deployment instructions, safety protocols, or internal reminders...',
+          )}
+          placeholderTextColor="#9CA3AF"
+          style={{
+            minHeight: 120,
+            borderRadius: 16,
+            borderWidth: 2,
+            borderColor: '#F1F5F9',
+            backgroundColor: '#F9FAFB',
+            padding: 14,
+            fontSize: 14,
+            fontWeight: '500',
+            lineHeight: 20,
+            color: '#111827',
+            textAlignVertical: 'top',
+          }}
+        />
       </Card>
 
-      {showBulkCta && !isEditing && (
-        <View className="flex-row gap-3 mt-2">
-          <View className="flex-1">
-            <Button
-              label={L('Mehrere Tage / Mitarbeiter', 'Bulk create')}
-              variant="secondary"
-              onPress={() => router.push('/plans/bulk')}
+      {/* Übernachtung & Spesen — Auswärtstätigkeit */}
+      <Card style={{ borderColor: '#F1F5F9', marginBottom: 12 }}>
+        <SectionHeader title={L('Übernachtung & Spesen', 'Overnight & Allowance')} subtitle={L('Auswärtstätigkeit', 'Away-from-home trip')} />
+        <ToggleCard
+          icon={<Moon size={18} color="#2563EB" />}
+          title={L('Übernachtung erforderlich', 'Requires overnight stay')}
+          subtitle={L(
+            `Voller Spesensatz (${formatEuro(spesenRates.full, 'de')}) wird automatisch angewendet`,
+            `Full allowance (${formatEuro(spesenRates.full, 'en')}) auto-applied`,
+          )}
+          value={overnightStay}
+          onChange={setOvernightStay}
+          noMargin
+        />
+        {overnightStay ? (
+          <View style={{ marginTop: 14 }}>
+            <FormField
+              label={L('Hoteladresse', 'Hotel Address')}
+              value={hotelAddress}
+              onChangeText={setHotelAddress}
+              placeholder={L('Hotel oder Unterkunft', 'Hotel or lodging')}
+              leftIcon={<Hotel size={16} color="#2563EB" />}
             />
           </View>
-        </View>
-      )}
+        ) : null}
+      </Card>
 
-      <Button
-        label={
-          saving
-            ? t('common.loading')
-            : isEditing
-              ? L('Änderungen speichern', 'Save changes')
-              : L('Plan erstellen', 'Create plan')
-        }
-        onPress={submit}
-        loading={saving}
-        size="lg"
-        style={{ marginTop: 12 }}
-      />
+      {/* Action bar — Verwerfen · Plan erstellen / Änderungen speichern */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 }}>
+        <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/plans'))} disabled={saving}>
+          <View style={{ height: 56, paddingHorizontal: 18, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 14, fontWeight: '500', color: '#64748B' }}>{L('Verwerfen', 'Discard')}</Text>
+          </View>
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Button
+            label={
+              saving
+                ? isEditing
+                  ? L('Speichern…', 'Saving...')
+                  : L('Erstellen…', 'Creating...')
+                : isEditing
+                  ? L('Änderungen speichern', 'Save changes')
+                  : L('Plan erstellen', 'Create plan')
+            }
+            onPress={submit}
+            loading={saving}
+            size="lg"
+            leftIcon={isEditing ? <Pencil size={18} color="#fff" /> : <Check size={20} color="#fff" />}
+          />
+        </View>
+      </View>
     </ScrollView>
+  )
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <View style={{ borderLeftWidth: 4, borderColor: '#0064E0', paddingLeft: 12, marginBottom: 16 }}>
+      <Text style={{ fontSize: 19, fontWeight: '600', color: '#0064E0', lineHeight: 22 }}>{title}</Text>
+      <Text style={{ fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: 4, letterSpacing: 0.3 }}>{subtitle}</Text>
+    </View>
+  )
+}
+
+function ToggleCard({
+  icon,
+  title,
+  subtitle,
+  value,
+  onChange,
+  noMargin,
+}: {
+  icon: React.ReactNode
+  title: string
+  subtitle: string
+  value: boolean
+  onChange: (v: boolean) => void
+  noMargin?: boolean
+}) {
+  return (
+    <Pressable onPress={() => onChange(!value)} style={{ marginTop: noMargin ? 0 : 14 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', backgroundColor: '#F8FAFC', padding: 14 }}>
+        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+          {icon}
+        </View>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F172A' }}>{title}</Text>
+          <Text style={{ fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: 2 }}>{subtitle}</Text>
+        </View>
+        <Switch value={value} onValueChange={onChange} trackColor={{ true: '#0064E0', false: '#D1D5DB' }} />
+      </View>
+    </Pressable>
   )
 }

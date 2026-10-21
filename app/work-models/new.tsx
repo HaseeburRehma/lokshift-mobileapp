@@ -1,13 +1,14 @@
 /**
- * Create a working-time model — admin only.
+ * Create a working-time model — admin only. Copy mirrors the webapp's
+ * WorkModelForm dialog ("Neues Arbeitszeitmodell").
  */
 
 import React, { useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Text } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
+import { PageHeader } from '@/components/PageHeader'
 import { WorkModelForm } from '@/components/forms/WorkModelForm'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -27,8 +28,8 @@ export default function NewWorkModelScreen() {
 
   if (!canManageUsers(role)) {
     return (
-      <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
+      <Screen background="#F8FAFC" className="px-6 items-center justify-center" noTapToDismiss>
+        <Text className="text-slate-400 text-center">
           {L(
             'Nur Administratoren können Arbeitszeitmodelle anlegen.',
             'Only administrators can create work models.',
@@ -39,19 +40,22 @@ export default function NewWorkModelScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Neues Modell', 'New model')}
-        </Text>
+    <Screen background="#F8FAFC" className="bg-slate-50" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+        <PageHeader
+          title={L('Neues Arbeitszeitmodell', 'New Work Model')}
+          subtitle={L(
+            'Systemweite Arbeitszeitmodelle und operative Standardwerte konfigurieren.',
+            'Configure system-wide working time models and operational defaults.',
+          )}
+          showBack
+          onBack={goBack}
+        />
       </View>
 
       <WorkModelForm
         submitting={saving}
-        submitLabel={saving ? t('common.loading') : L('Modell speichern', 'Save model')}
+        submitLabel={saving ? L('Speichern...', 'Saving...') : L('Modell erstellen', 'Create Model')}
         onSubmit={async (input) => {
           if (!input.name) {
             toast.error(L('Name ist erforderlich.', 'Name is required.'))
@@ -60,7 +64,7 @@ export default function NewWorkModelScreen() {
           setSaving(true)
           try {
             await createModel(input)
-            toast.success(L('Modell erstellt', 'Model created'))
+            toast.success(L('Arbeitszeitmodell erstellt', 'Work model created'))
             router.replace('/work-models')
           } catch (err: any) {
             toast.error(err?.message ?? t('common.error'))

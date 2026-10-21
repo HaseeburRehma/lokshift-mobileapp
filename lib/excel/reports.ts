@@ -4,11 +4,12 @@
  */
 
 import * as XLSX from 'xlsx'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as Sharing from 'expo-sharing'
 import { format } from 'date-fns'
 import type { OrgTimeAccount } from '@/hooks/useOrgTimeAccounts'
 import type { PerDiem, HolidayBonus, Plan } from '@/lib/types'
+import { paymentPeriodLabel } from '@/lib/special-payments'
 
 function isoWeek(d: Date): number {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
@@ -280,18 +281,18 @@ export async function exportHolidayBonusXlsx(
   const aoa: (string | number)[][] = []
   aoa.push(
     locale === 'de'
-      ? ['Auszahlungsdatum', 'Mitarbeiter', 'Art', 'Betrag €', 'Zeitraum von', 'Zeitraum bis', 'Notizen']
-      : ['Paid on', 'Employee', 'Type', 'Amount €', 'Period start', 'Period end', 'Notes'],
+      ? ['Mitarbeiter', 'Art', 'Bezeichnung', 'Betrag €', 'Abrechnung', 'Bemerkung', 'Angelegt am']
+      : ['Employee', 'Type', 'Title', 'Amount €', 'Billing', 'Note', 'Created'],
   )
   for (const b of bonuses) {
     aoa.push([
-      safeDate(b.created_at),
       b.employee?.full_name ?? b.employee_id,
       opts.bonusTypeLabel ? opts.bonusTypeLabel(b.bonus_type) : b.bonus_type,
+      b.title ?? '-',
       Number((Number(b.amount) || 0).toFixed(2)),
-      b.period_start ? safeDate(b.period_start) : '-',
-      b.period_end ? safeDate(b.period_end) : '-',
+      paymentPeriodLabel(b, locale),
       b.notes ?? '-',
+      safeDate(b.created_at),
     ])
   }
   // Totals row
@@ -308,13 +309,13 @@ export async function exportHolidayBonusXlsx(
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.aoa_to_sheet(aoa)
   ws['!cols'] = [
-    { wch: 14 },
     { wch: 26 },
-    { wch: 16 },
+    { wch: 18 },
+    { wch: 26 },
     { wch: 12 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 28 },
+    { wch: 44 },
+    { wch: 32 },
+    { wch: 12 },
   ]
   XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(opts.sheetName))
   const stamp = format(new Date(), 'yyyy-MM-dd')

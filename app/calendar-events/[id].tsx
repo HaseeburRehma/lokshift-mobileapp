@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { View, Text, Pressable, Alert } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronLeft, Trash2 } from 'lucide-react-native'
+import { Calendar as CalendarIcon, Trash2, X } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
 import { CalendarEventForm } from '@/components/forms/CalendarEventForm'
@@ -55,7 +55,7 @@ export default function EditCalendarEventScreen() {
   const onDelete = () => {
     Alert.alert(
       L('Termin löschen', 'Delete event'),
-      L(`„${event.title}" wirklich löschen?`, `Really delete "${event.title}"?`),
+      L('Diesen Termin wirklich löschen?', 'Are you sure you want to delete this event?'),
       [
         { text: t('times.cancel'), style: 'cancel' },
         {
@@ -80,34 +80,56 @@ export default function EditCalendarEventScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center justify-between px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        {canEdit && (
-          <Pressable onPress={onDelete} className="p-2 -mr-2" disabled={busy}>
-            <Trash2 size={22} color={busy ? '#9CA3AF' : '#DC2626'} />
+    <Screen background="#FFFFFF" className="bg-white dark:bg-slate-950" noTapToDismiss>
+      {/* Header — web NewEventSheet: icon + "Termin bearbeiten", delete, close */}
+      <View
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+          <View style={{ width: 40, height: 40, borderRadius: 16, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+            <CalendarIcon size={22} color="#0064E0" />
+          </View>
+          <Text style={{ fontSize: 20, fontWeight: '900', color: '#111827', flexShrink: 1 }} numberOfLines={1}>
+            {canEdit ? L('Termin bearbeiten', 'Edit Event') : L('Termin', 'Event')}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {canEdit ? (
+            <Pressable
+              onPress={onDelete}
+              disabled={busy}
+              hitSlop={8}
+              accessibilityLabel={L('Löschen', 'Delete')}
+              style={{ width: 40, height: 40, borderRadius: 999, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Trash2 size={18} color={busy ? '#9CA3AF' : '#DC2626'} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={goBack}
+            hitSlop={8}
+            accessibilityLabel={L('Schließen', 'Close')}
+            style={{ width: 40, height: 40, borderRadius: 999, backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <X size={20} color="#9CA3AF" />
           </Pressable>
-        )}
+        </View>
       </View>
-
-      <View className="px-5 pb-2">
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white">
-          {canEdit ? L('Termin bearbeiten', 'Edit event') : L('Termin', 'Event')}
-        </Text>
-      </View>
+      <View style={{ height: 16 }} />
 
       {!canEdit ? (
         <View className="px-5 py-6">
           <Text className="text-[15px] font-black text-gray-900 dark:text-white mb-1">
             {event.title}
           </Text>
-          {event.description && (
+          {event.description ? (
             <Text className="text-[13px] text-gray-600 dark:text-slate-400 mt-2">
               {event.description}
             </Text>
-          )}
+          ) : null}
           <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-4">
             {L('Nur der Ersteller kann den Termin bearbeiten.', 'Only the creator can edit this event.')}
           </Text>

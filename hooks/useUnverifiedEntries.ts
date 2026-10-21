@@ -10,6 +10,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import type { TimeEntry } from '@/lib/types'
+import { TIME_ENTRY_SELECT } from '@/lib/times/entry-status'
 
 export function useUnverifiedEntries() {
   const supabase = getSupabase()
@@ -25,14 +26,14 @@ export function useUnverifiedEntries() {
       if (!silent) setLoading(true)
       const { data, error } = await supabase
         .from('time_entries')
-        .select(
-          '*, employee:profiles!employee_id(id, full_name, avatar_url), customer:customers(id, name)',
-        )
+        .select(TIME_ENTRY_SELECT)
         .eq('organization_id', orgId)
         .eq('is_verified', false)
+        .eq('is_planned', false)
         .not('end_time', 'is', null)
+        .not('submitted_at', 'is', null)
         .order('date', { ascending: false })
-        .limit(200)
+        .limit(300)
       if (error) {
         console.warn('[useUnverifiedEntries] fetch failed', error.message)
       } else {
@@ -72,11 +73,7 @@ export function useUnverifiedEntries() {
       setEntries((prev) => prev.filter((e) => !ids.includes(e.id)))
       const { error } = await supabase
         .from('time_entries')
-        .update({
-          is_verified: true,
-          verified_by: myId,
-          updated_at: new Date().toISOString(),
-        } as any)
+        .update({ is_verified: true, verified_by: myId } as any)
         .in('id', ids)
       if (error) {
         setEntries(previous)

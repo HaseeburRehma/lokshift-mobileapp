@@ -53,7 +53,9 @@ function getAppVersion(): string {
 
 export function initMonitoring(): void {
   if (_initialized) return
-  const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN
+  // Both spellings: the local .env historically used EXPO_PUBLIC_Sentry_DSN.
+  // Each access must stay a literal process.env.EXPO_PUBLIC_* so Expo inlines it.
+  const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.EXPO_PUBLIC_Sentry_DSN
   if (!dsn) {
     // Silent in production builds — adding noise here would clutter
     // user-visible console logs on devices.

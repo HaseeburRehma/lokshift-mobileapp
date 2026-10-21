@@ -20,7 +20,7 @@
 import React, { useMemo, useState } from 'react'
 import { View, Text, ScrollView, Pressable, Switch } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronLeft, CalendarPlus, FileUp } from 'lucide-react-native'
+import { ChevronLeft, CalendarPlus, FileUp, ArrowRight, Moon } from 'lucide-react-native'
 import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns'
 
 import { Screen } from '@/components/Screen'
@@ -36,8 +36,9 @@ import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { canCreatePlans } from '@/lib/rbac/permissions'
 import { getSupabase } from '@/lib/supabase/client'
-import { calculateShiftTimes } from '@/lib/time/shift-hours'
+import { calculateShiftTimes, isValidTime } from '@/lib/time/shift-hours'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { sendNotification } from '@/lib/notifications/service'
 
 export default function BulkPlansScreen() {
   const { t, locale } = useTranslation()
@@ -123,10 +124,15 @@ export default function BulkPlansScreen() {
       toast.error(L('Ungültiger Zeitraum.', 'Invalid date range.'))
       return
     }
-    if (overnightStay && !hotelAddress.trim()) {
-      toast.error(L('Bitte Hoteladresse angeben.', 'Hotel address required for overnight stay.'))
+    if (!isValidTime(startTime.trim()) || !isValidTime(endTime.trim())) {
+      toast.error(L('Bitte gültige Zeiten im Format HH:MM angeben (00:00–23:59).', 'Please enter valid times (HH:MM, 00:00–23:59).'))
       return
     }
+    if (!(calculateShiftTimes(days[0], startTime.trim(), endTime.trim(), 0).grossHours > 0)) {
+      toast.error(L('Die Schicht dauert 0 Stunden – Start- und Endzeit dürfen nicht gleich sein.', 'The shift lasts 0 hours – start and end time must differ.'))
+      return
+    }
+    // Hotel address is optional with "Übernachtung" (same as the webapp).
     if (!profile?.organization_id || !session?.user?.id) return
     const orgId = profile.organization_id
     const creatorId = session.user.id
@@ -134,7 +140,7 @@ export default function BulkPlansScreen() {
     setSaving(true)
     try {
       const rows = days.flatMap((d) => {
-        const shift = calculateShiftTimes(d, startTime, endTime, 0)
+        const shift = calculateShiftTimes(d, startTime.trim(), endTime.trim(), 0)
         return employeeIds.map((eid) => ({
           organization_id: orgId,
           creator_id: creatorId,
@@ -164,18 +170,12 @@ export default function BulkPlansScreen() {
         seen.add(eid)
         const count = days.length
         try {
-          await getSupabase()
-            .from('notifications')
-            .insert({
-              user_id: eid,
-              title: L('📋 Neue Schichten zugewiesen', '📋 New shifts assigned'),
-              body: L(
-                `Ihnen wurden ${count} neue Schicht(en) zugewiesen.`,
-                `${count} new shift(s) have been assigned to you.`,
-              ),
-              type: 'plans',
-              is_read: false,
-            } as any)
+          await sendNotification({
+            userId: eid,
+            title: 'Neue Schichten zugewiesen',
+            message: `Ihnen wurden ${count} neue Schicht(en) zugewiesen. Bitte prüfen und bestätigen.`,
+            module: 'plans',
+          })
         } catch (e) {
           console.warn('[BulkPlans] notification insert failed (non-fatal):', e)
         }
@@ -190,25 +190,55 @@ export default function BulkPlansScreen() {
     }
   }
 
-  return (
-    <Screen className="bg-gray-50 dark:bg-slate-950" background="#F9FAFB" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Mehrere Pläne', 'Bulk create')}
-        </Text>
-      </View>
+  const isOvernight = calculateShiftTimes(fromDate, startTime, endTime, 0).isOvernight
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
+  return (
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <View style={{ paddingTop: 12, paddingBottom: 16 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', height: 40, marginLeft: -6 }}>
+            <ChevronLeft size={18} color="#64748B" />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B', marginLeft: 2 }}>{L('Zurück zu Pläne', 'Back to Plans')}</Text>
+          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 24,
+                backgroundColor: '#0064E0',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 14,
+                shadowColor: '#0064E0',
+                shadowOpacity: 0.25,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 4,
+              }}
+            >
+              <CalendarPlus size={26} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', letterSpacing: -0.4, color: '#0064E0', lineHeight: 28 }}>
+                {L('Mehrere Pläne anlegen', 'Bulk create plans')}
+              </Text>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: '#64748B', marginTop: 4 }}>
+                {L('Mitarbeiter und Tage gleichzeitig zuweisen', 'Assign across employees and days at once')}
+              </Text>
+            </View>
+          </View>
+        </View>
+
         <Pressable onPress={() => router.push('/plans/csv-import')}>
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               backgroundColor: '#EFF6FF',
-              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: '#DBEAFE',
+              borderRadius: 16,
               paddingHorizontal: 14,
               paddingVertical: 12,
               marginBottom: 12,
@@ -216,38 +246,54 @@ export default function BulkPlansScreen() {
           >
             <View
               style={{
-                width: 36, height: 36, borderRadius: 10, backgroundColor: '#0064E0',
+                width: 36, height: 36, borderRadius: 12, backgroundColor: '#0064E0',
                 alignItems: 'center', justifyContent: 'center', marginRight: 10,
               }}
             >
               <FileUp size={18} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text className="text-[13px] font-black text-gray-900 dark:text-white">
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#0F172A' }}>
                 {L('CSV importieren', 'Import from CSV')}
               </Text>
-              <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+              <Text style={{ fontSize: 12, color: '#64748B', marginTop: 1 }}>
                 {L(
                   'Eine Datei für viele Schichten gleichzeitig.',
                   'One file for many shifts at once.',
                 )}
               </Text>
             </View>
+            <ArrowRight size={16} color="#0064E0" />
           </View>
         </Pressable>
 
-        <Card className="mb-3">
-          <ShiftTemplatePicker onSelect={applyTemplate} />
-        </Card>
+        <View style={{ borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', backgroundColor: '#F8FAFC', padding: 14, marginBottom: 12 }}>
+          <ShiftTemplatePicker
+            onSelect={applyTemplate}
+            getCurrentPayload={() => ({
+              customer_id: customerId || null,
+              start_time: startTime,
+              end_time: endTime,
+              duration_days: 1,
+              route: route || null,
+              location: location || null,
+              overnight_stay: overnightStay,
+              hotel_address: overnightStay ? hotelAddress || null : null,
+              notes: notes || null,
+            })}
+          />
+        </View>
 
-        <Card className="mb-3 space-y-4">
+        {/* Date range + time of day */}
+        <Card className="mb-3 space-y-4" style={{ borderColor: '#F1F5F9' }}>
           <View className="flex-row gap-3">
             <View className="flex-1">
               <FormField
                 label={L('Von', 'From')}
                 value={fromDate}
                 onChangeText={setFromDate}
-                placeholder="YYYY-MM-DD"
+                placeholder={L('JJJJ-MM-TT', 'YYYY-MM-DD')}
+                keyboardType="numbers-and-punctuation"
               />
             </View>
             <View className="flex-1">
@@ -255,40 +301,58 @@ export default function BulkPlansScreen() {
                 label={L('Bis', 'To')}
                 value={toDate}
                 onChangeText={setToDate}
-                placeholder="YYYY-MM-DD"
+                placeholder={L('JJJJ-MM-TT', 'YYYY-MM-DD')}
+                keyboardType="numbers-and-punctuation"
               />
             </View>
           </View>
           <View className="flex-row gap-3">
             <View className="flex-1">
               <FormField
-                label={t('times.start')}
+                label={L('Startzeit', 'Start time')}
                 value={startTime}
                 onChangeText={setStartTime}
                 placeholder="06:00"
+                keyboardType="numbers-and-punctuation"
               />
             </View>
             <View className="flex-1">
               <FormField
-                label={t('times.end')}
+                label={L('Endzeit', 'End time')}
                 value={endTime}
                 onChangeText={setEndTime}
                 placeholder="14:00"
+                keyboardType="numbers-and-punctuation"
               />
             </View>
           </View>
-          <CustomerPicker value={customerId} onChange={setCustomerId} />
+          {isOvernight ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#E0E7FF', backgroundColor: '#EEF2FF', paddingHorizontal: 12, paddingVertical: 10 }}>
+              <Moon size={15} color="#4338CA" />
+              <Text style={{ marginLeft: 8, flex: 1, fontSize: 12, fontWeight: '700', color: '#4338CA' }}>
+                {L('Nachtschicht – Ende jeweils am Folgetag', 'Night shift – each ends the next day')}
+              </Text>
+            </View>
+          ) : null}
+        </Card>
+
+        {/* Customer + employees */}
+        <Card className="mb-3 space-y-4" style={{ borderColor: '#F1F5F9' }}>
+          <CustomerPicker value={customerId} onChange={setCustomerId} label={L('Kunde (optional)', 'Customer (optional)')} />
           <EmployeePicker mode="multi" value={employeeIds} onChange={setEmployeeIds} />
         </Card>
 
-        <Card className="mb-3 space-y-4">
+        {/* Betriebsstellen + route + location */}
+        <Card className="mb-3 space-y-4" style={{ borderColor: '#F1F5F9' }}>
           <OperationalLocationPicker
             value={startLocationId}
+            excludeId={destinationLocationId || null}
             onChange={setStartLocationId}
             label={L('Startort', 'Start location')}
           />
           <OperationalLocationPicker
             value={destinationLocationId}
+            excludeId={startLocationId || null}
             onChange={setDestinationLocationId}
             label={L('Zielort', 'Destination')}
           />
@@ -298,16 +362,16 @@ export default function BulkPlansScreen() {
             onChangeText={setRoute}
             placeholder={L('z. B. Köln – Aachen', 'e.g. Köln – Aachen')}
           />
-          <FormField label={t('times.location')} value={location} onChangeText={setLocation} />
+          <FormField label={L('Ort', 'Location')} value={location} onChangeText={setLocation} placeholder={L('Einsatzort', 'Work location')} />
         </Card>
 
-        <Card className="mb-3 space-y-4">
+        <Card className="mb-3 space-y-4" style={{ borderColor: '#F1F5F9' }}>
           <View className="flex-row items-center justify-between">
             <View className="flex-1 pr-3">
-              <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-                {L('Gastfahrt (Mitfahrer)', 'Guest ride (passenger)')}
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F172A' }}>
+                {L('Gastfahrt', 'Passenger Travel (Gastfahrt)')}
               </Text>
-              <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+              <Text style={{ fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: 2 }}>
                 {L(
                   'Wird in jeden erzeugten Plan übernommen.',
                   'Applied to every plan in the batch.',
@@ -322,10 +386,10 @@ export default function BulkPlansScreen() {
           </View>
           <View className="flex-row items-center justify-between">
             <View className="flex-1 pr-3">
-              <Text className="text-[13px] font-bold text-gray-900 dark:text-white">
-                {t('times.overnight')}
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F172A' }}>
+                {L('Übernachtung erforderlich', 'Requires overnight stay')}
               </Text>
-              <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+              <Text style={{ fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: 2 }}>
                 {L(
                   'Löst die volle Verpflegungspauschale aus.',
                   'Triggers the full per-diem rate.',
@@ -340,41 +404,37 @@ export default function BulkPlansScreen() {
           </View>
           {overnightStay && (
             <FormField
-              label={t('times.hotel')}
+              label={L('Hoteladresse', 'Hotel Address')}
               value={hotelAddress}
               onChangeText={setHotelAddress}
-              placeholder={L('Adresse oder Hotelname', 'Address or hotel name')}
+              placeholder={L('Hotel oder Unterkunft', 'Hotel or lodging')}
             />
           )}
         </Card>
 
-        <Card className="mb-3">
-          <FormField label={t('times.notes')} value={notes} onChangeText={setNotes} multiline />
+        <Card className="mb-3" style={{ borderColor: '#F1F5F9' }}>
+          <FormField label={L('Notizen', 'Notes')} value={notes} onChangeText={setNotes} />
         </Card>
 
-        {/* Preview */}
-        <View className="bg-brand/5 dark:bg-brand/15 border border-brand/20 rounded-2xl p-5 mt-2">
-          <Text className="text-[10px] font-black uppercase tracking-widest text-brand mb-1">
-            {L('Vorschau', 'Preview')}
+        {/* Summary + submit */}
+        <View style={{ borderRadius: 16, borderWidth: 1, borderColor: '#DBEAFE', backgroundColor: '#F5F9FF', padding: 16, marginTop: 4 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#111827' }}>
+            {L('Vorschau:', 'Preview:')} {totalPlans} {L('Einsätze', 'plans')}
           </Text>
-          <Text className="text-[22px] font-black text-brand">
-            {totalPlans} {L('Einsätze', 'plans')}
-          </Text>
-          <Text className="text-[12px] text-brand/80 mt-1">
+          <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
             {days.length} {L('Tag(e)', 'day(s)')} × {employeeIds.length}{' '}
             {L('Mitarbeiter', 'employee(s)')}
           </Text>
+          <Button
+            label={saving ? t('common.loading') : L('Pläne erstellen', 'Create plans')}
+            onPress={submit}
+            loading={saving}
+            disabled={totalPlans === 0}
+            size="lg"
+            leftIcon={<CalendarPlus size={20} color="#fff" />}
+            style={{ marginTop: 14 }}
+          />
         </View>
-
-        <Button
-          label={saving ? t('common.loading') : L('Pläne erstellen', 'Create plans')}
-          onPress={submit}
-          loading={saving}
-          disabled={totalPlans === 0}
-          size="lg"
-          leftIcon={<CalendarPlus size={20} color="#fff" />}
-          style={{ marginTop: 12 }}
-        />
       </ScrollView>
     </Screen>
   )

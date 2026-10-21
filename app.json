@@ -2,7 +2,7 @@
   "expo": {
     "name": "LokShift",
     "slug": "locshift-mobile",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "lokshift",
@@ -244,10 +244,10 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
             "minSdkVersion": 24,
-            "buildToolsVersion": "35.0.0",
+            "buildToolsVersion": "36.0.0",
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableMinifyInReleaseBuilds": true

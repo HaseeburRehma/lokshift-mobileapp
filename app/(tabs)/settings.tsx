@@ -1,84 +1,140 @@
 /**
- * Settings tab — visual parity with the webapp's /dashboard/settings
- * mobile layout.
+ * Settings tab — mirrors the MOBILE view of the webapp's
+ * app/dashboard/settings/page.tsx (`block md:hidden`):
  *
- * Structure:
- *   - Centered avatar + name + email
- *   - PERSÖNLICHE DATEN: Stammdaten, Abwesenheiten, Arbeitszeiten, Qualifikationen
- *   - VERWALTUNG: managerial-only entries (Mitarbeiter, Kunden,
- *     Betriebsstellen, Vorlagen, Arbeitszeitmodelle, Berichte, Feiertage,
- *     Unternehmensprofil) — only rendered for admin/dispatcher
- *   - EINSTELLUNGEN: Benachrichtigungen (toggle), Sprache, Passwort, Sicherheit,
- *     Daten-Export
+ *   - centered 96px avatar (white ring, soft shadow) + name + email
+ *   - PERSÖNLICHE DATEN: Stammdaten, Abwesenheiten, Arbeitszeiten,
+ *     Meine Nachweise
+ *   - EINSTELLUNGEN: Benachrichtigungen (switch → profiles.notifications_enabled,
+ *     same write as the web NotificationToggle), Sprache wählen (chip),
+ *     Passwort ändern
  *   - INFORMATIONEN: Feedback & Hilfe, Datenschutz, Impressum
- *   - DARSTELLUNG: Design (theme chip)
- *   - ABMELDEN button
- *   - Footer: app version
+ *   - DARSTELLUNG: Design (chip)
+ *   - ABMELDEN (red outline)
+ *
+ * App-only additions kept for functionality / store compliance:
+ *   Benachrichtigungs-Einstellungen, Sicherheit, Daten-Export (Einstellungen),
+ *   Nutzungsbedingungen (Informationen), VERWALTUNG (admin/dispatcher),
+ *   Konto löschen (Apple 5.1.1(v)) and the app version.
  */
 
-import React, { useMemo, useState } from 'react'
-import { View, Text, Pressable, ScrollView, Image, Switch, Linking, Alert } from 'react-native'
+import React, { useEffect, useState } from 'react'
+import { View, Text, Pressable, ScrollView, Image, Switch, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
 import {
   ChevronRight,
+  ChevronsUpDown,
   LogOut,
   Trash2,
   Globe,
   Lock,
   Database,
   Bell,
+  BellRing,
   Building,
+  Building2,
   Users as UsersIcon,
   LayoutTemplate,
   Timer,
-  FileText,
   CalendarCheck,
-  Palette,
-  Palmtree as PalmtreeIcon,
+  Sun,
   GraduationCap,
   User as UserIcon,
   Map as MapIcon,
-  HelpCircle,
-  Shield as ShieldIcon,
+  MapPin,
+  MessageSquare,
+  ShieldCheck,
   Info,
   Clock,
-  TrendingUp,
-  Wallet,
-  Gift,
+  FileText,
 } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { useTheme } from '@/lib/theme'
-import { useNotifications } from '@/lib/notifications-context'
-import { ROLE_LABELS, ROLE_COLORS, canManageUsers, canCreatePlans } from '@/lib/rbac/permissions'
-import { getWebappUrl } from '@/lib/webapp-url'
+import { getSupabase } from '@/lib/supabase/client'
+import { canManageUsers, canCreatePlans, canApproveTimes } from '@/lib/rbac/permissions'
+
+// Web mobile palette
+const BLUE_600 = '#2563EB'
+const SLATE_50 = '#F8FAFC'
+const SLATE_100 = '#F1F5F9'
+const SLATE_400 = '#94A3B8'
+const SLATE_800 = '#1E293B'
+const SLATE_900 = '#0F172A'
+const PAGE_BG = '#FAFBFF'
 
 interface RowItem {
   key: string
   label: string
   icon: any
   href?: string
-  /** When set, the right side renders a chip with this value. */
-  value?: string
-  /** When set, render a Switch on the right with this value. */
-  toggle?: boolean
-  onToggle?: (v: boolean) => void
-  /** When true, the label and chevron paint red (destructive). */
-  destructive?: boolean
-  /** When set, the row opens an external URL via Linking instead of router.push. */
-  external?: string
+  /** Replaces the chevron with a custom control (switch, chip …). */
+  right?: React.ReactNode
 }
 
 export default function SettingsScreen() {
-  const { t, locale, setLocale } = useTranslation()
+  const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { profile, role, signOut, deleteAccount } = useUser()
+  const { pref: themePref } = useTheme()
+  const router = useRouter()
+
   const [deleting, setDeleting] = useState(false)
+  // Master notification switch — same column the web's NotificationToggle
+  // writes (profiles.notifications_enabled). The dispatcher treats
+  // `false` as "no email / no push".
+  const [notifEnabled, setNotifEnabled] = useState(true)
+  const [notifBusy, setNotifBusy] = useState(false)
+  const profileId = profile?.id ?? null
+
+  useEffect(() => {
+    if (!profileId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data, error } = await getSupabase()
+          .from('profiles')
+          .select('notifications_enabled')
+          .eq('id', profileId)
+          .maybeSingle()
+        if (cancelled || error || !data) return
+        const v = (data as any).notifications_enabled
+        if (typeof v === 'boolean') setNotifEnabled(v)
+      } catch {
+        // Column missing / offline — keep the optimistic default.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [profileId])
+
+  const toggleNotifications = async (checked: boolean) => {
+    if (!profileId || notifBusy) return
+    setNotifBusy(true)
+    setNotifEnabled(checked)
+    try {
+      const { error } = await getSupabase()
+        .from('profiles')
+        .update({ notifications_enabled: checked } as any)
+        .eq('id', profileId)
+      if (error) throw error
+      toast.success(
+        checked
+          ? L('Benachrichtigungen aktiviert', 'Notifications enabled')
+          : L('Benachrichtigungen deaktiviert', 'Notifications disabled'),
+      )
+    } catch {
+      setNotifEnabled(!checked)
+      toast.error(L('Einstellungen konnten nicht gespeichert werden', 'Failed to update preferences'))
+    } finally {
+      setNotifBusy(false)
+    }
+  }
 
   const confirmDelete = () => {
     if (deleting) return
@@ -107,384 +163,337 @@ export default function SettingsScreen() {
       ],
     )
   }
-  const { pref: themePref } = useTheme()
-  const { unreadCount } = useNotifications()
-  const router = useRouter()
 
+  // All hooks are above this line — safe to bail out now.
   if (!profile) return null
 
-  const roleLabel = role ? ROLE_LABELS[role][locale] : ''
-  const roleColor = role ? ROLE_COLORS[role] : '#9CA3AF'
-  const initials = (profile.full_name ?? profile.email ?? 'U')
-    .split(' ')
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
+  const displayName = profile.full_name || L('Benutzer', 'User')
+  const initial = (profile.full_name?.charAt(0) || profile.email?.charAt(0) || 'U').toUpperCase()
   const isAdminOrDispatcher = canCreatePlans(role)
   const isAdmin = canManageUsers(role)
-  const webappUrl = getWebappUrl()
+  const appVersion = Constants.expoConfig?.version ?? ''
 
-  const personal: RowItem[] = useMemo(
-    () => [
-      { key: 'profile', label: L('Stammdaten', 'Personal data'), icon: UserIcon, href: '/profile' },
-      { key: 'absences', label: L('Abwesenheiten', 'Absences'), icon: PalmtreeIcon, href: '/absences' },
-      { key: 'account', label: L('Arbeitszeiten', 'Working time'), icon: Clock, href: '/account' },
-      { key: 'qualifications', label: L('Qualifikationen', 'Qualifications'), icon: GraduationCap, href: '/qualifications' },
-    ],
-    [locale],
-  )
+  const personal: RowItem[] = [
+    { key: 'profile', label: L('Stammdaten', 'Personal data'), icon: UserIcon, href: '/profile' },
+    { key: 'absences', label: L('Abwesenheiten', 'Absences'), icon: MapIcon, href: '/absences' },
+    { key: 'account', label: L('Arbeitszeiten', 'Working hours'), icon: Clock, href: '/account' },
+    {
+      key: 'qualifications',
+      label: canApproveTimes(role) ? L('Personal & Fristen', 'Staff & deadlines') : L('Meine Nachweise', 'My documents'),
+      icon: GraduationCap,
+      href: '/qualifications',
+    },
+  ]
 
-  const personalSecondary: RowItem[] = useMemo(() => {
-    const out: RowItem[] = [
-      { key: 'times', label: L('Zeiteinträge', 'Time entries'), icon: Clock, href: '/times' },
-      { key: 'plans', label: L('Pläne', 'Plans'), icon: CalendarCheck, href: '/plans' },
-      { key: 'per-diem', label: L('Spesen', 'Per Diem'), icon: Wallet, href: '/per-diem' },
-      { key: 'bonuses', label: L('Boni', 'Bonuses'), icon: Gift, href: '/bonuses' },
-      { key: 'reports', label: L('Berichte', 'Reports'), icon: FileText, href: '/reports' },
-    ]
-    return out
-  }, [locale])
+  const settings: RowItem[] = [
+    {
+      key: 'notifications',
+      label: L('Benachrichtigungen', 'Notifications'),
+      icon: Bell,
+      right: (
+        <Switch
+          value={notifEnabled}
+          onValueChange={toggleNotifications}
+          disabled={notifBusy}
+          trackColor={{ true: BLUE_600, false: '#E2E8F0' }}
+          ios_backgroundColor="#E2E8F0"
+          thumbColor="#FFFFFF"
+        />
+      ),
+    },
+    {
+      key: 'language',
+      label: L('Sprache wählen', 'Choose language'),
+      icon: Globe,
+      href: '/settings/localization',
+      right: <Chip label={locale === 'de' ? 'Deutsch' : 'English'} tone="blue" />,
+    },
+    { key: 'password', label: L('Passwort ändern', 'Change password'), icon: Lock, href: '/settings/security' },
+    {
+      key: 'notif-prefs',
+      label: L('Benachrichtigungs-Einstellungen', 'Notification preferences'),
+      icon: BellRing,
+      href: '/settings/notifications',
+    },
+    { key: 'security', label: L('Sicherheit', 'Security'), icon: ShieldCheck, href: '/settings/security' },
+    { key: 'export', label: L('Daten-Export', 'Data export'), icon: Database, href: '/settings/export' },
+  ]
 
-  const management: RowItem[] = useMemo(() => {
-    if (!isAdminOrDispatcher) return []
-    const out: RowItem[] = [
+  const information: RowItem[] = [
+    { key: 'help', label: L('Feedback & Hilfe', 'Feedback & help'), icon: MessageSquare, href: '/help' },
+    { key: 'privacy', label: L('Datenschutz', 'Privacy policy'), icon: Lock, href: '/legal/datenschutz' },
+    { key: 'imprint', label: L('Impressum', 'Imprint'), icon: Info, href: '/legal/impressum' },
+    { key: 'terms', label: L('Nutzungsbedingungen', 'Terms of service'), icon: FileText, href: '/legal/agb' },
+  ]
+
+  const themeLabel =
+    themePref === 'system' ? 'System' : themePref === 'dark' ? L('Dunkel', 'Dark') : L('Hell', 'Light')
+  const display: RowItem[] = [
+    {
+      key: 'design',
+      label: L('Design', 'Theme'),
+      icon: Sun,
+      href: '/settings/appearance',
+      right: <Chip label={themeLabel} tone="slate" />,
+    },
+  ]
+
+  const management: RowItem[] = []
+  if (isAdminOrDispatcher) {
+    management.push(
       { key: 'customers', label: L('Kunden', 'Customers'), icon: Building, href: '/customers' },
-      { key: 'betriebsstellen', label: L('Betriebsstellen', 'Locations'), icon: MapIcon, href: '/operational-locations' },
+      { key: 'betriebsstellen', label: L('Betriebsstellen', 'Locations'), icon: MapPin, href: '/operational-locations' },
       { key: 'templates', label: L('Schichtvorlagen', 'Shift templates'), icon: LayoutTemplate, href: '/shift-templates' },
-    ]
+    )
     if (isAdmin) {
-      out.push(
+      management.push(
         { key: 'users', label: L('Mitarbeiter', 'Members'), icon: UsersIcon, href: '/users' },
         { key: 'work-models', label: L('Arbeitszeitmodelle', 'Work time models'), icon: Timer, href: '/work-models' },
-        { key: 'company', label: L('Unternehmensprofil', 'Company profile'), icon: Building, href: '/company' },
+        { key: 'company', label: L('Unternehmensprofil', 'Company profile'), icon: Building2, href: '/company' },
         { key: 'holidays', label: L('Feiertage', 'Holidays'), icon: CalendarCheck, href: '/settings/holidays' },
-        { key: 'notif-prefs', label: L('Benachrichtigungs-Vorgaben', 'Notification policy'), icon: Bell, href: '/settings/notifications' },
       )
     }
-    return out
-  }, [isAdminOrDispatcher, isAdmin, locale])
-
-  const settings: RowItem[] = useMemo(
-    () => [
-      {
-        key: 'notifications',
-        label: L('Mitteilungen', 'Notifications'),
-        icon: Bell,
-        href: '/notifications',
-        value: unreadCount > 0 ? String(unreadCount) : undefined,
-      },
-      {
-        key: 'language',
-        label: L('Sprache wählen', 'Choose language'),
-        icon: Globe,
-        // Plain inline chip → tap toggles between DE / EN to mirror the
-        // web's compact selector. A dedicated /settings/localization
-        // page is still available for timezone / date format.
-        value: locale === 'de' ? 'DEUTSCH' : 'ENGLISH',
-        href: '/settings/localization',
-      },
-      {
-        key: 'password',
-        label: L('Passwort ändern', 'Change password'),
-        icon: Lock,
-        href: '/change-password',
-      },
-      {
-        key: 'security',
-        label: L('Sicherheit', 'Security'),
-        icon: ShieldIcon,
-        href: '/settings/security',
-      },
-      {
-        key: 'export',
-        label: L('Daten-Export', 'Data export'),
-        icon: Database,
-        href: '/settings/export',
-      },
-    ],
-    [locale, unreadCount],
-  )
-
-  const information: RowItem[] = useMemo(() => {
-    // Legal screens are bundled in-app (required for store review even
-    // when a web URL exists). "Feedback & Hilfe" still links out to web
-    // when configured; otherwise hidden.
-    const rows: RowItem[] = [
-      { key: 'privacy', label: L('Datenschutz', 'Privacy policy'), icon: ShieldIcon, href: '/legal/datenschutz' as any },
-      { key: 'imprint', label: L('Impressum', 'Imprint'), icon: Info, href: '/legal/impressum' as any },
-      { key: 'terms', label: L('Nutzungsbedingungen', 'Terms of Service'), icon: Info, href: '/legal/agb' as any },
-    ]
-    if (webappUrl) {
-      rows.unshift({
-        key: 'help',
-        label: L('Feedback & Hilfe', 'Feedback & help'),
-        icon: HelpCircle,
-        external: `${webappUrl}/help`,
-      })
-    }
-    return rows
-  }, [webappUrl, locale])
-
-  const themeValue =
-    themePref === 'system'
-      ? L('SYSTEM', 'SYSTEM')
-      : themePref === 'dark'
-      ? L('DUNKEL', 'DARK')
-      : L('HELL', 'LIGHT')
-
-  const display: RowItem[] = useMemo(
-    () => [
-      {
-        key: 'design',
-        label: L('Design', 'Theme'),
-        icon: Palette,
-        value: themeValue,
-        href: '/settings/appearance',
-      },
-    ],
-    [themeValue],
-  )
+  }
 
   const openRow = (r: RowItem) => {
-    if (r.external) {
-      Linking.openURL(r.external).catch(() => {})
-      return
-    }
     if (r.href) router.push(r.href as any)
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
+    <Screen background={PAGE_BG} noTapToDismiss>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 140 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 140 }}
       >
-        {/* Identity — centered avatar + name + email */}
-        <Pressable onPress={() => router.push('/profile')} style={{ alignItems: 'center', marginBottom: 28 }}>
-          {profile.avatar_url ? (
-            <Image
-              source={{ uri: profile.avatar_url }}
-              style={{ width: 96, height: 96, borderRadius: 999, marginBottom: 12 }}
-            />
-          ) : (
+        {/* Profile header */}
+        <Pressable
+          onPress={() => router.push('/profile' as any)}
+          accessibilityRole="button"
+          accessibilityLabel={L('Stammdaten öffnen', 'Open personal data')}
+          style={{ alignItems: 'center', marginTop: 8, marginBottom: 32 }}
+        >
+          <View
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: 48,
+              marginBottom: 16,
+              backgroundColor: '#FFFFFF',
+              shadowColor: '#94A3B8',
+              shadowOpacity: 0.25,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 10 },
+              elevation: 6,
+            }}
+          >
             <View
               style={{
                 width: 96,
                 height: 96,
-                borderRadius: 999,
-                backgroundColor: '#EEF2FF',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 12,
+                borderRadius: 48,
+                borderWidth: 4,
+                borderColor: '#FFFFFF',
+                overflow: 'hidden',
+                backgroundColor: SLATE_100,
               }}
             >
-              <Text style={{ color: '#0064E0', fontWeight: '900', fontSize: 30 }}>{initials}</Text>
+              {profile.avatar_url ? (
+                <Image source={{ uri: profile.avatar_url }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFF6FF' }}>
+                  <Text style={{ fontSize: 30, fontWeight: '900', color: BLUE_600 }}>{initial}</Text>
+                </View>
+              )}
             </View>
-          )}
-          <Text className="text-[18px] font-black text-gray-900 dark:text-white">
-            {profile.full_name ?? profile.email ?? '—'}
+          </View>
+          <Text style={{ fontSize: 20, fontWeight: '700', color: SLATE_900, letterSpacing: -0.3 }} numberOfLines={1}>
+            {displayName}
           </Text>
-          {profile.email && (
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-1">{profile.email}</Text>
-          )}
-          {roleLabel ? (
-            <View
-              className="mt-2 px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: `${roleColor}1A` }}
-            >
-              <Text
-                className="text-[9px] font-black uppercase tracking-widest"
-                style={{ color: roleColor }}
-              >
-                {roleLabel}
-              </Text>
-            </View>
+          {profile.email ? (
+            <Text style={{ fontSize: 14, fontWeight: '500', color: SLATE_400, marginTop: 2 }} numberOfLines={1}>
+              {profile.email}
+            </Text>
           ) : null}
         </Pressable>
 
         <Section title={L('Persönliche Daten', 'Personal data')} items={personal} onRow={openRow} />
-
-        {/* Secondary personal items (collapsed under "Mein Konto") */}
-        <Section title={L('Mein Konto', 'My account')} items={personalSecondary} onRow={openRow} />
-
-        {management.length > 0 && (
-          <Section title={L('Verwaltung', 'Management')} items={management} onRow={openRow} />
-        )}
-
         <Section title={L('Einstellungen', 'Settings')} items={settings} onRow={openRow} />
+        <Section title={L('Informationen', 'Information')} items={information} onRow={openRow} />
+        <Section title={L('Darstellung', 'Appearance')} items={display} onRow={openRow} />
+        {management.length > 0 ? (
+          <Section title={L('Verwaltung', 'Management')} items={management} onRow={openRow} />
+        ) : null}
 
-        {information.length > 0 && (
-          <Section title={L('Informationen', 'Information')} items={information} onRow={openRow} />
-        )}
-
-        <Section title={L('Darstellung', 'Display')} items={display} onRow={openRow} />
-
-        {/* Sign out — red, full-width, mirrors the web button */}
-        <Pressable onPress={signOut}>
-          <View
-            style={{
-              marginTop: 8,
-              backgroundColor: '#FFFFFF',
+        {/* Abmelden — web: bg-[#FAFBFF] text-red-500 border-red-100 rounded-2xl */}
+        <View style={{ paddingTop: 8 }}>
+          <Pressable
+            onPress={signOut}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              backgroundColor: PAGE_BG,
               borderRadius: 16,
-              borderWidth: 1.5,
-              borderColor: '#FCA5A5',
+              borderWidth: 1,
+              borderColor: '#FEE2E2',
               paddingVertical: 16,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-            }}
+              transform: [{ scale: pressed ? 0.98 : 1 }],
+            })}
           >
-            <LogOut size={18} color="#DC2626" style={{ marginRight: 8 }} />
-            <Text style={{ color: '#DC2626', fontWeight: '900', fontSize: 13, letterSpacing: 1.2 }}>
-              {L('ABMELDEN', 'SIGN OUT')}
+            <LogOut size={16} color="#EF4444" strokeWidth={3} />
+            <Text
+              style={{
+                marginLeft: 8,
+                color: '#EF4444',
+                fontWeight: '900',
+                fontSize: 14,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              {L('Abmelden', 'Sign out')}
             </Text>
-          </View>
-        </Pressable>
+          </Pressable>
+        </View>
 
-        {/* Delete account — required by Apple guideline 5.1.1(v). Permanent,
-            server-side. Kicks off the delete_my_account Supabase RPC. */}
-        <Pressable onPress={confirmDelete} disabled={deleting}>
-          <View
-            style={{
-              marginTop: 10,
-              backgroundColor: '#DC2626',
-              borderRadius: 16,
-              paddingVertical: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: deleting ? 0.6 : 1,
-            }}
-          >
-            <Trash2 size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 13, letterSpacing: 1.2 }}>
-              {deleting
-                ? L('WIRD GELÖSCHT…', 'DELETING…')
-                : L('KONTO LÖSCHEN', 'DELETE ACCOUNT')}
-            </Text>
-          </View>
-        </Pressable>
-
-        <Text
-          className="text-[11px] text-gray-400 dark:text-slate-500 mt-3"
-          style={{ textAlign: 'center', paddingHorizontal: 12, lineHeight: 16 }}
+        {/* Konto löschen — required by Apple guideline 5.1.1(v). Calls the
+            delete_my_account RPC via user-context. */}
+        <Pressable
+          onPress={confirmDelete}
+          disabled={deleting}
+          accessibilityRole="button"
+          style={{
+            marginTop: 12,
+            borderRadius: 16,
+            paddingVertical: 14,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: deleting ? 0.6 : 1,
+          }}
         >
+          <Trash2 size={15} color="#DC2626" />
+          <Text style={{ marginLeft: 8, color: '#DC2626', fontWeight: '800', fontSize: 13 }}>
+            {deleting ? L('Wird gelöscht…', 'Deleting…') : L('Konto löschen', 'Delete account')}
+          </Text>
+        </Pressable>
+        <Text style={{ fontSize: 11, color: SLATE_400, textAlign: 'center', paddingHorizontal: 12, lineHeight: 16 }}>
           {L(
             'Wird das Konto gelöscht, werden alle Ihre Daten unwiderruflich entfernt.',
             'Deleting the account permanently removes all your data.',
           )}
         </Text>
 
-        <Text className="text-[10px] text-gray-300 dark:text-slate-700 text-center mt-6 font-mono">
-          v0.1.0
-        </Text>
+        {appVersion ? (
+          <Text style={{ fontSize: 10, color: '#CBD5E1', textAlign: 'center', marginTop: 20 }}>
+            {`LokShift v${appVersion}`}
+          </Text>
+        ) : null}
       </ScrollView>
     </Screen>
   )
 }
 
-function Section({
-  title,
-  items,
-  onRow,
-}: {
-  title: string
-  items: RowItem[]
-  onRow: (r: RowItem) => void
-}) {
+/** Web: value pill with the up/down chevron (`bg-blue-50/50 text-blue-600` / `bg-slate-50 text-slate-400`). */
+function Chip({ label, tone }: { label: string; tone: 'blue' | 'slate' }) {
+  const fg = tone === 'blue' ? BLUE_600 : SLATE_400
+  const bg = tone === 'blue' ? 'rgba(239,246,255,0.8)' : SLATE_50
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: bg,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+      }}
+    >
+      <Text style={{ fontSize: 12, fontWeight: '700', color: fg, textTransform: 'uppercase', letterSpacing: -0.2 }}>
+        {label}
+      </Text>
+      <ChevronsUpDown size={11} color={fg} strokeWidth={3} style={{ marginLeft: 4 }} />
+    </View>
+  )
+}
+
+/** Web: `text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 opacity-60`
+ *  header over a `bg-white rounded-3xl border-slate-100` list. */
+function Section({ title, items, onRow }: { title: string; items: RowItem[]; onRow: (r: RowItem) => void }) {
   if (items.length === 0) return null
   return (
-    <View style={{ marginBottom: 24 }}>
-      <Text className="text-[10px] font-black uppercase tracking-[2px] text-gray-400 dark:text-slate-500 mb-2 ml-1">
+    <View style={{ marginBottom: 32 }}>
+      <Text
+        style={{
+          fontSize: 11,
+          fontWeight: '900',
+          textTransform: 'uppercase',
+          letterSpacing: 2.2,
+          color: SLATE_400,
+          opacity: 0.6,
+          paddingHorizontal: 8,
+          marginBottom: 12,
+        }}
+      >
         {title}
       </Text>
-      <Card style={{ padding: 0 } as any}>
+      <View
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: SLATE_100,
+          overflow: 'hidden',
+        }}
+      >
         {items.map((r, i) => {
           const Icon = r.icon
           const isLast = i === items.length - 1
-          return (
-            <Pressable key={r.key} onPress={() => onRow(r)}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  width: '100%',
-                  minHeight: 52,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  borderBottomWidth: isLast ? 0 : 1,
-                  borderBottomColor: '#F1F5F9',
-                }}
+          const rowStyle = {
+            flexDirection: 'row' as const,
+            alignItems: 'center' as const,
+            minHeight: 56,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            borderBottomWidth: isLast ? 0 : 1,
+            borderBottomColor: SLATE_50,
+          }
+          const content = (
+            <>
+              <Icon size={20} color={BLUE_600} />
+              <Text
+                style={{ flex: 1, minWidth: 0, marginLeft: 16, fontSize: 15, fontWeight: '500', color: SLATE_800 }}
+                numberOfLines={1}
               >
-                <View
-                  style={{
-                    width: 24,
-                    height: 24,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
-                  }}
-                >
-                  <Icon size={18} color="#0064E0" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: '700',
-                      color: '#0F172A',
-                    }}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {r.label}
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginLeft: 8,
-                  }}
-                >
-                  {r.toggle !== undefined && r.onToggle ? (
-                    <Switch
-                      value={r.toggle}
-                      onValueChange={r.onToggle}
-                      trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
-                    />
-                  ) : r.value ? (
-                    <View
-                      style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 2,
-                        borderRadius: 999,
-                        backgroundColor: '#EFF6FF',
-                        marginRight: 6,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          fontWeight: '900',
-                          letterSpacing: 1,
-                          color: '#0064E0',
-                        }}
-                      >
-                        {r.value}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {r.toggle === undefined && (
-                    <ChevronRight size={16} color="#CBD5E1" />
-                  )}
-                </View>
+                {r.label}
+              </Text>
+              <View style={{ marginLeft: 8 }}>
+                {r.right ? r.right : <ChevronRight size={20} color={BLUE_600} />}
               </View>
+            </>
+          )
+          // Rows with a switch and no destination are not tappable as a
+          // whole (web MobileActionItem) — only the control reacts.
+          if (!r.href) {
+            return (
+              <View key={r.key} style={rowStyle}>
+                {content}
+              </View>
+            )
+          }
+          return (
+            <Pressable
+              key={r.key}
+              onPress={() => onRow(r)}
+              accessibilityRole="button"
+              style={({ pressed }) => [rowStyle, { backgroundColor: pressed ? SLATE_50 : '#FFFFFF' }]}
+            >
+              {content}
             </Pressable>
           )
         })}
-      </Card>
+      </View>
     </View>
   )
 }

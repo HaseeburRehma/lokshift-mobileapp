@@ -43,27 +43,39 @@ export default function NewPlanScreen() {
   }
 
   return (
-    <Screen className="bg-gray-50 dark:bg-slate-950" background="#F9FAFB" noTapToDismiss>
-      <View className="flex-row items-center px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16 }}>
+        <Pressable onPress={goBack} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', height: 40, marginLeft: -6 }}>
+          <ChevronLeft size={18} color="#64748B" />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#64748B', marginLeft: 2 }}>{L('Zurück', 'Back')}</Text>
         </Pressable>
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white ml-2">
-          {L('Plan erstellen', 'Create plan')}
-        </Text>
-      </View>
-
-      <View className="flex-row items-center px-5 mb-2">
-        <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-          <CalendarPlus size={26} color="#fff" />
-        </View>
-        <View className="flex-1">
-          <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-            {L('Neue Schicht', 'New shift')}
-          </Text>
-          <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-            {L('Einem Mitarbeiter zuweisen', 'Assign to one employee')}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 24,
+              backgroundColor: '#0064E0',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 14,
+              shadowColor: '#0064E0',
+              shadowOpacity: 0.25,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 4,
+            }}
+          >
+            <CalendarPlus size={26} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 24, fontWeight: '700', letterSpacing: -0.4, color: '#0064E0', lineHeight: 28 }}>
+              {L('Neuen Einsatzplan erstellen', 'Create New Operational Plan')}
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: '#64748B', marginTop: 4 }}>
+              {L('Mitarbeiter, Kunden und Touren zuweisen', 'Assign employees to customers and routes')}
+            </Text>
+          </View>
         </View>
       </View>
 

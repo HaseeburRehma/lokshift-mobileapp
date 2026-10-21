@@ -4,15 +4,13 @@ const { withNativeWind } = require('nativewind/metro')
 
 const config = getDefaultConfig(__dirname)
 
-// pnpm stores packages under node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>
-// and links the top-level ones via symlinks. Metro doesn't follow symlinks
-// by default, and even when it does (unstable_enableSymlinks), nested
-// peer-dependency resolutions sometimes can't find their transitive
-// modules because pnpm hides them behind another `.pnpm/<peer>@<ver>/`
-// layer. Adding the `.pnpm` directory to `nodeModulesPaths` makes Metro
-// also search there as a fallback, which fixes the resolution gap.
+// pnpm hoists packages via symlinks. Expo's default Metro resolver
+// handles symlinks natively as of SDK 54, so we do NOT set
+// `resolver.unstable_enableSymlinks` (expo-doctor flags it as unsafe).
+// We still add the `.pnpm` directory to nodeModulesPaths as a fallback
+// for transitive peer-dependency lookups that occasionally miss when
+// the peer sits in a nested `.pnpm/<peer>@<ver>/` layer.
 config.resolver = config.resolver || {}
-config.resolver.unstable_enableSymlinks = true
 config.resolver.unstable_enablePackageExports = true
 config.resolver.nodeModulesPaths = [
   ...(config.resolver.nodeModulesPaths ?? []),

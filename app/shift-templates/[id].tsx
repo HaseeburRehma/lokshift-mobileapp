@@ -5,11 +5,12 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, Text, Pressable, Alert } from 'react-native'
+import { View, Text, Pressable, Alert, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronLeft, Trash2 } from 'lucide-react-native'
+import { Trash2 } from 'lucide-react-native'
 
 import { Screen } from '@/components/Screen'
+import { PageHeader } from '@/components/PageHeader'
 import { ShiftTemplateForm } from '@/components/forms/ShiftTemplateForm'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
@@ -55,9 +56,10 @@ export default function EditShiftTemplateScreen() {
 
   if (!tpl) {
     return (
-      <Screen background="#F9FAFB" noTapToDismiss>
+      <Screen background="#FFFFFF" noTapToDismiss>
         <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 dark:text-slate-500">{t('common.loading')}</Text>
+          <ActivityIndicator color="#0064E0" />
+          <Text style={{ marginTop: 10, fontSize: 10, fontWeight: '900', letterSpacing: 1.4, textTransform: 'uppercase', color: '#94A3B8' }}>{t('common.loading')}</Text>
         </View>
       </Screen>
     )
@@ -93,20 +95,24 @@ export default function EditShiftTemplateScreen() {
   }
 
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center justify-between px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Pressable onPress={onDelete} className="p-2 -mr-2" disabled={deleting}>
-          <Trash2 size={22} color={deleting ? '#9CA3AF' : '#DC2626'} />
-        </Pressable>
-      </View>
-
-      <View className="px-5 pb-2">
-        <Text className="text-[17px] font-black text-gray-900 dark:text-white">
-          {L('Vorlage bearbeiten', 'Edit template')}
-        </Text>
+    <Screen background="#FFFFFF" noTapToDismiss>
+      <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+        <PageHeader
+          showBack
+          onBack={goBack}
+          title={L('Vorlage bearbeiten', 'Edit template')}
+          subtitle={tpl.name}
+          rightSlot={
+            <Pressable
+              onPress={onDelete}
+              disabled={deleting}
+              accessibilityLabel={L('Vorlage löschen', 'Delete template')}
+              style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: '#FEE2E2', backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Trash2 size={20} color={deleting ? '#9CA3AF' : '#DC2626'} />
+            </Pressable>
+          }
+        />
       </View>
 
       <ShiftTemplateForm

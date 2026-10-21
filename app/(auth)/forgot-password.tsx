@@ -73,10 +73,10 @@ export default function ForgotPasswordScreen() {
       )
       if (error) throw error
 
-      toast.success(L('Code gesendet', 'Code sent'))
+      toast.success(L('Bestätigungscode gesendet!', 'Verification code sent!'))
       if (step === 1) setStep(2)
     } catch (err: any) {
-      toast.error(err?.message || L('Fehler beim Senden', 'Could not send code'))
+      toast.error(err?.message || L('Fehler beim Senden der Zurücksetzungs-Mail', 'Error sending reset email'))
     } finally {
       setLoading(false)
     }
@@ -101,11 +101,11 @@ export default function ForgotPasswordScreen() {
 
   const updatePassword = async () => {
     if (newPassword.length < 8) {
-      toast.error(L('Mindestens 8 Zeichen.', 'At least 8 characters.'))
+      toast.error(L('Passwort muss mindestens 8 Zeichen lang sein', 'Password must be at least 8 characters'))
       return
     }
     if (newPassword !== confirmPassword) {
-      toast.error(L('Passwörter stimmen nicht überein', 'Passwords must match'))
+      toast.error(L('Passwörter müssen übereinstimmen', 'Passwords must match'))
       return
     }
     setLoading(true)
@@ -124,6 +124,7 @@ export default function ForgotPasswordScreen() {
       }
 
       setStep(4)
+      toast.success(L('Passwort erfolgreich aktualisiert!', 'Password updated successfully!'))
     } catch (err: any) {
       toast.error(err?.message || L('Aktualisierung fehlgeschlagen', 'Error updating password'))
     } finally {
@@ -182,7 +183,7 @@ export default function ForgotPasswordScreen() {
         {step === 1 && (
           <View style={{ width: '100%', gap: 32 }}>
             <View style={{ alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827', textAlign: 'center' }}>
                 {L('Identität bestätigen', "Let's Verify it's You")}
               </Text>
               <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center' }}>
@@ -193,7 +194,7 @@ export default function ForgotPasswordScreen() {
             <View style={{ gap: 16, alignItems: 'center', paddingBottom: 32 }}>
               <View style={{ width: '100%', gap: 8 }}>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginLeft: 4 }}>
-                  {L('E-Mail eingeben', 'Enter your email')}
+                  {L('Geben Sie Ihre E-Mail ein', 'Enter your email')}
                 </Text>
                 <TextInput
                   value={email}
@@ -228,7 +229,7 @@ export default function ForgotPasswordScreen() {
         {step === 2 && (
           <View style={{ width: '100%', gap: 24 }}>
             <View style={{ alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827', textAlign: 'center' }}>
                 {L('OTP eingeben', 'Enter Your OTP')}
               </Text>
               <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', maxWidth: 280, lineHeight: 22 }}>
@@ -263,7 +264,7 @@ export default function ForgotPasswordScreen() {
         {step === 3 && (
           <View style={{ width: '100%', gap: 24 }}>
             <View style={{ alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827', textAlign: 'center' }}>
                 {L('Neues Passwort eingeben', 'Enter New Password')}
               </Text>
               <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22 }}>
@@ -307,16 +308,31 @@ export default function ForgotPasswordScreen() {
             </View>
           </View>
         )}
+
+        {/* Footer — web: "Zurück" (steps 2–3) / "Abbrechen" (step 1) above a gray-100 rule */}
+        {step < 4 ? (
+          <View style={{ width: '100%', marginTop: 32, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#F3F4F6', alignItems: 'center' }}>
+            <Pressable
+              onPress={() => (step > 1 ? setStep((step - 1) as 1 | 2 | 3) : goBack())}
+              hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: '#6B7280', fontSize: 14, fontWeight: '500' }}>
+                {step > 1 ? L('Zurück', 'Go back') : L('Abbrechen', 'Cancel')}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* ── Step 4 — success modal ────────────────────── */}
       <Modal visible={step === 4} transparent animationType="fade" onRequestClose={() => router.replace('/(auth)/login')}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <View style={{ width: '100%', maxWidth: 360, backgroundColor: '#FFFFFF', borderRadius: 24, padding: 40, alignItems: 'center' }}>
-            <View style={{ backgroundColor: '#ECFDF5', padding: 16, borderRadius: 999, marginBottom: 24 }}>
-              <CheckCircle2 size={48} color="#10B981" />
+          <View style={{ width: '100%', maxWidth: 384, backgroundColor: '#FFFFFF', borderRadius: 24, padding: 40, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 30, shadowOffset: { width: 0, height: 20 }, elevation: 12 }}>
+            <View style={{ backgroundColor: '#F0FDF4', padding: 16, borderRadius: 999, marginBottom: 24 }}>
+              <CheckCircle2 size={48} color="#22C55E" />
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 8, textAlign: 'center' }}>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827', marginBottom: 8, textAlign: 'center' }}>
               {L('Passwort erfolgreich geändert', 'Password successfully changed')}
             </Text>
             <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 32 }}>

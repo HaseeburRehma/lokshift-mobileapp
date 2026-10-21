@@ -18,6 +18,7 @@ import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import { EVENT_COLORS, type CalendarEvent, type CalendarEventType } from '@/lib/types'
+import { sendNotificationToMany } from '@/lib/notifications/service'
 
 export interface CalendarEventInput {
   title: string
@@ -152,19 +153,14 @@ export function useCalendarEvents(filterFromIso?: string, filterToIso?: string) 
         // Best-effort notification to each member.
         try {
           const creatorName = profile?.full_name ?? profile?.email ?? 'Lokshift'
-          await Promise.all(
-            memberIds.map((uid) =>
-              supabase
-                .from('notifications')
-                .insert({
-                  user_id: uid,
-                  title: `📅 ${input.title}`,
-                  body: `${creatorName} hat Sie zu einem Termin hinzugefügt.`,
-                  type: 'calendar',
-                  is_read: false,
-                } as any),
-            ),
-          )
+          // moduleId lets the server verify the caller created this event
+          // (required for invites to several people).
+          await sendNotificationToMany(memberIds, {
+            title: input.title,
+            message: `${creatorName} hat Sie zu einem Termin hinzugefügt.`,
+            module: 'calendar',
+            moduleId: (data as CalendarEvent | null)?.id,
+          })
         } catch {}
       }
 

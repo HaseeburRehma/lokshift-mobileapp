@@ -1,23 +1,16 @@
 /**
- * useTimeTracking — clock in / break / clock out lifecycle for the
- * currently authenticated user. Mirrors the webapp's hook 1:1 including:
+ * useTimeTracking — clock in / break / clock out / submit for the signed-in
+ * user (same flow as the webapp, Kundenfeedback Punkte 1, 2, 19):
  *
- *   - best-effort geolocation capture on clockIn (5 s timeout; missing
- *     coords are NOT a blocker — the shift still starts)
- *   - latitude/longitude written into time_entries (matches web payload)
- *   - profiles.last_lat / last_lng / last_location_update updated so the
- *     Live Operations map can pin the employee on the map
- *   - break_minutes written on clockOut alongside net_hours so the
- *     month-end Stundenzettel summary matches the web export
+ *   Schicht starten → Pause → Beenden (time stops, entry stays an editable
+ *   draft) → Abschlussansicht → Schicht absenden.
  *
- * State exposed to the UI:
- *   activeEntry      — the open `time_entries` row (end_time IS NULL) or null
- *   elapsedSeconds   — worked seconds, recomputed every 1s
- *   breakSeconds     — break seconds, recomputed every 1s
- *   todayPlans       — confirmed plans starting today (clock-in picker)
+ * Dates use the local calendar day; net hours are recalculated by the
+ * database trigger, so the client never writes net_hours.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import * as Location from 'expo-location'
 
 import { getSupabase } from '@/lib/supabase/client'
@@ -25,6 +18,23 @@ import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import { safeParseISO } from '@/lib/safe-format'
 import { toast } from '@/components/Toast'
+import { calculateShiftTimes, localDateKey } from '@/lib/time/shift-hours'
+import { calculateSpesen } from '@/lib/spesen'
+import { TIME_ENTRY_SELECT, dbErrorMessage } from '@/lib/times/entry-status'
+import { useOrgRules } from '@/hooks/useOrgRules'
+import { useTranslation } from '@/lib/i18n'
+import type { TimeEntry } from '@/lib/types'
+import {
+  dequeue,
+  enqueue,
+  isNetworkError,
+  newEntryId,
+  nextAttemptAt,
+  pendingClockOps,
+  sendClockIn,
+  sendClockOut,
+  type PendingClock,
+} from '@/lib/time/pending-clock'
 import {
   startTrackingIfEnabled,
   stopTracking,
@@ -48,9 +58,26 @@ interface TodayPlan {
   id: string
   start_time: string
   end_time: string
+  status?: string
+  shift_name?: string | null
+  customer_id?: string | null
   customer?: { id: string; name: string } | null
   location?: string | null
   route?: string | null
+  start_location_id?: string | null
+  destination_location_id?: string | null
+  is_gastfahrt?: boolean | null
+  overnight_stay?: boolean | null
+  hotel_address?: string | null
+}
+
+export interface SubmitShiftValues {
+  date: string
+  startTime: string
+  endTime: string
+  breakMinutes: number
+  overnightStay: boolean
+  notes: string | null
 }
 
 /**
@@ -85,41 +112,100 @@ export function useTimeTracking() {
   const supabase = getSupabase()
   const { profile, session } = useUser()
   const myId = session?.user?.id
+  const { spesenRates } = useOrgRules()
+  const { locale } = useTranslation()
+  const L = (de: string, en: string) => (locale === 'de' ? de : en)
 
   const [activeEntry, setActiveEntry] = useState<ActiveEntry | null>(null)
+  const [drafts, setDrafts] = useState<TimeEntry[]>([])
   const [todayPlans, setTodayPlans] = useState<TodayPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [breakSeconds, setBreakSeconds] = useState(0)
+
+  // Only the very first load shows the placeholder; later refreshes (realtime,
+  // foreground) are silent so an open closing sheet is never unmounted.
+  const loadedOnce = useRef(false)
+  const flushing = useRef(false)
+
+  /** Sends queued offline clock actions whose retry time has come. */
+  const flushPending = useCallback(async (force = false): Promise<PendingClock[]> => {
+    if (flushing.current) return pendingClockOps()
+    flushing.current = true
+    try {
+      for (const op of await pendingClockOps()) {
+        if (!force && op.nextAt > Date.now()) continue
+        const res = op.kind === 'clock_in' ? await sendClockIn(op) : await sendClockOut(op, TIME_ENTRY_SELECT)
+        if (!res.error) {
+          await dequeue(op.kind, op.id)
+        } else if (isNetworkError(res.error)) {
+          await enqueue({ ...op, attempts: op.attempts + 1, nextAt: nextAttemptAt(op.attempts + 1) })
+        } else {
+          await dequeue(op.kind, op.id)
+          toast.error(dbErrorMessage(res.error, locale, L('Offline gespeicherte Stempelung konnte nicht übertragen werden', 'An offline clock action could not be saved')))
+        }
+      }
+    } finally {
+      flushing.current = false
+    }
+    return pendingClockOps()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale])
 
   const fetchActive = useCallback(async () => {
     if (!myId || !profile?.organization_id) {
       setLoading(false)
       return
     }
-    setLoading(true)
+    if (!loadedOnce.current) setLoading(true)
+    const pending = await flushPending()
 
-    const today = new Date().toISOString().split('T')[0]
-    const [{ data: entry }, { data: plans }] = await Promise.all([
+    // Plans touching today's local day — includes a night shift from
+    // yesterday that is still running.
+    const now = new Date()
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
+    const [{ data: running }, { data: open }, { data: plans }] = await Promise.all([
       supabase
         .from('time_entries')
         .select('*')
         .eq('employee_id', myId)
         .is('end_time', null)
-        .maybeSingle(),
+        .order('start_time', { ascending: false })
+        .limit(1),
+      supabase
+        .from('time_entries')
+        .select(TIME_ENTRY_SELECT)
+        .eq('employee_id', myId)
+        .not('end_time', 'is', null)
+        .is('submitted_at', null)
+        .eq('is_planned', false)
+        .order('end_time', { ascending: false })
+        .limit(10),
       supabase
         .from('plans')
         .select('*, customer:customers(id, name)')
         .eq('employee_id', myId)
-        .eq('status', 'confirmed')
-        .gte('start_time', `${today}T00:00:00`)
-        .lte('start_time', `${today}T23:59:59`),
+        .in('status', ['assigned', 'confirmed'])
+        .lt('start_time', dayEnd)
+        .gt('end_time', dayStart)
+        .order('start_time', { ascending: true }),
     ])
 
-    setActiveEntry((entry ?? null) as ActiveEntry | null)
+    // Overlay actions still waiting for the network.
+    let current = ((running ?? [])[0] ?? null) as ActiveEntry | null
+    const pendingOut = pending.find((p) => p.kind === 'clock_out' && p.id === current?.id)
+    if (pendingOut) current = null
+    const pendingIn = pending.find((p) => p.kind === 'clock_in')
+    if (!current && pendingIn && pendingIn.kind === 'clock_in' && !pending.some((p) => p.kind === 'clock_out' && p.id === pendingIn.id)) {
+      current = { ...(pendingIn.payload as object), id: pendingIn.id, start_time: pendingIn.at, end_time: null } as unknown as ActiveEntry
+    }
+    setActiveEntry(current)
+    setDrafts((open ?? []) as TimeEntry[])
     setTodayPlans((plans ?? []) as TodayPlan[])
+    loadedOnce.current = true
     setLoading(false)
-  }, [supabase, myId, profile?.organization_id])
+  }, [supabase, myId, profile?.organization_id, flushPending])
 
   useEffect(() => {
     if (!myId) { setLoading(false); return }
@@ -138,6 +224,22 @@ export function useTimeTracking() {
       try { supabase.removeChannel(channel) } catch {}
     }
   }, [myId, fetchActive, supabase])
+
+  // Retry queued offline actions when the app returns and every 30 s.
+  useEffect(() => {
+    if (!myId) return
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void fetchActive()
+    })
+    const timer = setInterval(async () => {
+      const left = await pendingClockOps()
+      if (left.length) void fetchActive()
+    }, 30_000)
+    return () => {
+      sub.remove()
+      clearInterval(timer)
+    }
+  }, [myId, fetchActive])
 
   // Live ticker — only runs when an entry is open.
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -184,32 +286,62 @@ export function useTimeTracking() {
       // row. Matches the web's UI-state guard.
       if (activeEntry) return activeEntry
 
-      const now = new Date().toISOString()
+      const nowDate = new Date()
+      const now = nowDate.toISOString()
       const coords = await captureCoords()
+
+      // The plan the user picked — otherwise the one closest to now.
+      const plan =
+        (planId ? todayPlans.find((p) => p.id === planId) : undefined) ??
+        [...todayPlans].sort(
+          (a, b) =>
+            Math.abs(new Date(a.start_time).getTime() - nowDate.getTime()) -
+            Math.abs(new Date(b.start_time).getTime() - nowDate.getTime()),
+        )[0]
 
       const payload: Record<string, unknown> = {
         organization_id: profile.organization_id,
         employee_id: myId,
-        plan_id: planId ?? null,
-        location: location ?? null,
+        plan_id: plan?.id ?? null,
+        customer_id: plan?.customer_id ?? null,
+        start_location_id: plan?.start_location_id ?? null,
+        destination_location_id: plan?.destination_location_id ?? null,
+        is_gastfahrt: !!plan?.is_gastfahrt,
+        overnight_stay: !!plan?.overnight_stay,
+        hotel_address: plan?.hotel_address ?? null,
+        location: location ?? plan?.location ?? null,
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
         start_time: now,
-        date: now.split('T')[0],
+        date: localDateKey(nowDate),
+        break_minutes: 0,
         is_on_break: false,
         total_break_seconds: 0,
         is_verified: false,
       }
 
-      const { data, error } = await supabase
-        .from('time_entries')
-        .insert(payload as any)
-        .select('*')
-        .single()
+      // Stored on the device first with the tap time, then sent.
+      const op = { kind: 'clock_in' as const, id: newEntryId(), at: now, payload, attempts: 0, nextAt: nextAttemptAt(0) }
+      await enqueue(op)
+      const { data, error } = await sendClockIn(op)
       if (error) {
+        if (isNetworkError(error)) {
+          const local = { ...payload, id: op.id, start_time: now, end_time: null } as unknown as ActiveEntry
+          setActiveEntry(local)
+          toast.success(L('Offline gestartet – wird übertragen, sobald wieder Netz da ist.', 'Started offline – will sync when you are back online.'))
+          return local
+        }
+        await dequeue('clock_in', op.id)
         console.warn('[useTimeTracking] clockIn failed:', error.message)
+        if (error.code === '23505') {
+          toast.error(L('Es läuft bereits eine Schicht (z. B. auf einem anderen Gerät).', 'A shift is already running (e.g. on another device).'))
+          void fetchActive()
+          return null
+        }
+        toast.error(dbErrorMessage(error, locale, L('Schicht konnte nicht gestartet werden', 'Could not start shift')))
         return null
       }
+      await dequeue('clock_in', op.id)
       setActiveEntry(data as ActiveEntry)
 
       // Mirror the web's profile snapshot — the Live Operations map
@@ -240,7 +372,8 @@ export function useTimeTracking() {
 
       return data
     },
-    [supabase, myId, profile?.organization_id, activeEntry],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [supabase, myId, profile?.organization_id, activeEntry, todayPlans, locale, fetchActive],
   )
 
   const startBreak = useCallback(async () => {
@@ -286,58 +419,87 @@ export function useTimeTracking() {
     })
   }, [supabase, activeEntry])
 
-  const clockOut = useCallback(
-    async (notes?: string) => {
-      if (!activeEntry) return false
-      const now = new Date()
-      let totalBreak = activeEntry.total_break_seconds ?? 0
-      if (activeEntry.is_on_break && activeEntry.current_break_start) {
-        const breakStart = safeParseISO(activeEntry.current_break_start)
-        if (breakStart) {
-          totalBreak += Math.floor((now.getTime() - breakStart.getTime()) / 1000)
-        }
-      }
-      const startDate = safeParseISO(activeEntry.start_time)
-      if (!startDate) {
-        console.warn('[useTimeTracking] clockOut: invalid start_time')
-        return false
-      }
-      const grossSeconds = Math.floor((now.getTime() - startDate.getTime()) / 1000)
-      const netHours = Math.max(0, (grossSeconds - totalBreak) / 3600)
-      const breakMinutes = Math.round(totalBreak / 60)
+  /**
+   * Stops the clock. The entry stays a draft so the closing view can
+   * compare planned and recorded times before it is submitted.
+   */
+  const clockOut = useCallback(async (): Promise<TimeEntry | null> => {
+    if (!activeEntry) return null
+    const now = new Date()
+    let totalBreak = activeEntry.total_break_seconds ?? 0
+    if (activeEntry.is_on_break && activeEntry.current_break_start) {
+      const breakStart = safeParseISO(activeEntry.current_break_start)
+      if (breakStart) totalBreak += Math.floor((now.getTime() - breakStart.getTime()) / 1000)
+    }
 
-      const { error } = await supabase
-        .from('time_entries')
-        .update({
-          end_time: now.toISOString(),
-          is_on_break: false,
-          current_break_start: null,
-          total_break_seconds: totalBreak,
-          break_minutes: breakMinutes,
-          net_hours: Number(netHours.toFixed(2)),
-          notes: notes ?? activeEntry.location ?? null,
-        } as any)
-        .eq('id', activeEntry.id)
-      if (error) {
-        console.warn('[useTimeTracking] clockOut failed:', error.message)
-        return false
-      }
+    // Stored on the device first so the tap time survives a dead network.
+    const op = { kind: 'clock_out' as const, id: activeEntry.id, at: now.toISOString(), totalBreakSeconds: totalBreak, attempts: 0, nextAt: nextAttemptAt(0) }
+    await enqueue(op)
+    // A clock-in still waiting for the network must be sent first.
+    const before = await flushPending(true)
+    if (before.some((p) => p.kind === 'clock_in' && p.id === activeEntry.id)) {
       setActiveEntry(null)
-
-      // Tear down the background-location task so the OS notification
-      // disappears and we stop burning battery once the shift is over.
-      try {
-        await stopTracking()
-      } catch (e) {
-        console.warn('[useTimeTracking] bg tracking stop failed (non-fatal):', e)
+      toast.success(L('Offline beendet – wird übertragen, sobald wieder Netz da ist.', 'Ended offline – will sync when you are back online.'))
+      return null
+    }
+    const { data, error } = await sendClockOut(op, TIME_ENTRY_SELECT)
+    if (error || !data) {
+      if (error && isNetworkError(error)) {
+        setActiveEntry(null)
+        toast.success(L('Offline beendet – Endzeit gespeichert und wird übertragen, sobald wieder Netz da ist.', 'Ended offline – end time saved and will sync when you are back online.'))
+        return null
       }
-      return true
-    },
-    [supabase, activeEntry],
-  )
+      await dequeue('clock_out', op.id)
+      console.warn('[useTimeTracking] clockOut failed:', error?.message)
+      toast.error(dbErrorMessage(error as any, locale, L('Schicht konnte nicht beendet werden', 'Could not end shift')))
+      return null
+    }
+    await dequeue('clock_out', op.id)
+    setActiveEntry(null)
+    const ended = data as unknown as TimeEntry
+    setDrafts((prev) => [ended, ...prev.filter((d) => d.id !== ended.id)])
+
+    // Tear down the background-location task so the OS notification
+    // disappears and we stop burning battery once the shift is over.
+    try {
+      await stopTracking()
+    } catch (e) {
+      console.warn('[useTimeTracking] bg tracking stop failed (non-fatal):', e)
+    }
+    return data as unknown as TimeEntry
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, activeEntry, locale, flushPending])
+
+  /** Writes the reviewed values and submits the shift. */
+  const submitEntry = useCallback(async (entryId: string, v: SubmitShiftValues): Promise<boolean> => {
+    const shift = calculateShiftTimes(v.date, v.startTime, v.endTime, v.breakMinutes)
+    const { error } = await supabase
+      .from('time_entries')
+      .update({
+        date: v.date,
+        start_time: shift.startISO,
+        end_time: shift.endISO,
+        break_minutes: Math.max(0, Math.round(v.breakMinutes || 0)),
+        overnight_stay: v.overnightStay,
+        meal_allowance: calculateSpesen(shift.netHours, v.overnightStay, spesenRates),
+        notes: v.notes?.trim() ? v.notes.trim() : null,
+        submitted_at: new Date().toISOString(),
+      } as any)
+      .eq('id', entryId)
+    if (error) {
+      toast.error(dbErrorMessage(error, locale, L('Schicht konnte nicht abgesendet werden', 'Could not submit shift')))
+      return false
+    }
+    setDrafts((prev) => prev.filter((d) => d.id !== entryId))
+    toast.success(L('Schicht abgesendet', 'Shift submitted'))
+    return true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, spesenRates, locale])
 
   return {
     activeEntry,
+    drafts,
+    submitEntry,
     todayPlans,
     loading,
     elapsedSeconds,

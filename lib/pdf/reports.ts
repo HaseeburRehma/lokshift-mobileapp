@@ -14,6 +14,7 @@ import { renderAndSharePdf } from './share'
 import { calculateShiftTimes } from '@/lib/time/shift-hours'
 import type { OrgTimeAccount } from '@/hooks/useOrgTimeAccounts'
 import type { PerDiem, HolidayBonus, Plan, TimeEntry } from '@/lib/types'
+import { paymentPeriodLabel } from '@/lib/special-payments'
 
 // ─── Internal: ISO week number ──────────────────────────────────────────────
 function isoWeek(d: Date): number {
@@ -473,17 +474,17 @@ export function exportHolidayBonusPdf(
   const locale = opts.locale ?? 'de'
   const headers =
     locale === 'de'
-      ? ['Auszahlungsdatum', 'Mitarbeiter', 'Art', 'Betrag €', 'Zeitraum von', 'Zeitraum bis', 'Notizen']
-      : ['Paid on', 'Employee', 'Type', 'Amount €', 'Period start', 'Period end', 'Notes']
+      ? ['Mitarbeiter', 'Art', 'Bezeichnung', 'Betrag €', 'Abrechnung', 'Bemerkung', 'Angelegt am']
+      : ['Employee', 'Type', 'Title', 'Amount €', 'Billing', 'Note', 'Created']
 
   const rows: Cell[][] = bonuses.map((b) => [
-    safeDate(b.created_at),
     b.employee?.full_name ?? b.employee_id,
     opts.bonusTypeLabel ? opts.bonusTypeLabel(b.bonus_type) : b.bonus_type,
+    b.title ?? '-',
     (Number(b.amount) || 0).toFixed(2),
-    b.period_start ? safeDate(b.period_start) : '-',
-    b.period_end ? safeDate(b.period_end) : '-',
+    paymentPeriodLabel(b, locale),
     b.notes ?? '-',
+    safeDate(b.created_at),
   ])
 
   const totalAmount = bonuses.reduce((s, b) => s + (Number(b.amount) || 0), 0)

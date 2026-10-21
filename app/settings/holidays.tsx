@@ -1,6 +1,7 @@
 /**
- * Holidays config — admin-managed list of Feiertage that the
- * Stundenzettel Zuschlag engine treats as holiday hours.
+ * Feiertage — admin-managed list of public holidays that the
+ * Stundenzettel Zuschlag engine treats as holiday hours. Styled like the
+ * webapp settings sub-pages.
  *
  * Storage is AsyncStorage today (see lib/holidays/storage.ts); when the
  * web app exposes a shared `org_holidays` table this screen can swap
@@ -8,38 +9,30 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, Pressable, Alert } from 'react-native'
-import { useRouter } from 'expo-router'
-import {
-  ChevronLeft,
-  CalendarCheck,
-  Plus,
-  Trash2,
-  RotateCcw,
-} from 'lucide-react-native'
+import { View, Text, Pressable, Alert, ActivityIndicator } from 'react-native'
+import { CalendarCheck, Plus, Trash2, RotateCcw, ShieldCheck } from 'lucide-react-native'
 
-import { Screen } from '@/components/Screen'
-import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
-import { FormField } from '@/components/FormField'
 import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { canManageUsers } from '@/lib/rbac/permissions'
+import { loadHolidays, saveHolidays, resetHolidays, type HolidayEntry } from '@/lib/holidays/storage'
 import {
-  loadHolidays,
-  saveHolidays,
-  resetHolidays,
-  type HolidayEntry,
-} from '@/lib/holidays/storage'
-import { useSafeBack } from '@/lib/use-safe-back'
+  SettingsShell,
+  SettingsPageHeader,
+  SectionCard,
+  FieldLabel,
+  SettingsInput,
+  FootNote,
+  SC,
+} from '@/components/settings/SettingsUI'
 
 export default function HolidaysScreen() {
-  const router = useRouter()
-  const goBack = useSafeBack('/(tabs)/settings')
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
+  const allowed = canManageUsers(role)
 
   const [rows, setRows] = useState<HolidayEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,24 +40,19 @@ export default function HolidaysScreen() {
   const [newLabel, setNewLabel] = useState('')
 
   useEffect(() => {
-    loadHolidays().then((r) => {
-      setRows(r)
-      setLoading(false)
-    })
+    let cancelled = false
+    loadHolidays()
+      .then((r) => {
+        if (!cancelled) setRows(Array.isArray(r) ? r : [])
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
-
-  if (!canManageUsers(role)) {
-    return (
-      <Screen className="px-6 items-center justify-center" noTapToDismiss>
-        <Text className="text-gray-400 dark:text-slate-500 text-center">
-          {L(
-            'Nur Administratoren können Feiertage verwalten.',
-            'Only administrators can manage holidays.',
-          )}
-        </Text>
-      </Screen>
-    )
-  }
 
   const persist = async (next: HolidayEntry[]) => {
     setRows(next)
@@ -84,9 +72,7 @@ export default function HolidaysScreen() {
       toast.error(L('Dieser Tag ist bereits eingetragen.', 'That date is already listed.'))
       return
     }
-    const next = [...rows, { date: newDate, label: newLabel.trim() }].sort((a, b) =>
-      a.date.localeCompare(b.date),
-    )
+    const next = [...rows, { date: newDate, label: newLabel.trim() }].sort((a, b) => a.date.localeCompare(b.date))
     await persist(next)
     setNewDate('')
     setNewLabel('')
@@ -94,27 +80,20 @@ export default function HolidaysScreen() {
   }
 
   const onDelete = (date: string) => {
-    Alert.alert(
-      L('Feiertag entfernen?', 'Remove holiday?'),
-      L(`Datum: ${date}`, `Date: ${date}`),
-      [
-        { text: t('times.cancel'), style: 'cancel' },
-        {
-          text: L('Entfernen', 'Remove'),
-          style: 'destructive',
-          onPress: () => persist(rows.filter((r) => r.date !== date)),
-        },
-      ],
-    )
+    Alert.alert(L('Feiertag entfernen?', 'Remove holiday?'), L(`Datum: ${date}`, `Date: ${date}`), [
+      { text: t('times.cancel'), style: 'cancel' },
+      {
+        text: L('Entfernen', 'Remove'),
+        style: 'destructive',
+        onPress: () => persist(rows.filter((r) => r.date !== date)),
+      },
+    ])
   }
 
   const onReset = () => {
     Alert.alert(
       L('Auf Standard zurücksetzen?', 'Reset to defaults?'),
-      L(
-        'Lädt die deutschen gesetzlichen Feiertage 2025.',
-        'Loads the German public holidays for 2025.',
-      ),
+      L('Lädt die deutschen gesetzlichen Feiertage 2025.', 'Loads the German public holidays for 2025.'),
       [
         { text: t('times.cancel'), style: 'cancel' },
         {
@@ -129,115 +108,140 @@ export default function HolidaysScreen() {
     )
   }
 
+  if (!allowed) {
+    return (
+      <SettingsShell>
+        <SettingsPageHeader
+          backLabel={L('Einstellungen', 'Settings')}
+          icon={CalendarCheck}
+          tileColor={SC.amber500}
+          title={L('Feiertage', 'Public holidays')}
+        />
+        <SectionCard padded>
+          <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+            <ShieldCheck size={28} color={SC.slate300} />
+            <Text style={{ marginTop: 10, fontSize: 13, color: SC.slate500, textAlign: 'center' }}>
+              {L('Nur Administratoren können Feiertage verwalten.', 'Only administrators can manage holidays.')}
+            </Text>
+          </View>
+        </SectionCard>
+      </SettingsShell>
+    )
+  }
+
+  const resetButton = (
+    <Pressable
+      onPress={onReset}
+      accessibilityRole="button"
+      accessibilityLabel={L('Auf Standard zurücksetzen', 'Reset to defaults')}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: SC.slate200,
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <RotateCcw size={18} color={SC.slate600} />
+    </Pressable>
+  )
+
   return (
-    <Screen background="#F9FAFB" className="bg-gray-50 dark:bg-slate-950" noTapToDismiss>
-      <View className="flex-row items-center justify-between px-5 pt-4 pb-2">
-        <Pressable onPress={goBack} className="p-2 -ml-2">
-          <ChevronLeft size={26} color="#0064E0" />
-        </Pressable>
-        <Pressable onPress={onReset} className="p-2 -mr-2">
-          <RotateCcw size={20} color="#0064E0" />
-        </Pressable>
-      </View>
+    <SettingsShell>
+      <SettingsPageHeader
+        backLabel={L('Einstellungen', 'Settings')}
+        icon={CalendarCheck}
+        tileColor={SC.amber500}
+        title={L('Feiertage', 'Public holidays')}
+        subtitle={L(
+          'Wird vom Stundenzettel für Feiertagszuschläge verwendet.',
+          'Used by the Stundenzettel for holiday premium hours.',
+        )}
+        right={resetButton}
+      />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
-        <View className="flex-row items-center mb-4">
-          <View className="w-14 h-14 rounded-3xl bg-brand items-center justify-center mr-3">
-            <CalendarCheck size={26} color="#fff" />
-          </View>
-          <View className="flex-1">
-            <Text className="text-[15px] font-black text-gray-900 dark:text-white">
-              {L('Feiertage', 'Public holidays')}
-            </Text>
-            <Text className="text-[12px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L(
-                'Wird vom Stundenzettel für Feiertagszuschläge verwendet.',
-                'Used by the Stundenzettel for holiday premium hours.',
-              )}
-            </Text>
-          </View>
-        </View>
-
-        {/* Add row */}
-        <Card className="mb-3 space-y-3">
-          <Text className="text-[14px] font-black text-gray-900 dark:text-white">
-            {L('Feiertag hinzufügen', 'Add a holiday')}
-          </Text>
-          <View className="flex-row gap-3">
+      {/* Add row */}
+      <SectionCard title={L('Feiertag hinzufügen', 'Add a holiday')} padded>
+        <View style={{ gap: 14, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1 }}>
-              <FormField
-                label={L('Datum', 'Date')}
+              <FieldLabel>{L('Datum', 'Date')}</FieldLabel>
+              <SettingsInput
                 value={newDate}
                 onChangeText={setNewDate}
                 placeholder="2026-12-25"
                 autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                maxLength={10}
               />
             </View>
             <View style={{ flex: 1.4 }}>
-              <FormField
-                label={L('Bezeichnung', 'Label')}
+              <FieldLabel>{L('Bezeichnung', 'Label')}</FieldLabel>
+              <SettingsInput
                 value={newLabel}
                 onChangeText={setNewLabel}
                 placeholder={L('z. B. 1. Weihnachtstag', 'e.g. Christmas Day')}
               />
             </View>
           </View>
-          <Button
-            label={L('Hinzufügen', 'Add')}
-            onPress={onAdd}
-            leftIcon={<Plus size={16} color="#fff" />}
-          />
-        </Card>
+          <Button label={L('Hinzufügen', 'Add')} onPress={onAdd} leftIcon={<Plus size={16} color="#FFFFFF" />} />
+        </View>
+      </SectionCard>
 
-        <Text className="text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-2 ml-1">
-          {L(`Eingetragene Tage (${rows.length})`, `Configured days (${rows.length})`)}
-        </Text>
-
+      <SectionCard title={L(`Eingetragene Tage (${rows.length})`, `Configured days (${rows.length})`)}>
         {loading ? (
-          <Card>
-            <Text className="text-gray-400 dark:text-slate-500 text-center py-4">{L('Lädt…', 'Loading…')}</Text>
-          </Card>
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            <ActivityIndicator color={SC.blue600} />
+          </View>
         ) : rows.length === 0 ? (
-          <Card>
-            <View className="items-center py-8">
-              <CalendarCheck size={28} color="#D1D5DB" />
-              <Text className="text-[13px] text-gray-500 dark:text-slate-400 mt-3">
-                {L('Keine Feiertage eingetragen.', 'No holidays configured.')}
-              </Text>
-            </View>
-          </Card>
+          <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+            <CalendarCheck size={28} color={SC.slate300} />
+            <Text style={{ marginTop: 10, fontSize: 13, color: SC.slate500 }}>
+              {L('Keine Feiertage eingetragen.', 'No holidays configured.')}
+            </Text>
+          </View>
         ) : (
-          <Card style={{ padding: 0 } as any}>
-            {rows.map((r, i) => (
-              <View
-                key={r.date}
-                className="flex-row items-center px-4 py-3"
-                style={{
-                  borderTopWidth: i === 0 ? 0 : 1,
-                  borderTopColor: '#F1F5F9',
-                }}
-              >
-                <View className="flex-1 pr-3">
-                  <Text className="text-[13px] font-black text-gray-900 dark:text-white">{r.date}</Text>
-                  {r.label ? (
-                    <Text className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">{r.label}</Text>
-                  ) : null}
-                </View>
-                <Pressable onPress={() => onDelete(r.date)} className="p-1">
-                  <Trash2 size={18} color="#DC2626" />
-                </Pressable>
+          rows.map((r, i) => (
+            <View
+              key={r.date}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderBottomWidth: i === rows.length - 1 ? 0 : 1,
+                borderBottomColor: SC.slate50,
+              }}
+            >
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: SC.slate900 }}>{r.date}</Text>
+                {r.label ? (
+                  <Text style={{ fontSize: 12, color: SC.slate500, marginTop: 2 }}>{r.label}</Text>
+                ) : null}
               </View>
-            ))}
-          </Card>
+              <Pressable
+                onPress={() => onDelete(r.date)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={L('Entfernen', 'Remove')}
+                style={{ padding: 6 }}
+              >
+                <Trash2 size={18} color={SC.red600} />
+              </Pressable>
+            </View>
+          ))
         )}
+      </SectionCard>
 
-        <Text className="text-[10px] text-gray-400 dark:text-slate-500 mt-4 text-center">
-          {L(
-            'Hinweis: Weihnachten (25.12.) und 2. Weihnachtstag (26.12.) werden bei Rheinmaasrail über das Weihnachtsgeld separat abgerechnet — sie zählen daher nicht als Feiertagszuschlag.',
-            'Note: Christmas Day and Boxing Day are paid via Rheinmaasrail’s Weihnachtsgeld scheme — they are intentionally excluded from the Feiertag column.',
-          )}
-        </Text>
-      </ScrollView>
-    </Screen>
+      <FootNote>
+        {L(
+          'Hinweis: Weihnachten (25.12.) und 2. Weihnachtstag (26.12.) werden bei Rheinmaasrail über das Weihnachtsgeld separat abgerechnet — sie zählen daher nicht als Feiertagszuschlag.',
+          'Note: Christmas Day and Boxing Day are paid via Rheinmaasrail’s Weihnachtsgeld scheme — they are intentionally excluded from the Feiertag column.',
+        )}
+      </FootNote>
+    </SettingsShell>
   )
 }
