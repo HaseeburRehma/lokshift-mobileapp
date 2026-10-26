@@ -12,13 +12,15 @@
  *             1./2. Weihnachtstag are excluded (paid separately)
  *   Gastfahrt net hours of entries flagged as Gastfahrt
  *
- * The calculation walks the real start/end instants day by day in local
- * time, so DST changes and shifts across midnight / month ends are exact.
+ * The calculation walks the real start/end instants day by day in German
+ * time (Europe/Berlin, on every device), so DST changes and shifts across
+ * midnight / month ends are exact.
  * Breaks are not positioned in time; premium hours are therefore capped at
  * the shift's net hours.
  */
 
-import { calculateShiftTimes } from './shift-hours'
+import { addDays, calculateShiftTimes } from './shift-hours'
+import { berlinDateKey, berlinToInstant, weekdayOfDateKey } from './berlin'
 import {
   DEFAULT_STATE,
   EXCLUDED_HOLIDAY_NAMES,
@@ -100,10 +102,6 @@ function holidaysFor(year: number, state: GermanState): Map<string, string> {
   return map
 }
 
-function dayKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 /** Holiday name for a YYYY-MM-DD date that counts for the holiday premium, else null. */
 export function premiumHolidayName(date: string, rules: SurchargeRules = DEFAULT_SURCHARGE_RULES): string | null {
   const name = holidaysFor(Number(date.slice(0, 4)), rules.holidayState).get(date) ?? null
@@ -147,24 +145,26 @@ export function calculateSurcharges(
   let sun = 0
   let hol = 0
 
-  const s = new Date(start)
-  let day = new Date(s.getFullYear(), s.getMonth(), s.getDate())
+  let day = berlinDateKey(start)
   // A shift never spans more than a few days; the guard prevents runaway
   // loops on corrupt data.
-  for (let i = 0; i < 40 && day.getTime() < end; i++) {
-    const y = day.getFullYear()
-    const m = day.getMonth()
-    const d = day.getDate()
-    const dayStart = day.getTime()
-    const dayEnd = new Date(y, m, d + 1).getTime()
-    const at = (minutes: number) => new Date(y, m, d, 0, minutes).getTime()
+  for (let i = 0; i < 40; i++) {
+    const dayStart = berlinToInstant(day, '00:00').getTime()
+    if (dayStart >= end) break
+    const next = addDays(day, 1)
+    const dayEnd = berlinToInstant(next, '00:00').getTime()
+    // Minutes after German midnight → instant (24:00 = next midnight).
+    const at = (minutes: number) =>
+      minutes >= 24 * 60
+        ? dayEnd
+        : berlinToInstant(day, `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`).getTime()
 
     n25 += overlapMs(start, end, at(rules.night25From), at(rules.night25To))
     n40 += overlapMs(start, end, at(rules.night40From), at(rules.night40To))
-    if (day.getDay() === 0) sun += overlapMs(start, end, dayStart, dayEnd)
-    if (premiumHolidayName(dayKey(day), rules)) hol += overlapMs(start, end, dayStart, dayEnd)
+    if (weekdayOfDateKey(day) === 0) sun += overlapMs(start, end, dayStart, dayEnd)
+    if (premiumHolidayName(day, rules)) hol += overlapMs(start, end, dayStart, dayEnd)
 
-    day = new Date(y, m, d + 1)
+    day = next
   }
 
   const toHours = (ms: number) => Math.round(Math.min(ms / 3_600_000, net) * 100) / 100

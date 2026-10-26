@@ -4,6 +4,7 @@
  */
 
 import { addDays, localDateKey } from '@/lib/time/shift-hours'
+import { weekdayOfDateKey } from '@/lib/time/berlin'
 
 export interface WeekPlan {
   id: string
@@ -32,8 +33,7 @@ export interface WeekQualification {
 
 /** Monday (YYYY-MM-DD) of the week containing `date`. */
 export function weekStartOf(date: string): string {
-  const [y, m, d] = date.split('-').map(Number)
-  const dow = new Date(y, m - 1, d).getDay()
+  const dow = weekdayOfDateKey(date)
   return addDays(date, -((dow + 6) % 7))
 }
 

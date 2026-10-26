@@ -3,14 +3,16 @@
  *
  * A shift is entered as (date, "HH:mm" start, "HH:mm" end, break minutes).
  * An end earlier than the start falls on the following calendar day
- * (22:00 → 08:00 = 10 h). Times are interpreted in the device's local
- * timezone and stored as real UTC instants, so the database never has to
- * guess a timezone.
+ * (22:00 → 08:00 = 10 h). Times are German wall-clock time (Europe/Berlin,
+ * see ./berlin) on every device and are stored as real UTC instants, so the
+ * database never has to guess a timezone.
  *
  * The database recalculates `net_hours` from the stored instants on every
  * write (trigger `time_entries_normalize`); the values computed here are
  * for previews and must match that formula.
  */
+
+import { berlinDateKey, berlinTimeKey, berlinToInstant } from './berlin'
 
 export interface ShiftTimes {
   /** UTC instant for `time_entries.start_time`. */
@@ -45,30 +47,26 @@ export function roundHours(hours: number): number {
   return Math.round(hours * 100) / 100
 }
 
-/** YYYY-MM-DD of a Date in local time (never via toISOString, which is UTC). */
+/** YYYY-MM-DD of an instant in German time (never via toISOString, which is UTC). */
 export function localDateKey(d: Date = new Date()): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${dd}`
+  return berlinDateKey(d)
 }
 
-/** "HH:mm" of a Date in local time. */
+/** "HH:mm" of an instant in German time. */
 export function localTimeKey(d: Date): string {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return berlinTimeKey(d)
 }
 
-/** Add calendar days to a YYYY-MM-DD string (DST-safe, local calendar). */
+/** Add calendar days to a YYYY-MM-DD string (pure calendar arithmetic). */
 export function addDays(date: string, n: number): string {
   const [y, m, d] = date.split('-').map(Number)
-  return localDateKey(new Date(y, m - 1, d + n))
+  const t = new Date(Date.UTC(y, m - 1, d + n))
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
 }
 
-/** Local wall-clock date + time → UTC ISO instant. */
+/** German wall-clock date + time → UTC ISO instant. */
 export function toInstantIso(date: string, time: string): string {
-  const [y, m, d] = date.split('-').map(Number)
-  const [hh, mm] = time.split(':').map(Number)
-  return new Date(y, m - 1, d, hh, mm, 0, 0).toISOString()
+  return berlinToInstant(date, time).toISOString()
 }
 
 /** Net hours between two instants minus a break — same formula as the DB trigger. */
@@ -97,17 +95,15 @@ export function entryNetHours(entry: {
 }
 
 /**
- * Whole calendar days between the local start date and the local end date
- * of a stored shift (0 = same day, 1 = ends next day).
+ * Whole calendar days between the German start date and the German end
+ * date of a stored shift (0 = same day, 1 = ends next day).
  */
 export function endDayOffset(startIso: string | null | undefined, endIso: string | null | undefined): number {
   if (!startIso || !endIso) return 0
   const s = new Date(startIso)
   const e = new Date(endIso)
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0
-  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime()
-  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime()
-  return Math.round((ed - sd) / 86_400_000)
+  return Math.round((Date.parse(berlinDateKey(e)) - Date.parse(berlinDateKey(s))) / 86_400_000)
 }
 
 export function calculateShiftTimes(

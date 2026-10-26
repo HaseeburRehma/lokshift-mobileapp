@@ -22,7 +22,7 @@ import { ShiftTemplatePicker } from '@/components/forms/ShiftTemplatePicker'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { getSupabase } from '@/lib/supabase/client'
-import { calculateShiftTimes, isValidDate, isValidTime, localDateKey } from '@/lib/time/shift-hours'
+import { calculateShiftTimes, isValidDate, isValidTime, localDateKey, localTimeKey } from '@/lib/time/shift-hours'
 import { formatDateDE, formatEuro } from '@/lib/time/format'
 import { useOrgRules } from '@/hooks/useOrgRules'
 import { notifyPlanAssigned, notifyPlanChanged, notifyPlanRemoved } from '@/lib/plans/notify'
@@ -38,9 +38,9 @@ interface PlanFormProps {
   initialDate?: string
 }
 
+/** German time of a stored instant (matches dateFromIso and the saved value). */
 function timeFromIso(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return localTimeKey(new Date(iso))
 }
 
 function dateFromIso(iso: string): string {

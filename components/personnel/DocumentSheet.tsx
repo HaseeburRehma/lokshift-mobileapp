@@ -238,15 +238,18 @@ export function DocumentSheet({ state, onClose, onSubmit, employees }: Props) {
             </View>
 
             {/* Bemerkung */}
-            <TextInput
-              value={remark}
-              onChangeText={setRemark}
-              placeholder={L('Bemerkung (optional)', 'Remark (optional)')}
-              placeholderTextColor="#94A3B8"
-              multiline
-              textAlignVertical="top"
-              style={{ minHeight: 80, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, fontSize: 14, color: '#0F172A' }}
-            />
+            <View style={{ gap: 6 }}>
+              <Text className={LABEL}>{L('Bemerkung (optional)', 'Remark (optional)')}</Text>
+              <TextInput
+                value={remark}
+                onChangeText={setRemark}
+                placeholder={L('z. B. Auflagen, Hinweise zur Erneuerung', 'e.g. conditions, notes on renewal')}
+                placeholderTextColor="#94A3B8"
+                multiline
+                textAlignVertical="top"
+                style={{ minHeight: 80, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, fontSize: 14, color: '#0F172A' }}
+              />
+            </View>
 
             {/* Pflicht / Vertraulich */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}>

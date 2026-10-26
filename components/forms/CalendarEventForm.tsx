@@ -16,7 +16,6 @@
 
 import React, { useMemo, useState } from 'react'
 import { ScrollView, View, Text, Pressable, Switch } from 'react-native'
-import { format, parseISO } from 'date-fns'
 
 import { Card } from '@/components/Card'
 import { Button } from '@/components/Button'
@@ -30,6 +29,8 @@ import {
   type CalendarEventType,
 } from '@/lib/types'
 import type { CalendarEventInput } from '@/hooks/useCalendarEvents'
+import { berlinToInstant } from '@/lib/time/berlin'
+import { addDays, localDateKey, localTimeKey, toInstantIso } from '@/lib/time/shift-hours'
 
 const SELECTABLE_TYPES: CalendarEventType[] = [
   'event',
@@ -57,12 +58,15 @@ interface Props {
   onSubmit: (input: CalendarEventInput) => void | Promise<void>
 }
 
+// Entered dates/times are German wall-clock time on every device.
 function isoFromParts(date: string, time: string): string {
-  return new Date(`${date}T${time}:00`).toISOString()
+  return toInstantIso(date, time)
 }
 
 function dateOnlyIso(date: string, endOfDay = false): string {
-  return new Date(`${date}T${endOfDay ? '23:59:59' : '00:00:00'}`).toISOString()
+  return endOfDay
+    ? new Date(berlinToInstant(addDays(date, 1)).getTime() - 1000).toISOString()
+    : berlinToInstant(date).toISOString()
 }
 
 export function CalendarEventForm({
@@ -75,15 +79,15 @@ export function CalendarEventForm({
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
 
-  const today = format(new Date(), 'yyyy-MM-dd')
+  const today = localDateKey()
   const startInitial = useMemo(() => {
-    if (initial?.start_time) return parseISO(initial.start_time)
-    if (initialDate) return new Date(`${initialDate}T09:00:00`)
+    if (initial?.start_time) return new Date(initial.start_time)
+    if (initialDate) return berlinToInstant(initialDate, '09:00')
     return new Date()
   }, [initial?.start_time, initialDate])
   const endInitial = useMemo(() => {
-    if (initial?.end_time) return parseISO(initial.end_time)
-    if (initialDate) return new Date(`${initialDate}T10:00:00`)
+    if (initial?.end_time) return new Date(initial.end_time)
+    if (initialDate) return berlinToInstant(initialDate, '10:00')
     return new Date(Date.now() + 60 * 60 * 1000)
   }, [initial?.end_time, initialDate])
 
@@ -93,10 +97,10 @@ export function CalendarEventForm({
   const [title, setTitle] = useState(initial?.title ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [allDay, setAllDay] = useState(initial?.is_all_day ?? false)
-  const [date, setDate] = useState(format(startInitial, 'yyyy-MM-dd'))
-  const [endDate, setEndDate] = useState(format(endInitial, 'yyyy-MM-dd'))
-  const [startTime, setStartTime] = useState(format(startInitial, 'HH:mm'))
-  const [endTime, setEndTime] = useState(format(endInitial, 'HH:mm'))
+  const [date, setDate] = useState(localDateKey(startInitial))
+  const [endDate, setEndDate] = useState(localDateKey(endInitial))
+  const [startTime, setStartTime] = useState(localTimeKey(startInitial))
+  const [endTime, setEndTime] = useState(localTimeKey(endInitial))
   const [color, setColor] = useState(initial?.color ?? EVENT_COLORS.event)
   const [location, setLocation] = useState(initial?.location ?? '')
   const [memberIds, setMemberIds] = useState<string[]>(initial?.member_ids ?? [])

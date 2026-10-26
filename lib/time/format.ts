@@ -1,7 +1,10 @@
 /**
  * Display formatting for hours, money and dates — identical copy in the
- * webapp and the mobile app. German output uses a decimal comma.
+ * webapp and the mobile app. German output uses a decimal comma; times and
+ * dates of instants are always German time (Europe/Berlin).
  */
+
+import { berlinDateKey, berlinTimeKey, berlinWallClock, weekdayOfDateKey } from './berlin'
 
 export type Locale = 'de' | 'en'
 
@@ -55,17 +58,45 @@ export function formatEuro(amount: number | null | undefined, locale: Locale = '
   }).format(n)
 }
 
-/** "HH:mm" in local time of a stored instant. */
-export function formatTimeOfDay(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+function validInstant(iso: string | Date | null | undefined): Date | null {
+  if (!iso) return null
+  const d = iso instanceof Date ? iso : new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
-function parseDateKey(date: string): Date {
-  const [y, m, d] = date.split('-').map(Number)
-  return new Date(y, m - 1, d)
+/** "HH:mm" in German time of a stored instant. */
+export function formatTimeOfDay(iso: string | Date | null | undefined): string {
+  const d = validInstant(iso)
+  return d ? berlinTimeKey(d) : ''
+}
+
+/** "14.10.2026" — German date of a stored instant. */
+export function formatInstantDate(iso: string | Date | null | undefined): string {
+  const d = validInstant(iso)
+  return d ? formatDateDE(berlinDateKey(d)) : ''
+}
+
+/** "14.10.2026, 22:00" — German date and time of a stored instant. */
+export function formatInstantDateTime(iso: string | Date | null | undefined): string {
+  const d = validInstant(iso)
+  return d ? `${formatDateDE(berlinDateKey(d))}, ${berlinTimeKey(d)}` : ''
+}
+
+/** "Mi, 14.10.2026" (short) / "Mittwoch, 14.10.2026" — German date of an instant with weekday. */
+export function formatInstantWeekdayDate(iso: string | Date | null | undefined, locale: Locale = 'de', short = true): string {
+  const d = validInstant(iso)
+  if (!d) return ''
+  const key = berlinDateKey(d)
+  return `${weekdayName(key, locale, short)}, ${formatDateDE(key)}`
+}
+
+/** "14. Okt." / "Oct 14" — short German day + month of an instant. */
+export function formatInstantDayMonth(iso: string | Date | null | undefined, locale: Locale = 'de'): string {
+  const d = validInstant(iso)
+  if (!d) return ''
+  const w = berlinWallClock(d)
+  const month = (locale === 'de' ? MONTHS_DE : MONTHS_EN)[w.month - 1].slice(0, 3)
+  return locale === 'de' ? `${w.day}. ${month}.` : `${month} ${w.day}`
 }
 
 /** "2026-10-10" → "10.10.2026". */
@@ -76,7 +107,7 @@ export function formatDateDE(date: string | null | undefined): string {
 }
 
 export function weekdayName(date: string, locale: Locale = 'de', short = false): string {
-  const idx = parseDateKey(date).getDay()
+  const idx = weekdayOfDateKey(date)
   if (short) return (locale === 'de' ? WEEKDAYS_SHORT_DE : WEEKDAYS_SHORT_EN)[idx]
   return (locale === 'de' ? WEEKDAYS_DE : WEEKDAYS_EN)[idx]
 }
@@ -102,10 +133,8 @@ export function formatShiftRange(
 ): string {
   const start = formatTimeOfDay(startIso)
   if (!endIso) return `${start} – ${locale === 'de' ? 'läuft' : 'running'}`
-  const s = new Date(startIso ?? '')
-  const e = new Date(endIso)
-  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime()
-  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime()
-  const offset = Math.round((ed - sd) / 86_400_000)
+  const s = validInstant(startIso)
+  const e = validInstant(endIso)
+  const offset = s && e ? Math.round((Date.parse(berlinDateKey(e)) - Date.parse(berlinDateKey(s))) / 86_400_000) : 0
   return `${start} – ${formatTimeOfDay(endIso)}${offset > 0 ? ` (+${offset})` : ''}`
 }

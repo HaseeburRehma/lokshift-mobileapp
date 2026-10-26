@@ -25,6 +25,7 @@ import { useTranslation } from '@/lib/i18n'
 import { ShiftClosingSheet } from '@/components/ShiftClosingSheet'
 import { C } from '@/components/time/ui'
 import type { TimeEntry } from '@/lib/types'
+import { formatTimeOfDay } from '@/lib/time/format'
 
 function formatHHMMSS(total: number): string {
   const h = Math.floor(total / 3600)
@@ -34,12 +35,7 @@ function formatHHMMSS(total: number): string {
 }
 
 function timeOfDay(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  } catch {
-    return ''
-  }
+  return formatTimeOfDay(iso)
 }
 
 const planLabel = (p: { start_time: string; end_time: string; shift_name?: string | null; route?: string | null }) =>

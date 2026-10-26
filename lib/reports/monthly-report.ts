@@ -22,6 +22,7 @@ import { calculateSurcharges, publicHolidayName, type SurchargeRules, DEFAULT_SU
 import { DEFAULT_SPESEN_RATES, spesenKind, type SpesenRates } from '@/lib/spesen'
 import { formatTimeOfDay, monthLabel, weekdayName, type Locale } from '@/lib/time/format'
 import { endDayOffset, entryNetHours, shiftIssues, type ShiftIssue } from '@/lib/time/shift-hours'
+import { weekdayOfDateKey } from '@/lib/time/berlin'
 
 export interface ReportLocation {
   name: string
@@ -288,7 +289,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
   const claims = (input.perDiemClaims ?? []).filter((c) => c.employee_id === empId)
 
   const days: MonthlyReportDay[] = dates.map((date) => {
-    const weekdayIdx = new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))).getDay()
+    const weekdayIdx = weekdayOfDateKey(date)
     const absence = absences.find((a) => overlapsDay(date, a.start_date, a.end_date)) ?? null
 
     const rows: MonthlyReportRow[] = entries
@@ -404,8 +405,9 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
     const end = c.end_date || c.start_date
     const inMonth = dates.filter((d) => overlapsDay(d, start, end))
     if (inMonth.length === 0) continue
-    const totalDays = Math.max(1, Number(c.num_days) || dates.length)
     const claimDays = Math.max(1, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000) + 1)
+    // Without num_days the claim covers its own date range (not the month).
+    const totalDays = Math.max(1, Number(c.num_days) || claimDays)
     const perDay = (Number(c.amount) || 0) / Math.max(totalDays, claimDays)
     claimAmount += perDay * inMonth.length
     claimCount += 1

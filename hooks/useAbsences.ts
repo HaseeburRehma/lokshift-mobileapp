@@ -31,6 +31,7 @@ import { useUser } from '@/lib/user-context'
 import { EVENT_COLORS } from '@/lib/types'
 import type { CalendarEvent, AbsenceRequestStatus } from '@/lib/types'
 import { sendNotification, sendNotificationToMany } from '@/lib/notifications/service'
+import { berlinToInstant } from '@/lib/time/berlin'
 
 export type AbsenceKind = 'holiday' | 'sick_leave'
 
@@ -44,12 +45,13 @@ export interface AbsenceInput {
   reminder_minutes_before?: number | null
 }
 
+// Absence days are German calendar days on every device.
 function isoStart(date: string): string {
-  return new Date(`${date}T00:00:00`).toISOString()
+  return berlinToInstant(date).toISOString()
 }
 
 function isoEnd(date: string): string {
-  return new Date(`${date}T23:59:59`).toISOString()
+  return new Date(berlinToInstant(date, '23:59').getTime() + 59_000).toISOString()
 }
 
 /** Older rows might have `request_status = null`; treat as approved. */
