@@ -139,7 +139,7 @@ function monatsnachweisSheet(report: MonthlyReport): XLSX.WorkSheet {
   for (const p of t.specialPayments) line(`${p.title} (${p.periodLabel})${p.note ? ` – ${p.note}` : ''}`, p.amount, EURO)
   line('Sonderzahlungen gesamt', t.specialPaymentsTotal, EURO)
   rows.push([])
-  rows.push([`Hinweis: Dezimalstunden – 7,50 Std. = ${formatHoursLong(7.5, 'de')}.`])
+  rows.push([`Hinweis: Dezimalstunden – 7,50 Std. = ${formatHoursLong(7.5, 'de')}`])
   for (const w of report.warnings) rows.push([w])
 
   return sheet(rows, [12, 6, 8, 10, 8, 11, 10, 10, 11, 8, 8, 9, 9, 48], headerRow)

@@ -16,6 +16,8 @@ export const MONTHS_DE = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ]
+/** Duden short forms ("Mai", "Juni", "Juli" stay unabbreviated). */
+export const MONTHS_SHORT_DE = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.']
 export const MONTHS_EN = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -95,8 +97,7 @@ export function formatInstantDayMonth(iso: string | Date | null | undefined, loc
   const d = validInstant(iso)
   if (!d) return ''
   const w = berlinWallClock(d)
-  const month = (locale === 'de' ? MONTHS_DE : MONTHS_EN)[w.month - 1].slice(0, 3)
-  return locale === 'de' ? `${w.day}. ${month}.` : `${month} ${w.day}`
+  return locale === 'de' ? `${w.day}. ${MONTHS_SHORT_DE[w.month - 1]}` : `${MONTHS_EN[w.month - 1].slice(0, 3)} ${w.day}`
 }
 
 /** "2026-10-10" → "10.10.2026". */

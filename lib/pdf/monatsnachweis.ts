@@ -132,7 +132,7 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
   const r = report.rules
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   const legend = [
-    `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')}.`,
+    `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')}`,
     `Nachtzuschlag 25 %: ${hhmm(r.night25From)}–${hhmm(r.night25To)} Uhr, 40 %: ${hhmm(r.night40From)}–${hhmm(r.night40To)} Uhr. Sonn-/Feiertag: nur die Stunden, die auf den Tag fallen (${r.excludedHolidayNames.join(', ')} separat vergütet).`,
     'Eine Schicht zählt zum Tag ihres Beginns. Spesen werden je Kalendertag einmal berücksichtigt. Gastfahrt wird separat ausgewiesen und nicht doppelt gezählt.',
     t.openEntries ? `${t.openEntries} Eintrag/Einträge noch nicht freigegeben (in der Spalte Status markiert).` : 'Alle Einträge sind freigegeben.',
