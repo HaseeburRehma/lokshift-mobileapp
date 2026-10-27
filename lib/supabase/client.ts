@@ -17,6 +17,7 @@ import 'react-native-url-polyfill/auto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Constants from 'expo-constants'
+import { AppState, Platform } from 'react-native'
 
 // Session storage uses AsyncStorage across all platforms — iOS, Android,
 // Mac Catalyst, and web. expo-secure-store would be more "secure" (OS
@@ -81,5 +82,17 @@ export function getSupabase(): AppSupabase {
       detectSessionInUrl: false,
     },
   })
+  // Supabase's React Native guidance: refresh tokens only while the app is
+  // in the foreground and refresh right away when it returns, so a phone
+  // that slept for hours resumes with a valid session instead of failing
+  // requests with an expired token.
+  if (Platform.OS !== 'web') {
+    // auth-js 2.69 has both methods; the bundled typings here lack them.
+    const auth = cached.auth as unknown as { startAutoRefresh?: () => Promise<void>; stopAutoRefresh?: () => Promise<void> }
+    AppState.addEventListener('change', (state) => {
+      if (state === 'active') auth.startAutoRefresh?.()
+      else auth.stopAutoRefresh?.()
+    })
+  }
   return cached as unknown as AppSupabase
 }

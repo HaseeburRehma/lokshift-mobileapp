@@ -22,7 +22,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, Image, Pressable, AppState, ScrollView, TextInput, Animated, Easing } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, TextInput, Animated, Easing } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Link, useRouter } from 'expo-router'
 import { Globe, Eye, EyeOff } from 'lucide-react-native'
@@ -33,25 +33,12 @@ import { toast } from '@/components/Toast'
 import { useTranslation } from '@/lib/i18n'
 import { getSupabase } from '@/lib/supabase/client'
 import { classifyAuthError, authErrorMessage } from '@/lib/auth/errors'
+import { saveRememberChoice } from '@/lib/auth/remember'
 
 const MAX_ATTEMPTS = 5
 const LOCKOUT_SECONDS = 30
 
-const REMEMBER_KEY = 'lokshift.remember'
 const SEEN_SPLASH_KEY = 'lokshift.seenSplash'
-
-let listenerInstalled = false
-function installRememberListener() {
-  if (listenerInstalled) return
-  listenerInstalled = true
-  AppState.addEventListener('change', async (state) => {
-    if (state !== 'background') return
-    const remember = await AsyncStorage.getItem(REMEMBER_KEY)
-    if (remember === 'false') {
-      await getSupabase().auth.signOut()
-    }
-  })
-}
 
 export default function LoginScreen() {
   const { t, locale, setLocale } = useTranslation()
@@ -151,8 +138,7 @@ export default function LoginScreen() {
       // toast below.
       try { await supabase.auth.signOut() } catch { /* swallow */ }
 
-      await AsyncStorage.setItem(REMEMBER_KEY, remember ? 'true' : 'false')
-      installRememberListener()
+      await saveRememberChoice(remember)
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,

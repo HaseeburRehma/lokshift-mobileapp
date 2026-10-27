@@ -33,6 +33,7 @@ import { DrawerProvider } from '@/lib/drawer-context'
 import { NotificationsProvider } from '@/lib/notifications-context'
 import { usePushRegistration } from '@/lib/notifications/push'
 import { useSessionGuard } from '@/lib/session-guard'
+import { enforceRememberChoiceOnColdStart } from '@/lib/auth/remember'
 import { ThemeProvider, useTheme } from '@/lib/theme'
 import { BiometricLockProvider } from '@/lib/biometric/lock-context'
 import { AppDrawer } from '@/components/AppDrawer'
@@ -174,6 +175,10 @@ function ThemedStatusBar() {
   const { scheme } = useTheme()
   return <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
 }
+
+// "Angemeldet bleiben" unchecked: end the previous run's session before
+// the auth guard routes (see lib/auth/remember).
+enforceRememberChoiceOnColdStart()
 
 export default function RootLayout() {
   return (

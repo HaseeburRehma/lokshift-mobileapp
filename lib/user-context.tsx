@@ -67,6 +67,23 @@ interface UserContextValue {
 
 const UserContext = createContext<UserContextValue | null>(null)
 
+/**
+ * True only when Supabase definitively rejected the session (user deleted,
+ * session revoked, token invalid). Network failures — a tunnel, no signal,
+ * a timeout — are NOT a reason to sign a driver out.
+ */
+function isDefinitiveAuthError(err: any): boolean {
+  if (!err) return false
+  if (err.name === 'AuthRetryableFetchError' || err.status === 0) return false
+  if (err.status === 401 || err.status === 403) return true
+  const code = String(err.code ?? '')
+  if (['user_not_found', 'session_not_found', 'refresh_token_not_found', 'refresh_token_already_used', 'bad_jwt'].includes(code)) return true
+  return /user from sub claim|invalid jwt|jwt expired|session not found|refresh token/i.test(String(err.message ?? ''))
+}
+
+/** Profile could not be checked because the device is offline / Supabase unreachable. */
+const OFFLINE = 'offline' as const
+
 // Race a promise against a timeout — returns null if the timeout fires
 // first. Keeps the UI responsive when Supabase is slow.
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -91,7 +108,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // load so AuthGuard never lets a stale session paint authed screens.
   const [profileValidated, setProfileValidated] = useState(false)
 
-  const loadProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+  const loadProfile = useCallback(async (userId: string): Promise<Profile | null | typeof OFFLINE> => {
     // Supabase's query builder returns a PromiseLike (`.then` only).
     // Wrapping in `Promise.resolve()` gives us a real Promise that
     // `withTimeout` can race.
@@ -110,9 +127,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     // Either the fetch errored or it timed out — fall back to a profile
     // synthesised from the auth user so the UI is never blank.
-    const { data: userResp } = await supabase.auth.getUser()
-    const u = userResp.user
-    if (!u) return null
+    const { data: userResp, error: userErr } = await supabase.auth.getUser()
+    const u = userResp?.user
+    if (!u) {
+      // Only a definitive rejection ends the session; offline keeps it.
+      return isDefinitiveAuthError(userErr) ? null : OFFLINE
+    }
 
     const fallback: Profile = {
       id: u.id,
@@ -158,7 +178,45 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const fresh = await loadProfile(userId)
     if (activeUserIdRef.current !== userId) return // stale, ignore
 
-    if (fresh) {
+    if (fresh === OFFLINE) {
+      // No connection (tunnel, dead zone): stay signed in with the cached
+      // profile, or a minimal one from the stored session. The next
+      // successful fetch / auth event validates it properly.
+      let cached: Profile | null = null
+      try {
+        const raw = await AsyncStorage.getItem(PROFILE_CACHE_KEY(userId))
+        if (raw) cached = JSON.parse(raw) as Profile
+      } catch {}
+      if (!cached) {
+        const { data } = await supabase.auth.getSession()
+        const u = data.session?.user
+        if (u) {
+          cached = {
+            id: u.id,
+            organization_id: null,
+            email: u.email ?? null,
+            full_name: (u.user_metadata?.full_name as string | undefined) ?? null,
+            role: 'employee' as UserRole,
+            avatar_url: null,
+            is_active: true,
+            onboarding_completed: true,
+            must_change_password: false,
+            target_hours: 40,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+        }
+      }
+      if (activeUserIdRef.current !== userId) return
+      if (cached) {
+        setProfile(cached)
+        setProfileValidated(true)
+        setProfileLoading(false)
+        return
+      }
+    }
+
+    if (fresh && fresh !== OFFLINE) {
       // Deactivated accounts must NOT be allowed in even though they
       // hold a valid session — the admin pressed "Deactivate" on them.
       if (fresh.is_active === false) {
