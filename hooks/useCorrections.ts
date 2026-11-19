@@ -159,13 +159,25 @@ export function useEntryHistory(entryId: string | null | undefined) {
   const [rows, setRows] = useState<TimeEntryAuditRow[]>([])
   const fetchRows = useCallback(async () => {
     if (!entryId) return
+    // time_entry_audit has no foreign keys on purpose (rows outlive deleted
+    // users), so PostgREST cannot embed profiles — names are a 2nd query.
     const { data, error } = await supabase
       .from('time_entry_audit')
-      .select('*, changer:profiles!changed_by(id, full_name)')
+      .select('*')
       .eq('entry_id', entryId)
       .order('changed_at', { ascending: true })
-    if (error) console.warn('[useEntryHistory]', error.message)
-    setRows((data ?? []) as TimeEntryAuditRow[])
+    if (error) {
+      console.warn('[useEntryHistory]', error.message)
+      return
+    }
+    const audit = (data ?? []) as TimeEntryAuditRow[]
+    const ids = [...new Set(audit.map((r) => r.changed_by).filter((id): id is string => !!id))]
+    const names = new Map<string, string>()
+    if (ids.length) {
+      const { data: people } = await supabase.from('profiles').select('id, full_name').in('id', ids)
+      for (const p of (people ?? []) as { id: string; full_name: string | null }[]) names.set(p.id, p.full_name ?? '—')
+    }
+    setRows(audit.map((r) => ({ ...r, changer: r.changed_by && names.has(r.changed_by) ? { id: r.changed_by, full_name: names.get(r.changed_by)! } : null })))
   }, [entryId, supabase])
   useEffect(() => {
     fetchRows()

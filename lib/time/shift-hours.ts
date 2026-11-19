@@ -39,8 +39,20 @@ export function isValidTime(value: string | null | undefined): value is string {
   return !!value && TIME_RE.test(value)
 }
 
+/** Years a typed date may have — keeps half-typed years (0002, 0202) out. */
+export const MIN_YEAR = 2000
+export const MAX_YEAR = 2100
+
+/**
+ * A complete, real calendar date "YYYY-MM-DD" in a sane range. Date inputs
+ * report half-typed years (0002 → 0020 → 0202 → 2026) while the user types,
+ * so every lookup or calculation must check this first.
+ */
 export function isValidDate(value: string | null | undefined): value is string {
-  return !!value && DATE_RE.test(value)
+  if (!value || !DATE_RE.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  if (y < MIN_YEAR || y > MAX_YEAR || m < 1 || m > 12 || d < 1) return false
+  return d <= new Date(Date.UTC(y, m, 0)).getUTCDate()
 }
 
 export function roundHours(hours: number): number {
@@ -59,9 +71,12 @@ export function localTimeKey(d: Date): string {
 
 /** Add calendar days to a YYYY-MM-DD string (pure calendar arithmetic). */
 export function addDays(date: string, n: number): string {
+  if (!DATE_RE.test(date ?? '')) return date
   const [y, m, d] = date.split('-').map(Number)
-  const t = new Date(Date.UTC(y, m - 1, d + n))
-  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+  // setUTCFullYear, not Date.UTC: Date.UTC maps years 0–99 to 1900–1999.
+  const t = new Date(0)
+  t.setUTCFullYear(y, m - 1, d + n)
+  return `${String(t.getUTCFullYear()).padStart(4, '0')}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
 }
 
 /** German wall-clock date + time → UTC ISO instant. */
@@ -69,15 +84,21 @@ export function toInstantIso(date: string, time: string): string {
   return berlinToInstant(date, time).toISOString()
 }
 
-/** Net hours between two instants minus a break — same formula as the DB trigger. */
+const MINUTE_MS = 60_000
+
+/**
+ * Net hours between two instants minus a break — same formula as the DB
+ * trigger. Whole minutes only: clocked seconds never turn a 0-minute shift
+ * into 0,01 h (one rounding rule for app, PDF and Excel).
+ */
 export function hoursBetween(
   startIso: string | null | undefined,
   endIso: string | null | undefined,
   breakMinutes: number | null | undefined = 0,
 ): number {
   if (!startIso || !endIso) return 0
-  const start = new Date(startIso).getTime()
-  const end = new Date(endIso).getTime()
+  const start = Math.floor(new Date(startIso).getTime() / MINUTE_MS) * MINUTE_MS
+  const end = Math.floor(new Date(endIso).getTime() / MINUTE_MS) * MINUTE_MS
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
   return roundHours(Math.max(0, (end - start) / 3_600_000 - (Number(breakMinutes) || 0) / 60))
 }

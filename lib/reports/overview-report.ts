@@ -10,6 +10,7 @@ import {
   type ReportAbsence,
   type ReportEntry,
   type ReportPerDiemClaim,
+  type ReportPlan,
   type ReportSpecialPayment,
 } from './monthly-report'
 import { DEFAULT_SURCHARGE_RULES, type SurchargeRules } from '@/lib/time/zuschlag'
@@ -37,6 +38,8 @@ export interface OverviewRow {
   workingDays: number
   openEntries: number
   issueCount: number
+  /** Planned shifts without a time entry (QA P1-1). */
+  missingShifts: number
   spesenTotal: number
   specialPaymentsTotal: number
 }
@@ -52,6 +55,8 @@ export interface OverviewTotals {
   workingDays: number
   openEntries: number
   issueCount: number
+  /** Planned shifts without a time entry (QA P1-1). */
+  missingShifts: number
   spesenTotal: number
   specialPaymentsTotal: number
 }
@@ -61,6 +66,7 @@ interface SharedInput {
   absences?: ReportAbsence[]
   specialPayments?: ReportSpecialPayment[]
   perDiemClaims?: ReportPerDiemClaim[]
+  plans?: ReportPlan[]
   rules?: SurchargeRules
   spesenRates?: SpesenRates
   locale?: Locale
@@ -77,6 +83,7 @@ function rowFor(employee: OverviewEmployee, month: string, label: string, input:
     absences: input.absences,
     specialPayments: input.specialPayments,
     perDiemClaims: input.perDiemClaims,
+    plans: input.plans,
     weeklyTargetHours: employee.weeklyTargetHours,
     rules: input.rules,
     spesenRates: input.spesenRates,
@@ -99,6 +106,7 @@ function rowFor(employee: OverviewEmployee, month: string, label: string, input:
     workingDays: t.workingDays,
     openEntries: t.openEntries,
     issueCount: t.issueCount,
+    missingShifts: t.missingShifts,
     spesenTotal: t.spesenTotal,
     specialPaymentsTotal: t.specialPaymentsTotal,
   }
@@ -120,6 +128,7 @@ function totalsOf(rows: OverviewRow[]): OverviewTotals {
     workingDays: sum((r) => r.workingDays),
     openEntries: sum((r) => r.openEntries),
     issueCount: sum((r) => r.issueCount),
+    missingShifts: sum((r) => r.missingShifts),
     spesenTotal: sum((r) => r.spesenTotal),
     specialPaymentsTotal: sum((r) => r.specialPaymentsTotal),
   }

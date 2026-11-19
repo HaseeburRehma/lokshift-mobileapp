@@ -16,13 +16,15 @@
  *     minus approved vacation/sick weekdays.
  *   - Spesen are counted at most once per calendar day.
  *   - Planned (future) entries are not part of the statement.
+ *   - A planned shift whose end has passed without any time entry is shown
+ *     as "Geplant – keine Zeit erfasst" and counted as missing (QA P1-1).
  */
 
 import { calculateSurcharges, publicHolidayName, type SurchargeRules, DEFAULT_SURCHARGE_RULES } from '@/lib/time/zuschlag'
 import { DEFAULT_SPESEN_RATES, spesenKind, type SpesenRates } from '@/lib/spesen'
 import { formatTimeOfDay, monthLabel, weekdayName, type Locale } from '@/lib/time/format'
 import { endDayOffset, entryNetHours, shiftIssues, type ShiftIssue } from '@/lib/time/shift-hours'
-import { weekdayOfDateKey } from '@/lib/time/berlin'
+import { berlinDateKey, weekdayOfDateKey } from '@/lib/time/berlin'
 
 export interface ReportLocation {
   name: string
@@ -45,6 +47,7 @@ export interface ReportEntry {
   submitted_at?: string | null
   corrected_at?: string | null
   entered_by?: string | null
+  plan_id?: string | null
   notes?: string | null
   customer?: { name: string } | null
   start_location?: ReportLocation | null
@@ -52,6 +55,34 @@ export interface ReportEntry {
 }
 
 export type AbsenceKind = 'vacation' | 'sick' | 'other'
+
+/** A planned shift (plans table) — used to find shifts without a time entry. */
+export interface ReportPlan {
+  id: string
+  employee_id: string | null
+  start_time: string
+  end_time: string
+  status?: string | null
+  shift_name?: string | null
+  route?: string | null
+  is_gastfahrt?: boolean | null
+  customer?: { name: string } | null
+  start_location?: ReportLocation | null
+  destination_location?: ReportLocation | null
+}
+
+/** Planned shift whose end has passed without any time entry. */
+export interface MissingShift {
+  planId: string
+  date: string
+  start: string
+  end: string
+  endDayOffset: number
+  label: string | null
+  customer: string | null
+  route: string | null
+  isGastfahrt: boolean
+}
 
 export interface ReportAbsence {
   employee_id: string
@@ -112,7 +143,7 @@ export interface MonthlyReportRow {
   notes: string | null
 }
 
-export type DayState = 'work' | 'incomplete' | 'absence' | 'free'
+export type DayState = 'work' | 'incomplete' | 'missing' | 'absence' | 'free'
 
 export interface MonthlyReportDay {
   date: string
@@ -123,6 +154,8 @@ export interface MonthlyReportDay {
   holidayName: string | null
   absence: { kind: AbsenceKind; label: string } | null
   rows: MonthlyReportRow[]
+  /** Planned shifts of this day that were never recorded. */
+  missing: MissingShift[]
   /** Spesen counted for this day (max of the day's entries). */
   daySpesen: number
   state: DayState
@@ -171,6 +204,8 @@ export interface MonthlyReportTotals {
   openEntries: number
   runningEntries: number
   issueCount: number
+  /** Planned shifts whose end has passed without a time entry. */
+  missingShifts: number
 }
 
 export interface MonthlyReport {
@@ -200,6 +235,8 @@ export interface MonthlyReportInput {
   absences?: ReportAbsence[]
   specialPayments?: ReportSpecialPayment[]
   perDiemClaims?: ReportPerDiemClaim[]
+  /** Planned shifts — those without a time entry are shown as missing. */
+  plans?: ReportPlan[]
   /** profiles.target_hours (per week). */
   weeklyTargetHours?: number | null
   rules?: SurchargeRules
@@ -239,7 +276,30 @@ function absenceLabel(kind: AbsenceKind, locale: Locale, label?: string | null):
   return locale === 'de' ? 'Abwesend' : 'Absent'
 }
 
-function routeLabel(e: ReportEntry): string | null {
+/**
+ * Planned shifts of one employee that ended before `now` and have no time
+ * entry: neither linked by plan_id nor overlapping the planned time.
+ */
+export function findMissingShifts(plans: ReportPlan[], entries: ReportEntry[], employeeId: string, now: Date): ReportPlan[] {
+  const own = entries.filter((e) => e.employee_id === employeeId && !e.is_planned)
+  const linked = new Set(own.map((e) => e.plan_id).filter(Boolean))
+  const nowMs = now.getTime()
+  return plans.filter((p) => {
+    if (p.employee_id !== employeeId) return false
+    if (p.status === 'cancelled' || p.status === 'rejected') return false
+    const ps = new Date(p.start_time).getTime()
+    const pe = new Date(p.end_time).getTime()
+    if (!Number.isFinite(ps) || !Number.isFinite(pe) || pe > nowMs) return false
+    if (linked.has(p.id)) return false
+    return !own.some((e) => {
+      const es = new Date(e.start_time).getTime()
+      const ee = e.end_time ? new Date(e.end_time).getTime() : nowMs
+      return es < pe && ee > ps
+    })
+  })
+}
+
+function routeLabel(e: ReportEntry | ReportPlan): string | null {
   const a = e.start_location?.short_code || e.start_location?.name
   const b = e.destination_location?.short_code || e.destination_location?.name
   if (a && b) return `${a} → ${b}`
@@ -287,6 +347,9 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
 
   const absences = (input.absences ?? []).filter((a) => a.employee_id === empId)
   const claims = (input.perDiemClaims ?? []).filter((c) => c.employee_id === empId)
+  const missingPlans = findMissingShifts(input.plans ?? [], input.entries, empId, input.now ?? new Date())
+    .filter((p) => berlinDateKey(p.start_time).slice(0, 7) === input.month)
+    .sort((a, b) => a.start_time.localeCompare(b.start_time))
 
   const days: MonthlyReportDay[] = dates.map((date) => {
     const weekdayIdx = weekdayOfDateKey(date)
@@ -324,14 +387,30 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
         }
       })
 
+    const missing: MissingShift[] = missingPlans
+      .filter((p) => berlinDateKey(p.start_time) === date)
+      .map((p) => ({
+        planId: p.id,
+        date,
+        start: formatTimeOfDay(p.start_time),
+        end: formatTimeOfDay(p.end_time),
+        endDayOffset: endDayOffset(p.start_time, p.end_time),
+        label: p.shift_name || p.route || null,
+        customer: p.customer?.name ?? null,
+        route: routeLabel(p),
+        isGastfahrt: !!p.is_gastfahrt,
+      }))
+
     const daySpesen = rows.reduce((max, r) => Math.max(max, r.spesen), 0)
-    const state: DayState = rows.some((r) => r.issues.length > 0 || r.status === 'running')
+    const state: DayState = rows.some((r) => r.issues.length > 0 || r.status === 'running') || (rows.length > 0 && missing.length > 0)
       ? 'incomplete'
       : rows.length > 0
         ? 'work'
-        : absence
-          ? 'absence'
-          : 'free'
+        : missing.length > 0
+          ? 'missing'
+          : absence
+            ? 'absence'
+            : 'free'
 
     return {
       date,
@@ -342,6 +421,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
       holidayName: publicHolidayName(date, rules),
       absence: absence ? { kind: absence.kind, label: absenceLabel(absence.kind, locale, absence.label) } : null,
       rows,
+      missing,
       daySpesen,
       state,
     }
@@ -482,6 +562,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
     openEntries,
     runningEntries,
     issueCount: allRows.filter((r) => r.issues.length > 0).length,
+    missingShifts: days.reduce((n, d) => n + d.missing.length, 0),
   }
 
   return {
