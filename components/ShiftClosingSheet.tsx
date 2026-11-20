@@ -27,6 +27,8 @@ interface Props {
   open: boolean
   onClose: () => void
   onSubmit: (entryId: string, values: SubmitShiftValues) => Promise<boolean>
+  /** True while the end time is still being stored ("Beenden" just tapped). */
+  saving?: boolean
 }
 
 const hhmm = (iso?: string | null) => (iso ? localTimeKey(new Date(iso)) : '')
@@ -70,7 +72,7 @@ function CellInput({ suffix, ...props }: React.ComponentProps<typeof TextInput> 
   )
 }
 
-export function ShiftClosingSheet({ entry, open, onClose, onSubmit }: Props) {
+export function ShiftClosingSheet({ entry, open, onClose, onSubmit, saving = false }: Props) {
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { spesenRates } = useOrgRules()
@@ -87,6 +89,9 @@ export function ShiftClosingSheet({ entry, open, onClose, onSubmit }: Props) {
   const recordedStart = entry?.clock_start_time ?? entry?.start_time ?? null
   const recordedEnd = entry?.clock_end_time ?? entry?.end_time ?? null
 
+  // Reset only for another shift or when reopened: the sheet opens with the
+  // recorded times before the end is stored, and the saved copy that
+  // replaces it must not wipe what the user already typed.
   useEffect(() => {
     if (!entry || !open) return
     setDate(entry.date)
@@ -95,7 +100,8 @@ export function ShiftClosingSheet({ entry, open, onClose, onSubmit }: Props) {
     setBreakMinutes(String(entry.break_minutes ?? 0))
     setOvernight(!!entry.overnight_stay)
     setNotes(entry.notes ?? '')
-  }, [entry, open])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry?.id, open])
 
   const brk = Math.max(0, Number(breakMinutes) || 0)
   const shift = useMemo(() => calculateShiftTimes(date, startTime, endTime, brk), [date, startTime, endTime, brk])
@@ -147,7 +153,7 @@ export function ShiftClosingSheet({ entry, open, onClose, onSubmit }: Props) {
   }
 
   const rowLabelStyle = { width: 58, fontSize: 10, fontWeight: '900' as const, letterSpacing: 1, textTransform: 'uppercase' as const, color: C.slate400 }
-  const submitDisabled = !entry || errors.length > 0 || submitting
+  const submitDisabled = !entry || errors.length > 0 || submitting || saving
   const planDisabled = !plan || planApplied
 
   return (
@@ -279,7 +285,11 @@ export function ShiftClosingSheet({ entry, open, onClose, onSubmit }: Props) {
               <View style={{ height: 48, borderRadius: 12, backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', opacity: submitDisabled ? 0.5 : 1 }}>
                 <Send size={16} color="#FFFFFF" />
                 <Text style={{ marginLeft: 8, fontSize: 11, fontWeight: '900', letterSpacing: 1.4, textTransform: 'uppercase', color: '#FFFFFF' }}>
-                  {submitting ? L('Wird gesendet…', 'Sending…') : L('Schicht absenden', 'Submit shift')}
+                  {saving
+                    ? L('Endzeit wird gespeichert…', 'Saving end time…')
+                    : submitting
+                      ? L('Wird gesendet…', 'Sending…')
+                      : L('Schicht absenden', 'Submit shift')}
                 </Text>
               </View>
             </Pressable>

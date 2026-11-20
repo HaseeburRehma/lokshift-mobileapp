@@ -58,6 +58,8 @@ export function ClockInOutCard() {
     todayPlans,
     drafts,
     submitEntry,
+    starting,
+    breakTotalSeconds,
   } = useTimeTracking()
 
   const [selectedPlanId, setSelectedPlanId] = useState<string>('')
@@ -73,24 +75,37 @@ export function ClockInOutCard() {
   const displaySeconds = isOnBreak ? breakSeconds : elapsedSeconds
   const activePlan = activeEntry ? todayPlans.find((p) => p.id === activeEntry.plan_id) ?? null : null
 
-  const onStart = async () => {
-    if (busy || isActive) return
-    setBusy(true)
-    try {
-      await clockIn(selectedPlanId || undefined)
-      setSelectedPlanId('')
-    } finally {
-      setBusy(false)
-    }
+  // The card switches to "Einsatz aktiv" at once; saving runs behind it.
+  const onStart = () => {
+    if (busy || isActive || starting) return
+    void clockIn(selectedPlanId || undefined)
+    setSelectedPlanId('')
   }
 
+  // The review opens right away with the recorded times (QA P2-3);
+  // submitting waits until the end time is stored.
   const onEnd = async () => {
-    if (busy || !isActive) return
+    if (busy || starting || !activeEntry) return
+    const endAt = Date.now()
+    const endIso = new Date(endAt).toISOString()
+    setReviewEntry({
+      ...(activeEntry as unknown as TimeEntry),
+      date: activeEntry.date ?? activeEntry.start_time.slice(0, 10),
+      end_time: endIso,
+      clock_start_time: activeEntry.start_time,
+      clock_end_time: endIso,
+      break_minutes: Math.round(breakTotalSeconds(activeEntry, endAt) / 60),
+      is_on_break: false,
+      plan: (activePlan as TimeEntry['plan']) ?? null,
+    } as TimeEntry)
     setBusy(true)
     try {
-      const closed = await clockOut()
-      // Open the closing view right away (Kundenfeedback Punkt 2).
-      if (closed) setReviewEntry(closed)
+      const closed = await clockOut(endAt)
+      // Offline or failed: the sheet closes (the hook explains why).
+      // Only update a sheet the user still has open.
+      setReviewEntry((open) =>
+        open && closed ? { ...closed, plan: closed.plan ?? ((activePlan as TimeEntry['plan']) ?? null) } : null,
+      )
     } finally {
       setBusy(false)
     }
@@ -141,7 +156,9 @@ export function ClockInOutCard() {
               {isActive
                 ? isOnBreak
                   ? L('Pause läuft', 'On break')
-                  : L('Einsatz aktiv', 'Shift active')
+                  : starting
+                    ? L('Einsatz aktiv · wird gespeichert…', 'Shift active · saving…')
+                    : L('Einsatz aktiv', 'Shift active')
                 : L('Bereit', 'Ready')}
             </Text>
             <Text
@@ -228,7 +245,7 @@ export function ClockInOutCard() {
             </Pressable>
           ) : (
             <>
-              <Pressable onPress={isOnBreak ? endBreak : startBreak} disabled={busy} style={{ flex: 1, marginRight: 8 }} accessibilityRole="button">
+              <Pressable onPress={isOnBreak ? endBreak : startBreak} disabled={busy || starting} style={{ flex: 1, marginRight: 8 }} accessibilityRole="button">
                 <View
                   style={{
                     height: 40,
@@ -237,6 +254,7 @@ export function ClockInOutCard() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'row',
+                    opacity: busy || starting ? 0.6 : 1,
                   }}
                 >
                   {isOnBreak ? (
@@ -249,7 +267,7 @@ export function ClockInOutCard() {
                   </Text>
                 </View>
               </Pressable>
-              <Pressable onPress={onEnd} disabled={busy} style={{ flex: 1 }} accessibilityRole="button">
+              <Pressable onPress={onEnd} disabled={busy || starting} style={{ flex: 1 }} accessibilityRole="button">
                 <View
                   style={{
                     height: 40,
@@ -258,7 +276,7 @@ export function ClockInOutCard() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'row',
-                    opacity: busy ? 0.7 : 1,
+                    opacity: busy || starting ? 0.6 : 1,
                   }}
                 >
                   <Square size={14} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 8 }} />
@@ -305,6 +323,7 @@ export function ClockInOutCard() {
         open={!!reviewEntry}
         onClose={() => setReviewEntry(null)}
         onSubmit={submitEntry}
+        saving={busy}
       />
     </>
   )

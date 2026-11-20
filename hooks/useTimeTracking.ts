@@ -18,7 +18,8 @@ import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import { safeParseISO } from '@/lib/safe-format'
 import { toast } from '@/components/Toast'
-import { calculateShiftTimes, localDateKey } from '@/lib/time/shift-hours'
+import { addDays, calculateShiftTimes, localDateKey } from '@/lib/time/shift-hours'
+import { berlinDateKey, berlinToInstant } from '@/lib/time/berlin'
 import { calculateSpesen } from '@/lib/spesen'
 import { TIME_ENTRY_SELECT, dbErrorMessage } from '@/lib/times/entry-status'
 import { useOrgRules } from '@/hooks/useOrgRules'
@@ -42,6 +43,7 @@ import {
 
 interface ActiveEntry {
   id: string
+  date?: string
   employee_id: string
   start_time: string
   end_time: string | null
@@ -85,7 +87,7 @@ export interface SubmitShiftValues {
  * `navigator.geolocation.getCurrentPosition` semantics: returns null
  * when permission is denied or the lookup times out (does not throw).
  */
-async function captureCoords(): Promise<{ latitude: number; longitude: number } | null> {
+async function captureCoords(): Promise<{ latitude: number; longitude: number } | 'denied' | null> {
   try {
     const perm = await Location.getForegroundPermissionsAsync()
     let granted = perm.granted
@@ -93,7 +95,7 @@ async function captureCoords(): Promise<{ latitude: number; longitude: number } 
       const req = await Location.requestForegroundPermissionsAsync()
       granted = req.granted
     }
-    if (!granted) return null
+    if (!granted) return 'denied'
 
     // Cap the wait so a slow GPS lock doesn't keep the user staring at a
     // spinning button. 5 s matches the web's `timeout: 5000`.
@@ -127,6 +129,9 @@ export function useTimeTracking() {
   // foreground) are silent so an open closing sheet is never unmounted.
   const loadedOnce = useRef(false)
   const flushing = useRef(false)
+  // While "Schicht starten" saves, a refresh must not replace the
+  // optimistic running shift with "nothing running yet".
+  const startingRef = useRef(false)
 
   /** Sends queued offline clock actions whose retry time has come. */
   const flushPending = useCallback(async (force = false): Promise<PendingClock[]> => {
@@ -160,11 +165,11 @@ export function useTimeTracking() {
     if (!loadedOnce.current) setLoading(true)
     const pending = await flushPending()
 
-    // Plans touching today's local day — includes a night shift from
-    // yesterday that is still running.
-    const now = new Date()
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
+    // Plans touching today's German day — includes a night shift from
+    // yesterday that is still running (same window as the webapp).
+    const today = berlinDateKey()
+    const dayStart = berlinToInstant(today).toISOString()
+    const dayEnd = berlinToInstant(addDays(today, 1)).toISOString()
     const [{ data: running }, { data: open }, { data: plans }] = await Promise.all([
       supabase
         .from('time_entries')
@@ -200,7 +205,7 @@ export function useTimeTracking() {
     if (!current && pendingIn && pendingIn.kind === 'clock_in' && !pending.some((p) => p.kind === 'clock_out' && p.id === pendingIn.id)) {
       current = { ...(pendingIn.payload as object), id: pendingIn.id, start_time: pendingIn.at, end_time: null } as unknown as ActiveEntry
     }
-    setActiveEntry(current)
+    if (!startingRef.current) setActiveEntry(current)
     setDrafts((open ?? []) as TimeEntry[])
     setTodayPlans((plans ?? []) as TodayPlan[])
     loadedOnce.current = true
@@ -277,18 +282,56 @@ export function useTimeTracking() {
     }
   }, [activeEntry])
 
+  /** True while "Schicht starten" is being saved (the card already shows the shift). */
+  const [starting, setStarting] = useState(false)
+
+  /**
+   * Location is evidence, never a gate (QA P2-4/P2-8): it is attached after
+   * the shift has started, so a slow GPS lock or a permission prompt never
+   * delays "Schicht starten".
+   */
+  const attachLocation = useCallback(
+    async (entryId: string) => {
+      if (!myId) return
+      const coords = await captureCoords()
+      if (coords === 'denied') {
+        toast.info(L('Standort nicht freigegeben – die Schicht läuft trotzdem.', 'Location not shared – the shift is running anyway.'))
+        return
+      }
+      if (coords) {
+        const at = new Date().toISOString()
+        try {
+          await supabase.from('time_entries').update({ latitude: coords.latitude, longitude: coords.longitude } as any).eq('id', entryId)
+          // Live Operations pins the employee at profiles.last_lat/last_lng.
+          await supabase
+            .from('profiles')
+            .update({ last_lat: coords.latitude, last_lng: coords.longitude, last_location_update: at } as any)
+            .eq('id', myId)
+        } catch (e) {
+          console.warn('[useTimeTracking] location update failed (non-fatal):', e)
+        }
+      }
+      // Background tracking if the user opted in (non-fatal when denied).
+      try {
+        await startTrackingIfEnabled(myId)
+      } catch (e) {
+        console.warn('[useTimeTracking] bg tracking start failed (non-fatal):', e)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [supabase, myId, locale],
+  )
+
   const clockIn = useCallback(
     async (planId?: string, location?: string) => {
-      if (!myId || !profile?.organization_id) return null
+      if (!myId || !profile?.organization_id || starting) return null
 
       // Guard against double-clock-in: if the realtime channel hasn't
-      // delivered the open entry yet, refuse rather than create a second
-      // row. Matches the web's UI-state guard.
+      // delivered the open entry yet, refuse rather than create a second row.
       if (activeEntry) return activeEntry
 
       const nowDate = new Date()
       const now = nowDate.toISOString()
-      const coords = await captureCoords()
 
       // The plan the user picked — otherwise the one closest to now.
       const plan =
@@ -310,8 +353,6 @@ export function useTimeTracking() {
         overnight_stay: !!plan?.overnight_stay,
         hotel_address: plan?.hotel_address ?? null,
         location: location ?? plan?.location ?? null,
-        latitude: coords?.latitude ?? null,
-        longitude: coords?.longitude ?? null,
         start_time: now,
         date: localDateKey(nowDate),
         break_minutes: 0,
@@ -320,60 +361,53 @@ export function useTimeTracking() {
         is_verified: false,
       }
 
-      // Stored on the device first with the tap time, then sent.
+      // The id is created on the device, so the shift shows as running at
+      // once (QA P2-3) — the controls stay disabled until the row exists.
       const op = { kind: 'clock_in' as const, id: newEntryId(), at: now, payload, attempts: 0, nextAt: nextAttemptAt(0) }
-      await enqueue(op)
-      const { data, error } = await sendClockIn(op)
-      if (error) {
-        if (isNetworkError(error)) {
-          const local = { ...payload, id: op.id, start_time: now, end_time: null } as unknown as ActiveEntry
-          setActiveEntry(local)
-          toast.success(L('Offline gestartet – wird übertragen, sobald wieder Netz da ist.', 'Started offline – will sync when you are back online.'))
-          return local
-        }
-        await dequeue('clock_in', op.id)
-        console.warn('[useTimeTracking] clockIn failed:', error.message)
-        if (error.code === '23505') {
-          toast.error(L('Es läuft bereits eine Schicht (z. B. auf einem anderen Gerät).', 'A shift is already running (e.g. on another device).'))
-          void fetchActive()
+      const local = {
+        ...payload,
+        id: op.id,
+        start_time: now,
+        end_time: null,
+        current_break_start: null,
+        latitude: null,
+        longitude: null,
+      } as unknown as ActiveEntry
+      startingRef.current = true
+      setStarting(true)
+      setActiveEntry(local)
+
+      try {
+        // Stored on the device first with the tap time, then sent.
+        await enqueue(op)
+        const { data, error } = await sendClockIn(op)
+        if (error) {
+          if (isNetworkError(error)) {
+            toast.success(L('Offline gestartet – wird übertragen, sobald wieder Netz da ist.', 'Started offline – will sync when you are back online.'))
+            return local
+          }
+          await dequeue('clock_in', op.id)
+          setActiveEntry(null)
+          console.warn('[useTimeTracking] clockIn failed:', error.message)
+          if (error.code === '23505') {
+            toast.error(L('Es läuft bereits eine Schicht (z. B. auf einem anderen Gerät).', 'A shift is already running (e.g. on another device).'))
+            void fetchActive()
+            return null
+          }
+          toast.error(dbErrorMessage(error, locale, L('Schicht konnte nicht gestartet werden', 'Could not start shift')))
           return null
         }
-        toast.error(dbErrorMessage(error, locale, L('Schicht konnte nicht gestartet werden', 'Could not start shift')))
-        return null
+        await dequeue('clock_in', op.id)
+        setActiveEntry(data as ActiveEntry)
+        void attachLocation(op.id)
+        return data
+      } finally {
+        startingRef.current = false
+        setStarting(false)
       }
-      await dequeue('clock_in', op.id)
-      setActiveEntry(data as ActiveEntry)
-
-      // Mirror the web's profile snapshot — the Live Operations map
-      // pins the employee at profiles.last_lat/last_lng. Best-effort.
-      if (coords) {
-        try {
-          await supabase
-            .from('profiles')
-            .update({
-              last_lat: coords.latitude,
-              last_lng: coords.longitude,
-              last_location_update: now,
-            } as any)
-            .eq('id', myId)
-        } catch (e) {
-          console.warn('[useTimeTracking] profile location update failed (non-fatal):', e)
-        }
-      }
-
-      // Kick off the background-location task if the user opted-in in
-      // security settings. Non-fatal if denied — the snapshot above is
-      // already on the map.
-      try {
-        await startTrackingIfEnabled(myId)
-      } catch (e) {
-        console.warn('[useTimeTracking] bg tracking start failed (non-fatal):', e)
-      }
-
-      return data
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [supabase, myId, profile?.organization_id, activeEntry, todayPlans, locale, fetchActive],
+    [supabase, myId, profile?.organization_id, activeEntry, todayPlans, locale, fetchActive, starting, attachLocation],
   )
 
   const startBreak = useCallback(async () => {
@@ -423,14 +457,10 @@ export function useTimeTracking() {
    * Stops the clock. The entry stays a draft so the closing view can
    * compare planned and recorded times before it is submitted.
    */
-  const clockOut = useCallback(async (): Promise<TimeEntry | null> => {
-    if (!activeEntry) return null
-    const now = new Date()
-    let totalBreak = activeEntry.total_break_seconds ?? 0
-    if (activeEntry.is_on_break && activeEntry.current_break_start) {
-      const breakStart = safeParseISO(activeEntry.current_break_start)
-      if (breakStart) totalBreak += Math.floor((now.getTime() - breakStart.getTime()) / 1000)
-    }
+  const clockOut = useCallback(async (endAt: number = Date.now()): Promise<TimeEntry | null> => {
+    if (!activeEntry || starting) return null
+    const now = new Date(endAt)
+    const totalBreak = breakTotalSeconds(activeEntry, endAt)
 
     // Stored on the device first so the tap time survives a dead network.
     const op = { kind: 'clock_out' as const, id: activeEntry.id, at: now.toISOString(), totalBreakSeconds: totalBreak, attempts: 0, nextAt: nextAttemptAt(0) }
@@ -468,7 +498,7 @@ export function useTimeTracking() {
     }
     return data as unknown as TimeEntry
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, activeEntry, locale, flushPending])
+  }, [supabase, activeEntry, locale, flushPending, starting])
 
   /** Writes the reviewed values and submits the shift. */
   const submitEntry = useCallback(async (entryId: string, v: SubmitShiftValues): Promise<boolean> => {
@@ -509,5 +539,20 @@ export function useTimeTracking() {
     endBreak,
     clockOut,
     refresh: fetchActive,
+    starting,
+    breakTotalSeconds,
   }
+}
+
+/** Break seconds of a running entry up to `at` (incl. a break still running). */
+export function breakTotalSeconds(
+  entry: { total_break_seconds?: number | null; is_on_break?: boolean | null; current_break_start?: string | null },
+  at: number = Date.now(),
+): number {
+  let total = entry.total_break_seconds ?? 0
+  if (entry.is_on_break && entry.current_break_start) {
+    const breakStart = safeParseISO(entry.current_break_start)
+    if (breakStart) total += Math.max(0, Math.floor((at - breakStart.getTime()) / 1000))
+  }
+  return total
 }
