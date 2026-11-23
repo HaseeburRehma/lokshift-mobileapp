@@ -98,14 +98,14 @@ export function usePersonnelDocuments(opts: { employeeId?: string; includeArchiv
     }
     let q = supabase
       .from('qualifications')
-      .select('*, employee:profiles!user_id(id, full_name)')
+      .select('*, employee:profiles!user_id(id, full_name, is_internal)')
       .eq('organization_id', orgId)
       .order('expires_at', { ascending: true, nullsFirst: false })
     if (opts.employeeId) q = q.eq('user_id', opts.employeeId)
     if (!opts.includeArchived) q = q.is('archived_at', null)
     const { data, error } = await q
     if (error) console.warn('[usePersonnelDocuments]', error.message)
-    setDocuments((data ?? []) as PersonnelDocument[])
+    setDocuments(((data ?? []) as Array<PersonnelDocument & { employee?: { is_internal?: boolean | null } | null }>).filter((d) => d.user_id === session?.user?.id || d.employee?.is_internal !== true))
     setLoading(false)
   }, [supabase, orgId, opts.employeeId, opts.includeArchived])
 

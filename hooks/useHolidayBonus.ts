@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { withoutInternal } from '@/lib/profiles/hide-internal'
 import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
@@ -23,7 +24,7 @@ export type SpecialPaymentInput = Pick<
   'employee_id' | 'title' | 'amount' | 'bonus_type' | 'distribution' | 'billing_month' | 'period_start' | 'period_end' | 'notes'
 >
 
-const SELECT = '*, employee:profiles!employee_id(id, full_name)'
+const SELECT = '*, employee:profiles!employee_id(id, full_name, is_internal)'
 
 function normalize(data: SpecialPaymentInput): SpecialPaymentInput {
   return {
@@ -71,7 +72,7 @@ export function useHolidayBonus() {
     else {
       const rows = (data ?? []) as HolidayBonus[]
       rows.sort((a, b) => paymentMonth(b).localeCompare(paymentMonth(a)) || (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-      setItems(rows)
+      setItems(withoutInternal(rows, session?.user?.id))
     }
     setLoading(false)
   }, [supabase, orgId, myId, isManagerial])

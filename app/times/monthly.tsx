@@ -80,6 +80,7 @@ export default function MonthlyStatementScreen() {
       .from('profiles')
       .select('id, full_name')
       .eq('organization_id', orgId)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .eq('is_active', true)
       .eq('role', 'employee')
       .order('full_name')

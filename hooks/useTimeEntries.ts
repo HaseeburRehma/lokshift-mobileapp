@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { withoutInternal } from '@/lib/profiles/hide-internal'
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
 import { readCache, writeCache } from '@/lib/cache'
@@ -49,7 +50,7 @@ export function useTimeEntries() {
       console.warn('[useTimeEntries] fetch failed', error.message)
     } else {
       const rows = (data ?? []) as TimeEntry[]
-      setEntries(rows)
+      setEntries(withoutInternal(rows, myId))
       if (cacheKey) writeCache(cacheKey, rows)
     }
     setLoading(false)
@@ -91,7 +92,7 @@ export function useTimeEntries() {
     const { data, error } = await supabase
       .from('time_entries')
       .insert(body as any)
-      .select('*, employee:profiles!employee_id(id, full_name, avatar_url), customer:customers(id, name)')
+      .select('*, employee:profiles!employee_id(id, full_name, is_internal, avatar_url), customer:customers(id, name)')
       .single()
     if (error) throw error
     setEntries((prev) => [data as TimeEntry, ...prev])
@@ -103,7 +104,7 @@ export function useTimeEntries() {
       .from('time_entries')
       .update(patch as any)
       .eq('id', id)
-      .select('*, employee:profiles!employee_id(id, full_name, avatar_url), customer:customers(id, name)')
+      .select('*, employee:profiles!employee_id(id, full_name, is_internal, avatar_url), customer:customers(id, name)')
       .single()
     if (error) throw error
     setEntries((prev) => prev.map((e) => (e.id === id ? (data as TimeEntry) : e)))

@@ -49,9 +49,9 @@ export const ENTRY_STATUS_STYLE: Record<EntryStatus, string> = {
 /** Columns + joins every time-entry screen loads. */
 export const TIME_ENTRY_SELECT = [
   '*',
-  'employee:profiles!employee_id(id, full_name, avatar_url, role)',
-  'enterer:profiles!entered_by(id, full_name)',
-  'verifier:profiles!verified_by(id, full_name)',
+  'employee:profiles!employee_id(id, full_name, avatar_url, role, is_internal)',
+  'enterer:profiles!entered_by(id, full_name, email)',
+  'verifier:profiles!verified_by(id, full_name, email)',
   'customer:customers(id, name)',
   'plan:plans(id, start_time, end_time, shift_name, route, location, customer:customers(id, name))',
   'start_location:operational_locations!start_location_id(id, name, short_code, type)',

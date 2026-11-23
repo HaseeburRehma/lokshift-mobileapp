@@ -70,6 +70,7 @@ export function usePlanningWeek(weekStart: string, opts: { onlyEmployeeId?: stri
         .from('profiles')
         .select('id, full_name, role, phone, avatar_url, is_active')
         .eq('organization_id', orgId)
+        .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
         .order('full_name')
       if (opts.onlyEmployeeId) empQ = empQ.eq('id', opts.onlyEmployeeId)
 

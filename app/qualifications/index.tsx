@@ -69,6 +69,7 @@ export default function PersonnelScreen() {
       .from('profiles')
       .select('id, full_name, role, is_active, email, phone')
       .eq('organization_id', profile.organization_id)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .order('full_name')
       .then(({ data }: { data: any[] | null }) => setEmployees((data ?? []).filter((p) => p.is_active !== false)))
   }, [isManager, profile?.organization_id])

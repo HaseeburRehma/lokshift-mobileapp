@@ -85,6 +85,7 @@ export function useProfiles(includeInactive = true) {
           .from('profiles')
           .select(cols)
           .eq('organization_id', me.organization_id)
+          .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
           .order('full_name', { ascending: true })
         if (!includeInactive) q = q.eq('is_active', true)
         return q

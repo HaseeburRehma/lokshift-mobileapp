@@ -52,6 +52,7 @@ export function EmployeePicker(props: Props) {
       .from('profiles')
       .select('id, full_name, avatar_url, role, is_active')
       .eq('organization_id', profile.organization_id)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .eq('is_active', true)
       .eq('role', 'employee') // server-side filter — only employees can be assignees
       .order('full_name')

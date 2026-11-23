@@ -105,6 +105,7 @@ export function HolidayBonusSheet({ open, initial, onClose, onSubmit }: Props) {
       .from('profiles')
       .select('id, full_name, is_active')
       .eq('organization_id', profile.organization_id)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .order('full_name')
       .then(({ data }: { data: Array<{ id: string; full_name: string | null; is_active: boolean | null }> | null }) => {
         if (!alive) return

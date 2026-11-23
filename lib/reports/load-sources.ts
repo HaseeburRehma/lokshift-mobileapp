@@ -131,6 +131,7 @@ export async function loadReportSources(
       .from('profiles')
       .select('id, full_name, role, is_active, target_hours')
       .eq('organization_id', opts.organizationId)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .order('full_name')
       .order('id')
     if (ids) q = q.in('id', ids)

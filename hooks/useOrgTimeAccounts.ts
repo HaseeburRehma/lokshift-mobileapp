@@ -61,6 +61,7 @@ export function useOrganizationTimeAccounts() {
       .from('profiles')
       .select('id, full_name, target_hours')
       .eq('organization_id', profile!.organization_id)
+      .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .eq('role', 'employee')
       .eq('is_active', true)
 

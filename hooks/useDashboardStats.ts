@@ -85,6 +85,7 @@ export function useDashboardStats() {
             .from('profiles')
             .select('*', { count: 'exact', head: true })
             .eq('organization_id', profile.organization_id)
+            .eq('is_internal', false)
             .eq('is_active', true)
             .eq('role', 'employee'),
           supabase

@@ -329,7 +329,7 @@ export default function TimeDetailScreen() {
               <DetailItem
                 icon={<CheckCircle2 size={20} color={C.emerald600} />}
                 label={L('Freigegeben', 'Approved')}
-                value={`${entry.verifier?.full_name ?? '—'}${entry.verified_at ? ` · ${dateTime(entry.verified_at, locale)}` : ''}`}
+                value={`${(entry.verifier as { full_name?: string | null; email?: string | null } | undefined)?.full_name?.trim() || (entry.verifier as { email?: string | null } | undefined)?.email || '—'}${entry.verified_at ? ` · ${dateTime(entry.verified_at, locale)}` : ''}`}
               />
             ) : null}
           </View>
@@ -359,7 +359,7 @@ export default function TimeDetailScreen() {
                   <Text style={{ fontSize: 14, color: C.slate500 }}>{`${L('Begründung', 'Reason')}: ${c.reason}`}</Text>
                   {c.review_note ? <Text style={{ fontSize: 14, color: C.slate500 }}>{`${L('Hinweis', 'Note')}: ${c.review_note}`}</Text> : null}
                   <Text style={{ fontSize: 12, color: C.slate400, marginTop: 4 }}>
-                    {c.reviewer?.full_name ? `${c.reviewer.full_name} · ` : ''}
+                    {c.reviewer?.full_name?.trim() || (c.reviewer as { email?: string | null } | null | undefined)?.email ? `${c.reviewer?.full_name?.trim() || (c.reviewer as { email?: string | null }).email} · ` : ''}
                     {c.reviewed_at ? dateTime(c.reviewed_at, locale) : dateTime(c.requested_at, locale)}
                   </Text>
                 </View>

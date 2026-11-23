@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { withoutInternal } from '@/lib/profiles/hide-internal'
 import { getSupabase } from '@/lib/supabase/client'
 import { useUser } from '@/lib/user-context'
 import { safeNumber, safeParseISO } from '@/lib/safe-format'
@@ -27,7 +28,7 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
     setLoading(true)
     let query = supabase
       .from('per_diems')
-      .select('*, employee:profiles!employee_id(id, full_name, avatar_url)')
+      .select('*, employee:profiles!employee_id(id, full_name, is_internal, avatar_url)')
       .eq('organization_id', profile.organization_id)
       .order('created_at', { ascending: false })
       .limit(200)
@@ -37,7 +38,7 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
 
     const { data, error } = await query
     if (error) console.warn('[usePerDiem] fetch failed:', error.message)
-    setItems((data ?? []) as PerDiem[])
+    setItems(withoutInternal((data ?? []) as PerDiem[], myId))
     setLoading(false)
   }, [supabase, profile?.organization_id, myId, isManagerial, filter])
 
@@ -67,7 +68,7 @@ export function usePerDiem(filter: 'all' | PerDiemStatus = 'all') {
     const { data, error } = await supabase
       .from('per_diems')
       .insert(body as any)
-      .select('*, employee:profiles!employee_id(id, full_name, avatar_url)')
+      .select('*, employee:profiles!employee_id(id, full_name, is_internal, avatar_url)')
       .single()
     if (error) throw error
     setItems((prev) => [data as PerDiem, ...prev])

@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { withoutInternal } from '@/lib/profiles/hide-internal'
 import { getSupabase } from '@/lib/supabase/client'
 import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
@@ -15,7 +16,7 @@ import { TIME_ENTRY_SELECT, dbErrorMessage } from '@/lib/times/entry-status'
 import { notifyManagers, sendNotification } from '@/lib/notifications/service'
 import { formatDateDE, formatShiftRange } from '@/lib/time/format'
 
-export const CORRECTION_SELECT = `*, employee:profiles!employee_id(id, full_name), reviewer:profiles!reviewed_by(id, full_name), entry:time_entries(${TIME_ENTRY_SELECT})`
+export const CORRECTION_SELECT = `*, employee:profiles!employee_id(id, full_name, is_internal), reviewer:profiles!reviewed_by(id, full_name, email), entry:time_entries(${TIME_ENTRY_SELECT})`
 
 export function originalValues(e: TimeEntry): CorrectionValues {
   return {
@@ -56,7 +57,7 @@ export function useCorrections(opts: { entryId?: string; pendingOnly?: boolean }
     if (!isManager && myId) q = q.eq('employee_id', myId)
     const { data, error } = await q
     if (error) console.warn('[useCorrections]', error.message)
-    setCorrections((data ?? []) as TimeEntryCorrection[])
+    setCorrections(withoutInternal((data ?? []) as TimeEntryCorrection[], session?.user?.id))
     setLoading(false)
   }, [supabase, profile?.organization_id, opts.entryId, opts.pendingOnly, isManager, myId])
 
@@ -174,8 +175,9 @@ export function useEntryHistory(entryId: string | null | undefined) {
     const ids = [...new Set(audit.map((r) => r.changed_by).filter((id): id is string => !!id))]
     const names = new Map<string, string>()
     if (ids.length) {
-      const { data: people } = await supabase.from('profiles').select('id, full_name').in('id', ids)
-      for (const p of (people ?? []) as { id: string; full_name: string | null }[]) names.set(p.id, p.full_name ?? '—')
+      const { data: people } = await supabase.from('profiles').select('id, full_name, email').in('id', ids)
+      // Accounts without a name show their e-mail, never a dash (QA 20.11.).
+      for (const p of (people ?? []) as { id: string; full_name: string | null; email: string | null }[]) names.set(p.id, p.full_name?.trim() || p.email || '—')
     }
     setRows(audit.map((r) => ({ ...r, changer: r.changed_by && names.has(r.changed_by) ? { id: r.changed_by, full_name: names.get(r.changed_by)! } : null })))
   }, [entryId, supabase])
