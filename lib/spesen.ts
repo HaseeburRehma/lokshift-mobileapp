@@ -1,10 +1,13 @@
 /**
  * Verpflegungsmehraufwand ("Spesen") — identical copy in the webapp and the
- * mobile app. Reference: §9 Abs. 4a EStG.
+ * mobile app. Billing spec (Nov 2026), section 4:
  *
- *   more than 8 h net working time, no overnight →  partial rate (default 14 €)
- *   overnight stay away from home           →  full rate    (default 28 €)
- *   otherwise                               →  0 €
+ *   shift under 8 h net                    →  0 €
+ *   shift of 8 h or more                   →  partial rate (default 14 €)
+ *   shift of 8 h or more WITH overnight    →  full rate    (default 28 €)
+ *
+ * Never additive: exactly one value per shift (0, 14 or 28 €). The database
+ * trigger time_entries_normalize applies the same rule on every write.
  *
  * Rates are configurable per organisation (organizations.spesen_rate_partial
  * / spesen_rate_full). The amount is stored per time entry
@@ -41,9 +44,10 @@ export function calculateSpesen(
 ): number {
   const partial = rates.partial ?? DEFAULT_SPESEN_RATES.partial
   const full = rates.full ?? DEFAULT_SPESEN_RATES.full
-  if (overnightStay) return full
-  if (hoursWorked > 8) return partial
-  return 0
+  // Whole minutes, like net_hours: 7:59 h stays under 8 h.
+  const minutes = Math.round((Number(hoursWorked) || 0) * 60)
+  if (minutes < 8 * 60) return 0
+  return overnightStay ? full : partial
 }
 
 export type SpesenKind = 'full' | 'partial' | 'other' | 'none'
@@ -62,8 +66,8 @@ export function spesenTierLabel(
   locale: 'de' | 'en' = 'de',
 ): string {
   const kind = spesenKind(amount, rates)
-  if (kind === 'full') return locale === 'de' ? 'Vollsatz (Übernachtung)' : 'Full (overnight)'
-  if (kind === 'partial') return locale === 'de' ? 'Teilsatz (über 8 Std.)' : 'Partial (over 8 h)'
+  if (kind === 'full') return locale === 'de' ? 'Vollsatz (ab 8 Std. mit Übernachtung)' : 'Full (8 h+ with overnight)'
+  if (kind === 'partial') return locale === 'de' ? 'Teilsatz (ab 8 Std.)' : 'Partial (8 h or more)'
   if (kind === 'other') return locale === 'de' ? 'Abweichender Betrag' : 'Custom amount'
   return locale === 'de' ? 'Kein Anspruch' : 'None'
 }

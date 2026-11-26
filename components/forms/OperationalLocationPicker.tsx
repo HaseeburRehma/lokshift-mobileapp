@@ -1,21 +1,20 @@
 /**
- * Betriebsstelle picker with search (Kundenfeedback Punkt 12): finds a
- * location by full name, part of the name or code/abbreviation — usable
- * with several hundred imported Betriebsstellen. Same ranking as the
- * webapp's BetriebsstelleSelector (shared `searchLocations`).
+ * Betriebsstelle picker with type-ahead search (billing spec section 9):
+ * typing a name ("Aachen") lists every matching operating point with name
+ * and code, typing a code ("KAW") finds its full name. Searches the ~24 000
+ * RIL100 points on the server (same RPC and ranking as the webapp).
  *
  * Used in plans/new + edit, plans/bulk and TimeEntrySheet. An empty string
  * means "no location", so callers can express NULL without a tri-state.
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, Pressable, Modal, TextInput, FlatList, ActivityIndicator } from 'react-native'
 import { MapPin, Search, X, Check, ChevronDown } from 'lucide-react-native'
 
 import { useUser } from '@/lib/user-context'
 import { useTranslation } from '@/lib/i18n'
-import { searchLocations } from '@/lib/operational-locations/parse'
-import { locationCache as cache, loadAllLocations as loadAll, LOCATION_CACHE_TTL_MS as TTL_MS, type PickerLocation } from '@/lib/operational-locations/cache'
+import { cachedLocation, fetchLocationById, searchLocationsRemote, type PickerLocation } from '@/lib/operational-locations/cache'
 
 const TYPE_LABELS: Record<string, [string, string]> = {
   depot: ['Depot', 'Depot'],
@@ -26,30 +25,7 @@ const TYPE_LABELS: Record<string, [string, string]> = {
   other: ['Sonstige', 'Other'],
 }
 
-function useLocations(orgId: string | null) {
-  const cached = orgId ? cache.get(orgId) : undefined
-  const [rows, setRows] = useState<PickerLocation[]>(cached?.rows ?? [])
-  const [loading, setLoading] = useState(!cached)
-
-  useEffect(() => {
-    if (!orgId) return
-    const hit = cache.get(orgId)
-    if (hit && Date.now() - hit.at < TTL_MS) {
-      setRows(hit.rows)
-      setLoading(false)
-      return
-    }
-    let alive = true
-    loadAll(orgId).then((r) => alive && setRows(r))
-      .catch((e) => console.warn('[OperationalLocationPicker]', e?.message ?? e))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
-  }, [orgId])
-
-  return { rows, loading }
-}
+const LIMIT = 40
 
 interface Props {
   /** Empty string means "no location". */
@@ -66,16 +42,52 @@ export function OperationalLocationPicker({ value, onChange, label, excludeId, d
   const { locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { profile } = useUser()
-  const { rows, loading } = useLocations(profile?.organization_id ?? null)
+  const orgId = profile?.organization_id ?? null
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [results, setResults] = useState<PickerLocation[]>([])
+  const [searching, setSearching] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [selected, setSelected] = useState<PickerLocation | null>(() => cachedLocation(value))
 
-  const selected = rows.find((l) => l.id === value) ?? null
-  const selectable = useMemo(() => rows.filter((l) => l.id === value || (l.is_active && l.id !== excludeId)), [rows, value, excludeId])
-  const results = useMemo(() => searchLocations(selectable, query, 60), [selectable, query])
-  const more = query.trim() ? false : selectable.length > results.length
+  // The selected location (also when inactive or not in the results).
+  useEffect(() => {
+    if (!value) { setSelected(null); return }
+    const hit = cachedLocation(value)
+    if (hit) { setSelected(hit); return }
+    let alive = true
+    fetchLocationById(value)
+      .then((row) => { if (alive) setSelected(row) })
+      .catch((e) => console.warn('[OperationalLocationPicker]', e?.message ?? e))
+    return () => { alive = false }
+  }, [value])
 
-  const pick = (id: string) => {
+  // Type-ahead: debounced, only the latest answer counts.
+  const seq = useRef(0)
+  useEffect(() => {
+    if (!open || !orgId) return
+    const id = ++seq.current
+    setSearching(true)
+    const timer = setTimeout(() => {
+      searchLocationsRemote(orgId, query, { limit: LIMIT })
+        .then((rows) => {
+          if (id !== seq.current) return
+          setResults(rows.filter((l) => l.id !== excludeId))
+          setFailed(false)
+        })
+        .catch((e) => {
+          console.warn('[OperationalLocationPicker]', e?.message ?? e)
+          if (id === seq.current) { setResults([]); setFailed(true) }
+        })
+        .finally(() => { if (id === seq.current) setSearching(false) })
+    }, query.trim() ? 200 : 0)
+    return () => clearTimeout(timer)
+  }, [open, orgId, query, excludeId])
+
+  const loading = !orgId
+
+  const pick = (id: string, row?: PickerLocation) => {
+    setSelected(row ?? null)
     onChange(id)
     setOpen(false)
     setQuery('')
@@ -149,7 +161,7 @@ export function OperationalLocationPicker({ value, onChange, label, excludeId, d
             ) : null}
           </View>
 
-          {loading && rows.length === 0 ? (
+          {searching && results.length === 0 ? (
             <ActivityIndicator style={{ marginTop: 30 }} color="#0064E0" />
           ) : (
             <FlatList
@@ -167,20 +179,26 @@ export function OperationalLocationPicker({ value, onChange, label, excludeId, d
               }
               ListEmptyComponent={
                 <Text style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: '#94A3B8' }}>
-                  {rows.length === 0 ? L('Noch keine Betriebsstellen angelegt.', 'No locations yet.') : L('Keine Treffer.', 'No matches.')}
+                  {failed
+                    ? L('Suche fehlgeschlagen – bitte erneut versuchen.', 'Search failed – please try again.')
+                    : query.trim()
+                      ? L('Keine Treffer.', 'No matches.')
+                      : L('Name oder Kürzel eingeben, z. B. „Aachen“ oder „KAW“.', 'Type a name or code, e.g. “Aachen” or “KAW”.')}
                 </Text>
               }
               ListFooterComponent={
-                more ? (
+                results.length >= LIMIT || (!query.trim() && results.length > 0) ? (
                   <Text style={{ marginTop: 12, textAlign: 'center', fontSize: 11, color: '#94A3B8' }}>
-                    {L(`${selectable.length} Betriebsstellen – Suchbegriff eingeben, um weitere zu finden.`, `${selectable.length} locations – type to find more.`)}
+                    {query.trim()
+                      ? L('Weitere Treffer – Suche verfeinern.', 'More results – refine your search.')
+                      : L('Eigene Betriebsstellen – für alle weiteren Name oder Kürzel eingeben.', 'Your locations – type a name or code for all others.')}
                   </Text>
                 ) : null
               }
               renderItem={({ item }) => {
                 const on = item.id === value
                 return (
-                  <Pressable onPress={() => pick(item.id)}>
+                  <Pressable onPress={() => pick(item.id, item)}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
                       <View style={{ minWidth: 64, marginRight: 10 }}>
                         <Text style={{ fontSize: 12, fontWeight: '900', color: '#0064E0' }}>{item.short_code ?? '—'}</Text>

@@ -6,7 +6,7 @@
  * Adresse / Telefon, Status, Aktionen) with 50-row pagination.
  */
 
-import React, { useState, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import {
   View,
   Text,
@@ -45,7 +45,6 @@ import { canCreatePlans } from '@/lib/rbac/permissions'
 import { useOperationalLocations } from '@/hooks/useOperationalLocations'
 import type { OperationalLocation, OperationalLocationType } from '@/lib/types'
 import { useSafeBack } from '@/lib/use-safe-back'
-import { searchLocations } from '@/lib/operational-locations/parse'
 
 const MONO_FONT = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' })
 
@@ -68,10 +67,22 @@ export default function OperationalLocationsScreen() {
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
-  const { locations, loading, fetchLocations, toggleArchive, deleteLocation } = useOperationalLocations()
   const [showInactive, setShowInactive] = useState(true)
   const [query, setQuery] = useState('')
+  const [debounced, setDebounced] = useState('')
   const [page, setPage] = useState(0)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 250)
+    return () => clearTimeout(t)
+  }, [query])
+  // ~24 000 RIL100 points: paged and searched on the server.
+  const { locations, total, loading, fetchLocations, toggleArchive, deleteLocation } = useOperationalLocations({
+    query: debounced,
+    page,
+    pageSize: PAGE_SIZE,
+    includeInactive: showInactive,
+  })
+  const searching = !!debounced.trim()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const scrollRef = useRef<ScrollView>(null)
@@ -84,18 +95,6 @@ export default function OperationalLocationsScreen() {
     }
   }, [fetchLocations])
 
-  const sorted = useMemo(() => {
-    return [...locations].sort((a, b) => {
-      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1
-      return (a.name ?? '').localeCompare(b.name ?? '')
-    })
-  }, [locations])
-
-  // Search by name, part of the name or code — same ranking as the pickers.
-  const filtered = useMemo(() => {
-    const base = showInactive ? sorted : sorted.filter((l) => l.is_active)
-    return query.trim() ? searchLocations(base, query, base.length) : base
-  }, [sorted, query, showInactive])
 
   if (!canCreatePlans(role)) {
     return (
@@ -110,9 +109,9 @@ export default function OperationalLocationsScreen() {
     )
   }
 
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const currentPage = Math.min(page, pages - 1)
-  const shown = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE)
+  const pages = searching ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const currentPage = searching ? 0 : Math.min(page, pages - 1)
+  const shown = locations
 
   const goToPage = (p: number) => {
     setPage(p)
@@ -250,8 +249,8 @@ export default function OperationalLocationsScreen() {
           </Pressable>
           <Text className="text-[12px] font-bold text-slate-400">
             {L(
-              `${filtered.length} von ${locations.length}`,
-              `${filtered.length} of ${locations.length}`,
+              searching ? `${total >= 100 ? 'erste 100' : total} Treffer` : `${total.toLocaleString('de-DE')} Betriebsstellen`,
+              searching ? `${total >= 100 ? 'first 100' : total} matches` : `${total.toLocaleString('en-US')} locations`,
             )}
           </Text>
         </View>
@@ -266,7 +265,7 @@ export default function OperationalLocationsScreen() {
               {L('Lade Betriebsstellen…', 'Loading locations…')}
             </Text>
           </View>
-        ) : locations.length === 0 ? (
+        ) : !searching && total === 0 && showInactive ? (
           <View
             className="items-center py-14 px-6 rounded-[32px] border border-dashed border-slate-200"
             style={{ backgroundColor: 'rgba(248,250,252,0.5)' }}

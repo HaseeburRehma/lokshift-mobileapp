@@ -12,7 +12,7 @@ import { View, Text, Pressable, ActivityIndicator } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 
 import { useTranslation } from '@/lib/i18n'
-import { formatHours, formatSignedHours } from '@/lib/time/format'
+import { formatEuro, formatHours, formatSignedHours } from '@/lib/time/format'
 import type { OverviewRow, OverviewTotals } from '@/lib/reports/overview-report'
 
 interface OverviewRowCardProps {
@@ -140,6 +140,26 @@ export function OverviewRowCard({ label, values, variant = 'row', onPress, busy 
         <Cell label={L('Urlaub (Tage)', 'Vacation (days)')} value={String(values.vacationDays)} weight={isTotal ? '900' : '600'} />
         <Cell label={L('Krank (Tage)', 'Sick (days)')} value={String(values.sickDays)} weight={isTotal ? '900' : '600'} />
         <Cell label={L('Arbeitstage', 'Working days')} value={String(values.workingDays)} weight={isTotal ? '900' : '600'} />
+      </View>
+
+      {/* Zuschläge (Std.) and amounts — same values as the monthly statements. */}
+      <View style={{ flexDirection: 'row', marginTop: 12 }}>
+        <Cell label={L('Nacht 25/40 %', 'Night 25/40 %')} value={`${h(values.night25)} / ${h(values.night40)}`} weight={isTotal ? '900' : '600'} />
+        <Cell label={L('So./Feiert. 50 %', 'Sun/hol. 50 %')} value={`${h(values.sunday)} / ${h(values.holiday)}`} weight={isTotal ? '900' : '600'} />
+        <Cell label={L('Weihn./Silv.', 'Xmas/NYE')} value={`${h(values.christmas)} / ${h(values.newYearsEve)}`} weight={isTotal ? '900' : '600'} />
+      </View>
+      <View style={{ flexDirection: 'row', marginTop: 12 }}>
+        <Cell
+          label={L('Zuschläge (€)', 'Premiums (€)')}
+          value={values.surchargeTotal == null ? L('kein Lohn', 'no wage') : formatEuro(values.surchargeTotal, locale)}
+          weight={isTotal ? '900' : '700'}
+        />
+        <Cell
+          label={L('Gastfahrt (€)', 'Gastfahrt (€)')}
+          value={values.gastfahrtAmount == null ? (values.gastfahrtHours > 0 ? L('kein Lohn', 'no wage') : '–') : formatEuro(values.gastfahrtAmount, locale)}
+          weight={isTotal ? '900' : '600'}
+        />
+        <Cell label="" value="" />
       </View>
     </View>
   )

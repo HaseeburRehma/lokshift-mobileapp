@@ -30,7 +30,7 @@ export default function EditOperationalLocationScreen() {
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
   const { locations, updateLocation, toggleArchive, deleteLocation, loading } =
-    useOperationalLocations()
+    useOperationalLocations({ id })
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -181,10 +181,9 @@ export default function EditOperationalLocationScreen() {
           } catch (err: any) {
             if ((err as any)?.code === '23505') {
               toast.error(
-                L(
-                  'Eine Betriebsstelle mit diesem Namen existiert bereits.',
-                  'A location with this name already exists.',
-                ),
+                /org_code/.test(err?.message ?? '')
+                  ? L('Eine Betriebsstelle mit diesem Kürzel existiert bereits.', 'A location with this code already exists.')
+                  : L('Eine Betriebsstelle mit diesem Namen existiert bereits.', 'A location with this name already exists.'),
               )
             } else {
               toast.error(err?.message ?? t('common.error'))

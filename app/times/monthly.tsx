@@ -30,7 +30,9 @@ import { useOrgRules } from '@/hooks/useOrgRules'
 import { useSafeBack } from '@/lib/use-safe-back'
 import { getSupabase } from '@/lib/supabase/client'
 import { fetchMonthlyReports, fileSlug } from '@/lib/reports/fetch'
-import type { MonthlyReport, MonthlyReportDay, MonthlyReportRow } from '@/lib/reports/monthly-report'
+import { wageSummary, type MonthlyReport, type MonthlyReportDay, type MonthlyReportRow } from '@/lib/reports/monthly-report'
+import { surchargeLegend } from '@/lib/time/zuschlag'
+import { stateName } from '@/lib/time/holidays'
 import { exportMonatsnachweisPdf } from '@/lib/pdf/monatsnachweis'
 import { exportMonatsnachweisXlsx } from '@/lib/excel/monatsnachweis'
 import { formatDateDE, formatEuro, formatHours, formatHoursLong, formatSignedHours, monthLabel } from '@/lib/time/format'
@@ -294,10 +296,12 @@ export default function MonthlyStatementScreen() {
                   <SumCell label={L('Gastfahrt (Std.)', 'Gastfahrt (h)')} value={formatHours(t.gastfahrtHours, locale)} />
                   <SumCell label={L('Spesen (€)', 'Per diem (€)')} value={formatEuro(t.spesenFromEntries, locale)} />
                   <SumCell label={L('Übernachtung', 'Overnight')} value={`${t.overnightCount}× ${L('ja', 'yes')}`} />
-                  <SumCell label={L('25 % (Std.)', '25 % (h)')} value={formatHours(t.night25, locale)} />
-                  <SumCell label={L('40 % (Std.)', '40 % (h)')} value={formatHours(t.night40, locale)} />
-                  <SumCell label={L('Sonntag (Std.)', 'Sunday (h)')} value={formatHours(t.sunday, locale)} />
-                  <SumCell label={L('Feiertag (Std.)', 'Holiday (h)')} value={formatHours(t.holiday, locale)} />
+                  <SumCell label={L('Nacht 25 %', 'Night 25 %')} value={formatHours(t.night25, locale)} />
+                  <SumCell label={L('Nacht 40 %', 'Night 40 %')} value={formatHours(t.night40, locale)} />
+                  <SumCell label={L('Sonntag 50 %', 'Sunday 50 %')} value={formatHours(t.sunday, locale)} />
+                  <SumCell label={L('Feiertag 50 %', 'Holiday 50 %')} value={formatHours(t.holiday, locale)} />
+                  <SumCell label={L('25./26.12. 150 %', '25/26 Dec 150 %')} value={formatHours(t.christmas, locale)} />
+                  <SumCell label={L('31.12. 125 %', '31 Dec 125 %')} value={formatHours(t.newYearsEve, locale)} />
                 </View>
               </View>
             </View>
@@ -310,18 +314,36 @@ export default function MonthlyStatementScreen() {
               <Line label={L('Gastfahrt (separat ausgewiesen)', 'Gastfahrt (shown separately)')} value={`${formatHours(t.gastfahrtHours, locale)} ${hr}`} />
               <Line
                 strong
-                label={report.rules.gastfahrtCountsAsWork ? L('Iststunden (Arbeitszeit + Gastfahrt)', 'Actual (work + Gastfahrt)') : L('Iststunden (nur Arbeitszeit)', 'Actual (work only)')}
+                label={L('Iststunden (nur Arbeitszeit)', 'Actual (work only)')}
                 value={`${formatHours(t.actualHours, locale)} ${hr}`}
               />
               <Line label={L('Differenz Ist – Soll', 'Actual – target')} value={t.differenceHours == null ? '–' : `${formatSignedHours(t.differenceHours, locale)} ${hr}`} />
-              <Line label={L('Nachtzuschlag 25 %', 'Night premium 25 %')} value={`${formatHours(t.night25, locale)} ${hr}`} />
-              <Line label={L('Nachtzuschlag 40 %', 'Night premium 40 %')} value={`${formatHours(t.night40, locale)} ${hr}`} />
-              <Line label={L('Sonntagszuschlag', 'Sunday premium')} value={`${formatHours(t.sunday, locale)} ${hr}`} />
-              <Line label={L('Feiertagszuschlag', 'Holiday premium')} value={`${formatHours(t.holiday, locale)} ${hr}`} />
-              <Line label={L('Urlaubstage / Krankheitstage', 'Vacation / sick days')} value={`${t.vacationDays} / ${t.sickDays}`} />
+              {t.surchargeLines.map((l) => (
+                <Line key={l.bucket} label={`${L('Zuschlag', 'Premium')} ${l.label}`} value={`${formatHours(l.hours, locale)} ${hr}`} />
+              ))}
+              <Line label={L('Urlaubstage / Krankheitstage (ganze Tage)', 'Vacation / sick days (full days)')} value={`${t.vacationDays} / ${t.sickDays}`} />
             </SummaryCard>
 
             <SummaryCard title={L('Beträge in Euro', 'Amounts in euro')}>
+              {t.surchargeTotal == null ? (
+                <Line label={L('Zuschläge in Euro', 'Premiums in euro')} value={t.wagesUsed.some((w) => w.hourlyWage != null) ? L('Lohn fehlt für einzelne Schichten', 'wage missing for some shifts') : L('kein Stundenlohn hinterlegt', 'no hourly wage on file')} />
+              ) : (
+                <>
+                  <Line label={L('Stundenlohn (brutto)', 'Hourly wage (gross)')} value={wageSummary(t, locale) ?? '–'} />
+                  <Line label={`${L('Grundlohn Arbeitszeit', 'Base pay')} (${formatHours(t.workHours, locale)} ${hr})`} value={formatEuro(t.baseAmount ?? 0, locale)} />
+                  {t.surchargeLines.filter((l) => l.minutes > 0).map((l) => (
+                    <Line key={l.bucket} label={`${L('Zuschlag', 'Premium')} ${l.label} (${formatHours(l.hours, locale)} ${hr})`} value={formatEuro(l.amount ?? 0, locale)} />
+                  ))}
+                  <Line strong label={L('Zuschläge gesamt', 'Premiums total')} value={formatEuro(t.surchargeTotal, locale)} />
+                </>
+              )}
+              {t.gastfahrtHours > 0 ? (
+                <Line
+                  label={`Gastfahrt (${formatHours(t.gastfahrtHours, locale)} ${hr}${wageSummary(t, locale, 'guest') ? ` × ${wageSummary(t, locale, 'guest')}` : ''})`}
+                  value={t.gastfahrtAmount == null ? L('Gastfahrt-Lohn fehlt', 'Gastfahrt wage missing') : formatEuro(t.gastfahrtAmount, locale)}
+                />
+              ) : null}
+              <View style={{ height: 1, backgroundColor: C.slate100, marginVertical: 6 }} />
               {t.spesen.length === 0 ? <Line label={L('Spesen aus Schichten', 'Per diem from shifts')} value={formatEuro(0, locale)} /> : null}
               {t.spesen.map((l) => (
                 <Line key={l.label} label={`${l.count} × ${l.label}`} value={formatEuro(l.amount, locale)} />
@@ -341,8 +363,8 @@ export default function MonthlyStatementScreen() {
             {/* Legend */}
             <Text style={{ fontSize: 12, lineHeight: 18, color: C.slate500 }}>
               {L(
-                `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')} Eine Schicht zählt zum Tag ihres Beginns. Spesen werden je Kalendertag einmal berücksichtigt. Gastfahrt wird separat ausgewiesen und nicht doppelt gezählt. Sonn- und Feiertagsstunden zählen nur, soweit sie auf den Tag fallen.`,
-                'Decimal hours: 7.50 h = 7 h 30 min. A shift belongs to the day it starts. Per diem counts once per calendar day. Gastfahrt is shown separately and never counted twice. Sunday/holiday hours only count for the part of the shift on that day.',
+                `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')} ${surchargeLegend(report.rules)} Feiertage: ${stateName(report.rules.holidayState)}. Spesen je Schicht: unter 8 Std. 0 €, ab 8 Std. Teilsatz, ab 8 Std. mit Übernachtung Vollsatz – nie zusammengerechnet. Gastfahrt zählt nicht zur Arbeitszeit und wird separat ausgewiesen.`,
+                `Decimal hours: 7.50 h = 7 h 30 min. Premiums on the regular gross hourly wage, to the minute by real date and time: Sunday/holiday/Christmas/New Year's Eve only the highest rate, night premium on top. Holidays: ${stateName(report.rules.holidayState)}. A shift belongs to the month it starts in. Per diem per shift: under 8 h 0 €, 8 h or more partial rate, 8 h or more with overnight full rate – never added up. Gastfahrt is not working time and shown separately.`,
               )}
             </Text>
           </View>
@@ -447,10 +469,12 @@ function ShiftRow({
           {r.gastfahrtHours ? <Detail label={L('Gastfahrt', 'Gastfahrt')} value={formatHours(r.gastfahrtHours, locale)} color={C.violet700} /> : null}
           {idx === 0 && day.daySpesen ? <Detail label={L('Spesen', 'Per diem')} value={formatEuro(day.daySpesen, locale)} /> : null}
           <Detail label={L('Übernachtung', 'Overnight')} value={r.overnight ? L('ja', 'yes') : L('nein', 'no')} color={r.overnight ? C.emerald700 : undefined} />
-          {r.night25 ? <Detail label="25 %" value={formatHours(r.night25, locale)} /> : null}
-          {r.night40 ? <Detail label="40 %" value={formatHours(r.night40, locale)} /> : null}
+          {r.night25 ? <Detail label={L('Nacht 25 %', 'Night 25 %')} value={formatHours(r.night25, locale)} /> : null}
+          {r.night40 ? <Detail label={L('Nacht 40 %', 'Night 40 %')} value={formatHours(r.night40, locale)} /> : null}
           {r.sunday ? <Detail label={L('Sonntag', 'Sunday')} value={formatHours(r.sunday, locale)} /> : null}
           {r.holiday ? <Detail label={L('Feiertag', 'Holiday')} value={formatHours(r.holiday, locale)} /> : null}
+          {r.christmas ? <Detail label={L('25./26.12.', '25/26 Dec')} value={formatHours(r.christmas, locale)} /> : null}
+          {r.newYearsEve ? <Detail label={L('31.12. ab 12', '31 Dec 12+')} value={formatHours(r.newYearsEve, locale)} /> : null}
         </View>
 
         {hasNote ? (

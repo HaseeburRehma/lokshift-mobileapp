@@ -172,7 +172,7 @@ export default function ReportsOverviewScreen() {
   const rows: OverviewRow[] = tab === 'month' ? monthData?.rows ?? [] : multiData?.rows ?? []
   const totals = tab === 'month' ? monthData?.totals : multiData?.totals
   const gastfahrtCountsAsWork =
-    (tab === 'month' ? monthData?.gastfahrtCountsAsWork : multiData?.gastfahrtCountsAsWork) ?? true
+    (tab === 'month' ? monthData?.gastfahrtCountsAsWork : multiData?.gastfahrtCountsAsWork) ?? false
   const exportDisabled = loading || rows.length === 0 || busy !== null
 
   const exportPdf = async () => {
@@ -581,6 +581,12 @@ export default function ReportsOverviewScreen() {
                       'Alle Werte stammen aus den Monatsnachweisen. Gastfahrt wird separat ausgewiesen und zählt nicht zu den Iststunden; Ist = Arbeitszeit.',
                       'All values come from the monthly statements. Gastfahrt is shown separately and not counted as actual hours; actual = working time.',
                     )}
+              </Text>
+              <Text style={legendText}>
+                {L(
+                  'Zuschläge wie im Monatsnachweis: minutengenau nach Datum und Uhrzeit, Sonntag/Feiertag/Weihnachten/Silvester nur der höchste Satz, Nachtzuschlag kommt hinzu. Euro nur bei hinterlegtem Stundenlohn.',
+                  'Premiums as in the monthly statement: to the minute, Sunday/holiday/Christmas/New Year’s Eve only the highest rate, night premium on top. Euros only with an hourly wage on file.',
+                )}
               </Text>
               <Text style={legendText}>
                 {L(

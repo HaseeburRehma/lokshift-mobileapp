@@ -115,17 +115,21 @@ export function CalendarEventForm({
     setColor(EVENT_COLORS[t])
   }
 
+  // Billing spec section 8: vacation and sick leave only as full days.
+  const fullDayOnly = eventType === 'holiday' || eventType === 'sick_leave'
+  const isAllDay = fullDayOnly || allDay
+
   const submit = () => {
     if (!title.trim()) return
-    const start_iso = allDay ? dateOnlyIso(date) : isoFromParts(date, startTime)
-    const end_iso = allDay ? dateOnlyIso(endDate || date, true) : isoFromParts(endDate || date, endTime)
+    const start_iso = isAllDay ? dateOnlyIso(date) : isoFromParts(date, startTime)
+    const end_iso = isAllDay ? dateOnlyIso(endDate || date, true) : isoFromParts(endDate || date, endTime)
     onSubmit({
       title: title.trim(),
       description: description || null,
       event_type: eventType,
       start_iso,
       end_iso,
-      is_all_day: allDay,
+      is_all_day: isAllDay,
       color,
       location: location || null,
       reminder_minutes_before: reminder,
@@ -196,11 +200,14 @@ export function CalendarEventForm({
               {L('Ganztägig', 'All day')}
             </Text>
             <Text className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
-              {L('Ohne Uhrzeit', 'No specific time')}
+              {fullDayOnly
+                ? L('Urlaub und Krankheit nur als ganze Tage', 'Vacation and sick leave are full days only')
+                : L('Ohne Uhrzeit', 'No specific time')}
             </Text>
           </View>
           <Switch
-            value={allDay}
+            value={isAllDay}
+            disabled={fullDayOnly}
             onValueChange={setAllDay}
             trackColor={{ true: '#0064E0', false: '#D1D5DB' }}
           />
@@ -227,7 +234,7 @@ export function CalendarEventForm({
           </View>
         </View>
 
-        {!allDay && (
+        {!isAllDay && (
           <View className="flex-row gap-3">
             <View style={{ flex: 1 }}>
               <FormField

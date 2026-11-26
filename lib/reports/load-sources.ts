@@ -5,9 +5,11 @@
  */
 
 import { localDateKey } from '@/lib/time/shift-hours'
+import { berlinToInstant } from '@/lib/time/berlin'
 import type {
   ReportAbsence,
   ReportEntry,
+  ReportPayRate,
   ReportPerDiemClaim,
   ReportSpecialPayment,
 } from './monthly-report'
@@ -18,6 +20,10 @@ export interface ReportEmployee {
   role: string
   isActive: boolean
   weeklyTargetHours: number | null
+  /** profiles.federal_state (public holidays for surcharges). */
+  federalState: string | null
+  /** Hourly wages — RLS returns them only to admins and the employee. */
+  pay: ReportPayRate[] | null
 }
 
 export interface ReportSources {
@@ -41,8 +47,9 @@ export async function loadReportSources(
   opts: { organizationId: string; fromMonth: string; toMonth?: string; employeeIds?: string[] },
 ): Promise<ReportSources> {
   const { start, end } = monthRange(opts.fromMonth, opts.toMonth ?? opts.fromMonth)
-  const rangeStart = new Date(`${start}T00:00:00`).toISOString()
-  const rangeEnd = new Date(`${end}T23:59:59`).toISOString()
+  // German calendar days on every device.
+  const rangeStart = berlinToInstant(start, '00:00').toISOString()
+  const rangeEnd = berlinToInstant(end, '23:59').toISOString()
   const ids = opts.employeeIds?.length ? opts.employeeIds : null
 
   // PostgREST caps every response (Supabase default 1000 rows) — page
@@ -126,10 +133,13 @@ export async function loadReportSources(
     return q
   }
 
+  // federal_state comes with migration 20261125120000; until then the
+  // profile query runs without it (holidays of the organisation's state).
+  let withState = true
   const empQ = () => {
     let q = supabase
       .from('profiles')
-      .select('id, full_name, role, is_active, target_hours')
+      .select(withState ? 'id, full_name, role, is_active, target_hours, federal_state' : 'id, full_name, role, is_active, target_hours')
       .eq('organization_id', opts.organizationId)
       .eq('is_internal', false) // internal test accounts never show (QA 20.11.)
       .order('full_name')
@@ -138,9 +148,41 @@ export async function loadReportSources(
     return q
   }
 
-  const [entriesRes, absRes, legacyRes, payRes, perDiemRes, empRes] = await Promise.all([
-    allPages(entriesQ), allPages(absQ), allPages(legacyAbsQ), allPages(payQ), allPages(perDiemQ), allPages(empQ),
+  const wageQ = () => {
+    let q = supabase
+      .from('employee_pay_rates')
+      .select('id, employee_id, valid_from, hourly_wage, guest_hourly_wage')
+      .eq('organization_id', opts.organizationId)
+      .lte('valid_from', end)
+      .order('employee_id')
+      .order('valid_from')
+      .order('id')
+    if (ids) q = q.in('employee_id', ids)
+    return q
+  }
+
+  const [entriesRes, absRes, legacyRes, payRes, perDiemRes, empRes, wageRes] = await Promise.all([
+    allPages(entriesQ), allPages(absQ), allPages(legacyAbsQ), allPages(payQ), allPages(perDiemQ), allPages(empQ), allPages(wageQ),
   ])
+  if (empRes.error && /federal_state/.test(String(empRes.error.message ?? ''))) {
+    withState = false
+    const retry = await allPages(empQ)
+    empRes.data = retry.data
+    empRes.error = retry.error
+  }
+  // Wages only add euro amounts; without access (or the table) the report
+  // shows hours only.
+  if (wageRes.error) console.warn('[load-sources] pay rates skipped:', wageRes.error.message)
+  const wages = new Map<string, ReportPayRate[]>()
+  for (const w of wageRes.error ? [] : wageRes.data) {
+    const list = wages.get(w.employee_id) ?? []
+    list.push({
+      validFrom: w.valid_from,
+      hourlyWage: w.hourly_wage == null ? null : Number(w.hourly_wage),
+      guestHourlyWage: w.guest_hourly_wage == null ? null : Number(w.guest_hourly_wage),
+    })
+    wages.set(w.employee_id, list)
+  }
 
   // The legacy `absences` table may not exist in every installation.
   if (legacyRes.error) console.warn('[load-sources] legacy absences skipped:', legacyRes.error.message)
@@ -197,6 +239,8 @@ export async function loadReportSources(
     role: String(p.role ?? 'employee').toLowerCase(),
     isActive: p.is_active !== false,
     weeklyTargetHours: p.target_hours == null ? null : Number(p.target_hours),
+    federalState: p.federal_state ?? null,
+    pay: wages.get(p.id) ?? null,
   }))
 
   return {

@@ -15,6 +15,7 @@ import { uniqueChannelName } from '@/lib/supabase/channel'
 import { useUser } from '@/lib/user-context'
 import type { OperationalLocation, OperationalLocationType } from '@/lib/types'
 import { invalidateLocationCache } from '@/lib/operational-locations/cache'
+import { searchLocations } from '@/lib/operational-locations/parse'
 
 export interface OperationalLocationInput {
   name: string
@@ -28,49 +29,96 @@ export interface OperationalLocationInput {
   is_active?: boolean
 }
 
-export function useOperationalLocations(includeArchived = true) {
+export interface LocationListOptions {
+  /** Server search (name ↔ code); empty = alphabetical pages. */
+  query?: string
+  page?: number
+  pageSize?: number
+  includeInactive?: boolean
+  /** Load only this one location (edit screen). */
+  id?: string
+  /** false = load nothing (create screen). */
+  autoLoad?: boolean
+}
+
+/**
+ * Betriebsstellen with server-side paging and search: the RIL100 import
+ * holds ~24 000 points, so no screen downloads the whole list.
+ */
+export function useOperationalLocations(opts: LocationListOptions = {}) {
   const supabase = getSupabase()
   const { profile } = useUser()
   const [locations, setLocations] = useState<OperationalLocation[]>([])
-  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  const autoLoad = opts.autoLoad ?? true
+  const [loading, setLoading] = useState(autoLoad)
+  const query = (opts.query ?? '').trim()
+  const page = opts.page ?? 0
+  const pageSize = opts.pageSize ?? 30
+  const includeInactive = opts.includeInactive ?? true
+  const onlyId = opts.id
 
   const fetchLocations = useCallback(
     async (silent = false) => {
+      if (!autoLoad) { setLoading(false); return }
       if (!profile?.organization_id) { setLoading(false); return }
       if (!silent) setLoading(true)
-
-      // PostgREST caps responses at 1000 rows — page through so several
-      // hundred imported Betriebsstellen never get cut off (Punkt 12).
-      const rows: OperationalLocation[] = []
-      for (let from = 0; from < 20000; from += 1000) {
-        let query = supabase
-          .from('operational_locations')
-          .select('*')
-          .eq('organization_id', profile.organization_id)
-          .order('name', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, from + 999)
-        if (!includeArchived) query = query.eq('is_active', true)
-        const { data, error } = await query
-        if (error) {
-          // Keep the previous list rather than replacing it with a partial one.
-          console.warn('[useOperationalLocations] fetch failed', error.message)
-          setLoading(false)
-          return
+      const orgId = profile.organization_id
+      try {
+        if (onlyId) {
+          const { data, error } = await supabase.from('operational_locations').select('*').eq('id', onlyId).maybeSingle()
+          if (error) throw error
+          setLocations(data ? [data as OperationalLocation] : [])
+          setTotal(data ? 1 : 0)
+        } else if (query) {
+          const { data, error } = await supabase.rpc('search_operational_locations', {
+            p_query: query,
+            p_limit: 100,
+            p_include_inactive: includeInactive,
+          })
+          if (!error) {
+            setLocations((data ?? []) as OperationalLocation[])
+            setTotal((data ?? []).length)
+          } else {
+            // Before the migration: plain ilike + the shared ranking.
+            const p = query.replace(/[%_,()*\\]/g, ' ').replace(/\s+/g, ' ').trim()
+            let fb = supabase.from('operational_locations').select('*').eq('organization_id', orgId)
+              .or(`name.ilike.*${p}*,short_code.ilike.${p}*`)
+            if (!includeInactive) fb = fb.eq('is_active', true)
+            const res = await fb.order('name').limit(300)
+            if (res.error) throw res.error
+            const ranked = searchLocations((res.data ?? []) as OperationalLocation[], query, 100)
+            setLocations(ranked)
+            setTotal(ranked.length)
+          }
+        } else {
+          let q = supabase
+            .from('operational_locations')
+            .select('*', { count: 'exact' })
+            .eq('organization_id', orgId)
+          if (!includeInactive) q = q.eq('is_active', true)
+          const { data, error, count } = await q
+            .order('is_active', { ascending: false })
+            .order('name', { ascending: true })
+            .order('id', { ascending: true })
+            .range(page * pageSize, page * pageSize + pageSize - 1)
+          if (error) throw error
+          setLocations((data ?? []) as OperationalLocation[])
+          setTotal(count ?? 0)
         }
-        rows.push(...((data ?? []) as OperationalLocation[]))
-        if (!data || data.length < 1000) break
+      } catch (e: any) {
+        // Keep the previous list rather than replacing it with a partial one.
+        console.warn('[useOperationalLocations] fetch failed', e?.message ?? e)
+      } finally {
+        setLoading(false)
       }
-      setLocations(rows)
-      invalidateLocationCache(profile.organization_id)
-      setLoading(false)
     },
-    [supabase, profile?.organization_id, includeArchived],
+    [supabase, profile?.organization_id, autoLoad, onlyId, query, page, pageSize, includeInactive],
   )
 
   useEffect(() => {
     fetchLocations()
-    if (!profile?.organization_id) return
+    if (!profile?.organization_id || !autoLoad) return
     // An import inserts hundreds of rows — coalesce into one reload.
     let timer: ReturnType<typeof setTimeout> | null = null
     const schedule = () => {
@@ -96,7 +144,7 @@ export function useOperationalLocations(includeArchived = true) {
       if (timer) clearTimeout(timer)
       try { supabase.removeChannel(channel) } catch {}
     }
-  }, [supabase, profile?.organization_id, fetchLocations])
+  }, [supabase, profile?.organization_id, fetchLocations, autoLoad])
 
   const createLocation = async (
     input: OperationalLocationInput,
@@ -112,6 +160,7 @@ export function useOperationalLocations(includeArchived = true) {
       .select('*')
       .single()
     if (error) throw error
+    invalidateLocationCache(profile.organization_id)
     setLocations((prev) =>
       [...prev, data as OperationalLocation].sort((a, b) =>
         a.name.localeCompare(b.name),
@@ -140,6 +189,7 @@ export function useOperationalLocations(includeArchived = true) {
       setLocations(previous)
       throw error
     }
+    invalidateLocationCache()
     setLocations((prev) =>
       prev
         .map((l) => (l.id === id ? (data as OperationalLocation) : l))
@@ -166,6 +216,7 @@ export function useOperationalLocations(includeArchived = true) {
 
   return {
     locations,
+    total,
     loading,
     fetchLocations,
     createLocation,

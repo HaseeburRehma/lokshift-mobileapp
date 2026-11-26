@@ -7,11 +7,15 @@
  * are guaranteed to match everywhere (Kundenfeedback Punkte 5 und 18).
  *
  * Conventions (shown in the report legend):
- *   - A shift belongs to the month and day of its start.
+ *   - A shift belongs to the month and day of its start (with all of its
+ *     surcharges and Spesen); surcharges still follow the real date and
+ *     clock time of every minute (billing spec sections 3 and 6).
  *   - Arbeitszeit = net hours of regular shifts; Gastfahrt hours are shown
- *     separately and never counted twice.
- *   - Ist = Arbeitszeit (+ Gastfahrt when the organisation counts it as
- *     working time).
+ *     separately, never count as working time and are paid at their own
+ *     hourly wage (billing spec section 5).
+ *   - Ist = Arbeitszeit.
+ *   - With an hourly wage on file, surcharges are also shown in euros:
+ *     minutes × wage × rate, on the regular gross wage (no cascading).
  *   - Soll = weekly target ÷ 5 × weekdays (Mon–Fri, no public holiday)
  *     minus approved vacation/sick weekdays.
  *   - Spesen are counted at most once per calendar day.
@@ -20,9 +24,24 @@
  *     as "Geplant – keine Zeit erfasst" and counted as missing (QA P1-1).
  */
 
-import { calculateSurcharges, publicHolidayName, type SurchargeRules, DEFAULT_SURCHARGE_RULES } from '@/lib/time/zuschlag'
+import {
+  bucketLabel,
+  bucketPct,
+  calculateSurcharges,
+  DEFAULT_SURCHARGE_RULES,
+  EMPTY_MINUTES,
+  minutesToHours,
+  publicHolidayName,
+  rulesForState,
+  SURCHARGE_BUCKETS,
+  surchargeAmount,
+  weightedSurchargeHours,
+  type SurchargeBucket,
+  type SurchargeMinutes,
+  type SurchargeRules,
+} from '@/lib/time/zuschlag'
 import { DEFAULT_SPESEN_RATES, spesenKind, type SpesenRates } from '@/lib/spesen'
-import { formatTimeOfDay, monthLabel, weekdayName, type Locale } from '@/lib/time/format'
+import { formatEuro, formatTimeOfDay, monthLabel, weekdayName, type Locale } from '@/lib/time/format'
 import { endDayOffset, entryNetHours, shiftIssues, type ShiftIssue } from '@/lib/time/shift-hours'
 import { berlinDateKey, weekdayOfDateKey } from '@/lib/time/berlin'
 
@@ -134,6 +153,10 @@ export interface MonthlyReportRow {
   night40: number
   sunday: number
   holiday: number
+  christmas: number
+  newYearsEve: number
+  /** Exact surcharge minutes of this shift. */
+  surchargeMinutes: SurchargeMinutes
   status: EntryStatus
   corrected: boolean
   enteredOnBehalf: boolean
@@ -177,6 +200,40 @@ export interface SpecialPaymentLine {
   note: string | null
 }
 
+/** One surcharge line of the statement (hours always, euros with a wage). */
+export interface SurchargeLine {
+  bucket: SurchargeBucket
+  label: string
+  pct: number
+  minutes: number
+  hours: number
+  /** minutes × hourly wage × rate; null without a wage on file. */
+  amount: number | null
+}
+
+/**
+ * One pay rate of the employee (employee_pay_rates), valid from a date
+ * until the next rate. A shift is paid with the rate of its start day.
+ */
+export interface ReportPayRate {
+  /** YYYY-MM-DD */
+  validFrom: string
+  hourlyWage: number | null
+  guestHourlyWage: number | null
+}
+
+/** Rate valid on `date` (latest validFrom ≤ date), else null. */
+export function payRateOn(rates: ReportPayRate[] | null | undefined, date: string): ReportPayRate | null {
+  let best: ReportPayRate | null = null
+  for (const r of rates ?? []) if (r.validFrom <= date && (!best || r.validFrom > best.validFrom)) best = r
+  return best
+}
+
+const positive = (n: unknown): number | null => {
+  const v = Number(n)
+  return n != null && Number.isFinite(v) && v > 0 ? v : null
+}
+
 export interface MonthlyReportTotals {
   workingDays: number
   weekdays: number
@@ -191,6 +248,23 @@ export interface MonthlyReportTotals {
   night40: number
   sunday: number
   holiday: number
+  christmas: number
+  newYearsEve: number
+  surchargeMinutes: SurchargeMinutes
+  surchargeLines: SurchargeLine[]
+  /** Σ hours × rate — times the hourly wage = surcharge euros. */
+  weightedSurchargeHours: number
+  /** Hourly wage(s) of the month: one value, or null when none/several. */
+  hourlyWage: number | null
+  guestHourlyWage: number | null
+  /** All different wages used this month with their first day. */
+  wagesUsed: { from: string; hourlyWage: number | null; guestHourlyWage: number | null }[]
+  /** Arbeitszeit × hourly wage (null without a wage). */
+  baseAmount: number | null
+  /** Sum of the surcharge euros (null without a wage). */
+  surchargeTotal: number | null
+  /** Gastfahrt hours × Gastfahrt wage (null without that wage). */
+  gastfahrtAmount: number | null
   overnightCount: number
   spesen: SpesenLine[]
   spesenFromEntries: number
@@ -239,6 +313,10 @@ export interface MonthlyReportInput {
   plans?: ReportPlan[]
   /** profiles.target_hours (per week). */
   weeklyTargetHours?: number | null
+  /** profiles.federal_state — public holidays of this Bundesland. */
+  federalState?: string | null
+  /** Pay rates (only loaded for admins and the employee). */
+  pay?: ReportPayRate[] | null
   rules?: SurchargeRules
   spesenRates?: SpesenRates
   locale?: Locale
@@ -333,9 +411,20 @@ export function specialPaymentForMonth(
   return { amount, periodLabel: `${range}, anteilig ${cur - from + 1}/${months}` }
 }
 
+/** "16,50 €" or "16,50 € ab 01.11., 17,00 € ab 15.11." (several wages in one month). */
+export function wageSummary(t: MonthlyReportTotals, locale: Locale = 'de', kind: 'regular' | 'guest' = 'regular'): string | null {
+  const single = kind === 'regular' ? t.hourlyWage : t.guestHourlyWage
+  if (single != null) return formatEuro(single, locale)
+  const list = t.wagesUsed
+    .map((w) => ({ from: w.from, v: kind === 'regular' ? w.hourlyWage : w.guestHourlyWage }))
+    .filter((w) => w.v != null)
+  if (list.length === 0) return null
+  return list.map((w) => `${formatEuro(w.v as number, locale)} ${locale === 'de' ? 'ab' : 'from'} ${w.from.slice(8, 10)}.${w.from.slice(5, 7)}.`).join(', ')
+}
+
 export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
   const locale = input.locale ?? 'de'
-  const rules = input.rules ?? DEFAULT_SURCHARGE_RULES
+  const rules = rulesForState(input.rules ?? DEFAULT_SURCHARGE_RULES, input.federalState)
   const rates = input.spesenRates ?? DEFAULT_SPESEN_RATES
   const empId = input.employee.id
   const dates = daysOfMonth(input.month)
@@ -377,6 +466,9 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
           night40: z.night40,
           sunday: z.sunday,
           holiday: z.holiday,
+          christmas: z.christmas,
+          newYearsEve: z.newYearsEve,
+          surchargeMinutes: z.minutes,
           status: entryStatus(e),
           corrected: !!e.corrected_at,
           enteredOnBehalf: !!e.entered_by && e.entered_by !== e.employee_id,
@@ -438,9 +530,67 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
   const dailyTarget = Number.isFinite(weekly) && weekly > 0 ? r2(weekly / 5) : null
   const targetHours = dailyTarget == null ? null : r2(dailyTarget * Math.max(0, weekdays - absenceWeekdays))
 
-  const workHours = sum((r) => r.workHours)
-  const gastfahrtHours = sum((r) => r.gastfahrtHours)
+  // Whole minutes first (net hours are minute-exact), hours once at the end.
+  const workMinutes = allRows.reduce((s, r) => s + Math.round(r.workHours * 60), 0)
+  const gastMinutes = allRows.reduce((s, r) => s + Math.round(r.gastfahrtHours * 60), 0)
+  const workHours = minutesToHours(workMinutes)
+  const gastfahrtHours = minutesToHours(gastMinutes)
   const actualHours = r2(workHours + (rules.gastfahrtCountsAsWork ? gastfahrtHours : 0))
+
+  // Surcharges: exact minutes summed first, hours and euros derived once.
+  const surchargeMinutes: SurchargeMinutes = { ...EMPTY_MINUTES }
+  for (const r of allRows) for (const k of SURCHARGE_BUCKETS) surchargeMinutes[k] += r.surchargeMinutes[k]
+  // Euros: every shift with the wage valid on its start day; cents are
+  // rounded once per line at the end. Without a wage for every shift with
+  // hours the amount stays null (never a silently partial sum).
+  const rawAmount: Record<SurchargeBucket, number> = { night25: 0, night40: 0, sunday: 0, holiday: 0, christmas: 0, newYearsEve: 0 }
+  let rawBase = 0
+  let rawGast = 0
+  let missingWage = false
+  let missingGuestWage = false
+  const wagesUsed: MonthlyReportTotals['wagesUsed'] = []
+  for (const r of allRows) {
+    const rate = payRateOn(input.pay, r.date)
+    const wage = positive(rate?.hourlyWage)
+    const gWage = positive(rate?.guestHourlyWage)
+    if (r.netHours > 0 && rate && !wagesUsed.some((w) => w.hourlyWage === wage && w.guestHourlyWage === gWage)) {
+      wagesUsed.push({ from: r.date, hourlyWage: wage, guestHourlyWage: gWage })
+    }
+    const hasSurcharge = SURCHARGE_BUCKETS.some((k) => r.surchargeMinutes[k] > 0)
+    if (wage == null) {
+      if (r.workHours > 0 || hasSurcharge) missingWage = true
+    } else {
+      rawBase += Math.round(r.workHours * 60) / 60 * wage
+      for (const k of SURCHARGE_BUCKETS) rawAmount[k] += (r.surchargeMinutes[k] / 60) * wage * (bucketPct(k, rules) / 100)
+    }
+    if (r.gastfahrtHours > 0) {
+      if (gWage == null) missingGuestWage = true
+      else rawGast += (Math.round(r.gastfahrtHours * 60) / 60) * gWage
+    }
+  }
+  const anyWage = wagesUsed.some((w) => w.hourlyWage != null)
+  const withWage = !missingWage && (anyWage || allRows.every((r) => r.netHours <= 0)) && !!input.pay?.some((p) => positive(p.hourlyWage) != null)
+  const distinctWages = [...new Set(wagesUsed.map((w) => w.hourlyWage))]
+  const distinctGuest = [...new Set(wagesUsed.map((w) => w.guestHourlyWage))]
+  // Month without shifts: the wage valid at its end (for display only).
+  const monthEndRate = payRateOn(input.pay, dates[dates.length - 1])
+  const hourlyWage = !withWage ? null : wagesUsed.length === 0 ? positive(monthEndRate?.hourlyWage) : distinctWages.length === 1 ? distinctWages[0] : null
+  const guestHourlyWage = wagesUsed.length === 0 ? positive(monthEndRate?.guestHourlyWage) : distinctGuest.length === 1 ? distinctGuest[0] : null
+  const surchargeLines: SurchargeLine[] = SURCHARGE_BUCKETS.map((bucket) => {
+    const pct = bucketPct(bucket, rules)
+    const minutes = surchargeMinutes[bucket]
+    return {
+      bucket,
+      label: bucketLabel(bucket, rules, locale),
+      pct,
+      minutes,
+      hours: minutesToHours(minutes),
+      amount: withWage ? r2(rawAmount[bucket]) : null,
+    }
+  })
+  const surchargeTotal = withWage ? r2(surchargeLines.reduce((s, l) => s + (l.amount ?? 0), 0)) : null
+  const baseAmount = withWage ? r2(rawBase) : null
+  const gastfahrtAmount = gastMinutes > 0 && !missingGuestWage ? r2(rawGast) : null
 
   // Spesen: once per day, grouped by rate.
   const spesenMap = new Map<string, SpesenLine>()
@@ -453,9 +603,9 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
       kind: k,
       label:
         k === 'full'
-          ? locale === 'de' ? `Vollsatz ${rates.full} € (Übernachtung)` : `Full rate ${rates.full} € (overnight)`
+          ? locale === 'de' ? `Vollsatz ${rates.full} € (ab 8 Std. mit Übernachtung)` : `Full rate ${rates.full} € (8 h+ with overnight)`
           : k === 'partial'
-            ? locale === 'de' ? `Teilsatz ${rates.partial} € (über 8 Std.)` : `Partial rate ${rates.partial} € (over 8 h)`
+            ? locale === 'de' ? `Teilsatz ${rates.partial} € (ab 8 Std.)` : `Partial rate ${rates.partial} € (8 h or more)`
             : locale === 'de' ? `Sonstiger Satz ${d.daySpesen} €` : `Other rate ${d.daySpesen} €`,
       rate: k === 'full' ? rates.full : k === 'partial' ? rates.partial : d.daySpesen,
       count: 0,
@@ -545,10 +695,21 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
     gastfahrtHours,
     actualHours,
     differenceHours: targetHours == null ? null : r2(actualHours - targetHours),
-    night25: sum((r) => r.night25),
-    night40: sum((r) => r.night40),
-    sunday: sum((r) => r.sunday),
-    holiday: sum((r) => r.holiday),
+    night25: minutesToHours(surchargeMinutes.night25),
+    night40: minutesToHours(surchargeMinutes.night40),
+    sunday: minutesToHours(surchargeMinutes.sunday),
+    holiday: minutesToHours(surchargeMinutes.holiday),
+    christmas: minutesToHours(surchargeMinutes.christmas),
+    newYearsEve: minutesToHours(surchargeMinutes.newYearsEve),
+    surchargeMinutes,
+    surchargeLines,
+    weightedSurchargeHours: weightedSurchargeHours(surchargeMinutes, rules),
+    hourlyWage,
+    guestHourlyWage,
+    wagesUsed,
+    baseAmount,
+    surchargeTotal,
+    gastfahrtAmount,
     overnightCount: days.filter((d) => d.rows.some((r) => r.overnight)).length,
     spesen,
     spesenFromEntries,

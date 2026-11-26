@@ -6,9 +6,11 @@
  */
 
 import { renderAndSharePdf } from './share'
-import type { MonthlyReport } from '@/lib/reports/monthly-report'
+import { wageSummary, type MonthlyReport } from '@/lib/reports/monthly-report'
+import { surchargeLegend } from '@/lib/time/zuschlag'
+import { stateName } from '@/lib/time/holidays'
 import type { MonthOverview, MultiMonthReport, OverviewRow, OverviewTotals } from '@/lib/reports/overview-report'
-import { formatDateDE, formatEuro, formatHours, formatHoursLong, formatSignedHours, monthShort } from '@/lib/time/format'
+import { formatDateDE, formatEuro, formatHours, formatHoursLong, formatSignedHours, formatTimeOfDay, monthShort } from '@/lib/time/format'
 import { localDateKey, shiftIssueLabel } from '@/lib/time/shift-hours'
 
 const esc = (s: string) =>
@@ -65,8 +67,8 @@ const CSS = `
 `
 
 function created(iso: string): string {
-  const d = new Date(iso)
-  return `${formatDateDE(localDateKey(d))}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} Uhr`
+  // German date and time on every device.
+  return `${formatDateDE(localDateKey(new Date(iso)))}, ${formatTimeOfDay(iso)} Uhr`
 }
 
 function doc(body: string): string {
@@ -85,7 +87,7 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
     const date = formatDateDE(d.date)
     if (d.rows.length === 0) {
       const cls = d.absence ? 'free absence' : d.holidayName ? 'free holiday' : d.isWeekend ? 'free weekend' : 'free'
-      rows.push(`<tr class="${cls}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td colspan="11"></td><td class="l">${esc(d.absence?.label ?? d.holidayName ?? 'kein Einsatz')}</td></tr>`)
+      rows.push(`<tr class="${cls}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td colspan="13"></td><td class="l">${esc(d.absence?.label ?? d.holidayName ?? 'kein Einsatz')}</td></tr>`)
       continue
     }
     d.rows.forEach((r, idx) => {
@@ -101,7 +103,7 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
       if (r.notes) parts.push(r.notes)
       const statusCls = r.issues.length ? 'err' : r.status !== 'approved' ? 'warn' : ''
       rows.push(
-        `<tr class="${r.issues.length ? 'issue' : ''}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td>${r.start}</td><td>${r.end ? `${r.end}${r.endDayOffset > 0 ? ` (+${r.endDayOffset})` : ''}` : '–'}</td><td>${r.breakMinutes}</td><td>${h(r.workHours)}</td><td>${h(r.gastfahrtHours)}</td><td>${idx === 0 && d.daySpesen ? formatHours(d.daySpesen, 'de') : ''}</td><td class="${r.overnight ? 'yes' : ''}">${r.overnight ? 'ja' : 'nein'}</td><td>${h(r.night25)}</td><td>${h(r.night40)}</td><td>${h(r.sunday)}</td><td>${h(r.holiday)}</td><td class="l ${statusCls}">${esc(parts.join(' · '))}</td></tr>`,
+        `<tr class="${r.issues.length ? 'issue' : ''}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td>${r.start}</td><td>${r.end ? `${r.end}${r.endDayOffset > 0 ? ` (+${r.endDayOffset})` : ''}` : '–'}</td><td>${r.breakMinutes}</td><td>${h(r.workHours)}</td><td>${h(r.gastfahrtHours)}</td><td>${idx === 0 && d.daySpesen ? formatHours(d.daySpesen, 'de') : ''}</td><td class="${r.overnight ? 'yes' : ''}">${r.overnight ? 'ja' : 'nein'}</td><td>${h(r.night25)}</td><td>${h(r.night40)}</td><td>${h(r.sunday)}</td><td>${h(r.holiday)}</td><td>${h(r.christmas)}</td><td>${h(r.newYearsEve)}</td><td class="l ${statusCls}">${esc(parts.join(' · '))}</td></tr>`,
       )
     })
   }
@@ -111,15 +113,25 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
     ['Sollstunden', t.targetHours == null ? '–' : `${formatHours(t.targetHours, 'de')} Std.`],
     ['Arbeitszeit (ohne Gastfahrt)', `${formatHours(t.workHours, 'de')} Std.`],
     ['Gastfahrt (separat ausgewiesen)', `${formatHours(t.gastfahrtHours, 'de')} Std.`],
-    [report.rules.gastfahrtCountsAsWork ? 'Iststunden (Arbeitszeit + Gastfahrt)' : 'Iststunden (nur Arbeitszeit)', `${formatHours(t.actualHours, 'de')} Std.`],
+    ['Iststunden (nur Arbeitszeit)', `${formatHours(t.actualHours, 'de')} Std.`],
     ['Differenz Ist – Soll', t.differenceHours == null ? '–' : `${formatSignedHours(t.differenceHours, 'de')} Std.`],
-    ['Nachtzuschlag 25 %', `${formatHours(t.night25, 'de')} Std.`],
-    ['Nachtzuschlag 40 %', `${formatHours(t.night40, 'de')} Std.`],
-    ['Sonntagszuschlag', `${formatHours(t.sunday, 'de')} Std.`],
-    ['Feiertagszuschlag', `${formatHours(t.holiday, 'de')} Std.`],
-    ['Urlaubstage / Krankheitstage', `${t.vacationDays} / ${t.sickDays}`],
+    ...t.surchargeLines.map((l) => [`Zuschlag ${l.label}`, `${formatHours(l.hours, 'de')} Std.`]),
+    ['Urlaubstage / Krankheitstage (ganze Tage)', `${t.vacationDays} / ${t.sickDays}`],
   ]
+  const payBlock: string[][] = t.surchargeTotal == null
+    ? [['Zuschläge in Euro', t.wagesUsed.some((w) => w.hourlyWage != null) ? 'Stundenlohn nicht für alle Schichten hinterlegt' : 'kein Stundenlohn hinterlegt']]
+    : [
+        ['Stundenlohn (brutto)', wageSummary(t, 'de') ?? '–'],
+        [`Grundlohn Arbeitszeit (${formatHours(t.workHours, 'de')} Std.)`, formatEuro(t.baseAmount ?? 0, 'de')],
+        ...t.surchargeLines.filter((l) => l.minutes > 0).map((l) => [`Zuschlag ${l.label} (${formatHours(l.hours, 'de')} Std.)`, formatEuro(l.amount ?? 0, 'de')]),
+        ['Zuschläge gesamt', formatEuro(t.surchargeTotal, 'de')],
+      ]
+  if (t.gastfahrtHours > 0) {
+    const gw = wageSummary(t, 'de', 'guest')
+    payBlock.push([`Gastfahrt (${formatHours(t.gastfahrtHours, 'de')} Std.${gw ? ` × ${gw}` : ''})`, t.gastfahrtAmount == null ? 'Gastfahrt-Stundenlohn fehlt' : formatEuro(t.gastfahrtAmount, 'de')])
+  }
   const euroBlock = [
+    ...payBlock,
     ...t.spesen.map((l) => [`Spesen: ${l.count} × ${l.label}`, formatEuro(l.amount, 'de')]),
     ...(t.perDiemClaims.count ? [[`Spesenanträge (${t.perDiemClaims.count})`, formatEuro(t.perDiemClaims.amount, 'de')]] : []),
     ['Spesen gesamt', formatEuro(t.spesenTotal, 'de')],
@@ -130,11 +142,10 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
     `<div class="block"><h3>${title}</h3><table>${lines.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table></div>`
 
   const r = report.rules
-  const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   const legend = [
     `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')}`,
-    `Nachtzuschlag 25 %: ${hhmm(r.night25From)}–${hhmm(r.night25To)} Uhr, 40 %: ${hhmm(r.night40From)}–${hhmm(r.night40To)} Uhr. Sonn-/Feiertag: nur die Stunden, die auf den Tag fallen (${r.excludedHolidayNames.join(', ')} separat vergütet).`,
-    'Eine Schicht zählt zum Tag ihres Beginns. Spesen werden je Kalendertag einmal berücksichtigt. Gastfahrt wird separat ausgewiesen und nicht doppelt gezählt.',
+    `${surchargeLegend(r)} Feiertage: ${stateName(r.holidayState) || r.holidayState}.`,
+    'Spesen je Schicht: unter 8 Std. 0 €, ab 8 Std. Teilsatz, ab 8 Std. mit Übernachtung Vollsatz – nie zusammengerechnet, je Kalendertag einmal. Gastfahrt zählt nicht zur Arbeitszeit und wird separat ausgewiesen. Urlaub und Krankheit nur in ganzen Tagen.',
     t.openEntries ? `${t.openEntries} Eintrag/Einträge noch nicht freigegeben (in der Spalte Status markiert).` : 'Alle Einträge sind freigegeben.',
     ...report.warnings,
   ]
@@ -150,9 +161,9 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
     </table>
   </div>
   <table class="grid">
-    <thead><tr><th>Datum</th><th>Tag</th><th>Beginn</th><th>Ende</th><th>Pause (Min.)</th><th>Arbeitszeit (Std.)</th><th>Gastfahrt (Std.)</th><th>Spesen (€)</th><th>Übernachtung</th><th>25 % (Std.)</th><th>40 % (Std.)</th><th>Sonntag (Std.)</th><th>Feiertag (Std.)</th><th>Status / Bemerkung</th></tr></thead>
+    <thead><tr><th>Datum</th><th>Tag</th><th>Beginn</th><th>Ende</th><th>Pause (Min.)</th><th>Arbeitszeit (Std.)</th><th>Gastfahrt (Std.)</th><th>Spesen (€)</th><th>Übernachtung</th><th>Nacht 25 %</th><th>Nacht 40 %</th><th>Sonntag 50 %</th><th>Feiertag 50 %</th><th>25./26.12. 150 %</th><th>31.12. 125 %</th><th>Status / Bemerkung</th></tr></thead>
     <tbody>${rows.join('')}</tbody>
-    <tfoot><tr><td class="l" colspan="5">Summe</td><td>${formatHours(t.workHours, 'de')}</td><td>${formatHours(t.gastfahrtHours, 'de')}</td><td>${formatHours(t.spesenFromEntries, 'de')}</td><td>${t.overnightCount}× ja</td><td>${formatHours(t.night25, 'de')}</td><td>${formatHours(t.night40, 'de')}</td><td>${formatHours(t.sunday, 'de')}</td><td>${formatHours(t.holiday, 'de')}</td><td></td></tr></tfoot>
+    <tfoot><tr><td class="l" colspan="5">Summe</td><td>${formatHours(t.workHours, 'de')}</td><td>${formatHours(t.gastfahrtHours, 'de')}</td><td>${formatHours(t.spesenFromEntries, 'de')}</td><td>${t.overnightCount}× ja</td><td>${formatHours(t.night25, 'de')}</td><td>${formatHours(t.night40, 'de')}</td><td>${formatHours(t.sunday, 'de')}</td><td>${formatHours(t.holiday, 'de')}</td><td>${formatHours(t.christmas, 'de')}</td><td>${formatHours(t.newYearsEve, 'de')}</td><td></td></tr></tfoot>
   </table>
   <div class="blocks">${block('Monatssummen – Stunden', hoursBlock)}${block('Beträge in Euro', euroBlock)}</div>
   <div class="legend">${legend.map((l) => `<div>${esc(l)}</div>`).join('')}</div>
@@ -174,11 +185,23 @@ function overviewTable(firstCol: string, rows: OverviewRow[], totals: OverviewTo
   </table>`
 }
 
+function surchargeTable(firstCol: string, rows: OverviewRow[], totals: OverviewTotals, totalsLabel: string): string {
+  const v = (n: number) => (n ? formatHours(n, 'de') : '–')
+  const eur = (n: number | null, hasHours = true) => (n == null ? (hasHours ? 'kein Lohn' : '–') : formatEuro(n, 'de'))
+  const cells = (r: OverviewRow | OverviewTotals) =>
+    `<td>${v(r.night25)}</td><td>${v(r.night40)}</td><td>${v(r.sunday)}</td><td>${v(r.holiday)}</td><td>${v(r.christmas)}</td><td>${v(r.newYearsEve)}</td><td>${eur(r.surchargeTotal)}</td><td>${eur(r.gastfahrtAmount, r.gastfahrtHours > 0)}</td>`
+  return `<table class="grid" style="margin-top:10px">
+    <thead><tr><th>${firstCol}</th><th>Nacht 25 %</th><th>Nacht 40 %</th><th>Sonntag 50 %</th><th>Feiertag 50 %</th><th>25./26.12. 150 %</th><th>31.12. 125 %</th><th>Zuschläge (€)</th><th>Gastfahrt (€)</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td class="l">${esc(r.label)}</td>${cells(r)}</tr>`).join('')}</tbody>
+    <tfoot><tr><td class="l">${totalsLabel}</td>${cells(totals)}</tr></tfoot>
+  </table>`
+}
+
 const legend = (gastfahrtCountsAsWork: boolean) =>
-  `<div class="legend"><div>Werte entsprechen den Monatsnachweisen. Gastfahrt separat ausgewiesen, ${gastfahrtCountsAsWork ? 'nicht doppelt gezählt; Ist = Arbeitszeit + Gastfahrt' : 'zählt nicht zu den Iststunden; Ist = Arbeitszeit'}.</div><div>Abwesenheitstage: Arbeitstage (Mo–Fr ohne Feiertag) mit genehmigtem Urlaub bzw. Krankmeldung. „Fehlerhafte Einträge“ (z. B. 0 Stunden, fehlendes Ende) bitte im Monatsnachweis prüfen. Die Übersicht ist keine Leistungsbewertung.</div></div>`
+  `<div class="legend"><div>Werte entsprechen den Monatsnachweisen. Gastfahrt separat ausgewiesen, ${gastfahrtCountsAsWork ? 'nicht doppelt gezählt; Ist = Arbeitszeit + Gastfahrt' : 'zählt nicht zu den Iststunden; Ist = Arbeitszeit'}.</div><div>Zuschläge wie im Monatsnachweis: minutengenau, Sonntag/Feiertag/Weihnachten/Silvester nur der höchste Satz, Nachtzuschlag kommt hinzu; Euro nur bei hinterlegtem Stundenlohn.</div><div>Abwesenheitstage: Arbeitstage (Mo–Fr ohne Feiertag) mit genehmigtem Urlaub bzw. Krankmeldung. „Fehlerhafte Einträge“ (z. B. 0 Stunden, fehlendes Ende) bitte im Monatsnachweis prüfen. Die Übersicht ist keine Leistungsbewertung.</div></div>`
 
 export async function exportMonthOverviewPdf(o: MonthOverview): Promise<string> {
-  const body = `<section><div class="head"><div><h1>Gesamtauswertung</h1><div class="month">${esc(o.monthLabel)} · alle Lokführer</div></div><table class="facts"><tr><td>Erstellt am:</td><td>${created(o.createdAt)}</td></tr></table></div>${overviewTable('Mitarbeiter', o.rows, o.totals, 'Summe')}${legend(o.gastfahrtCountsAsWork)}</section>`
+  const body = `<section><div class="head"><div><h1>Gesamtauswertung</h1><div class="month">${esc(o.monthLabel)} · alle Lokführer</div></div><table class="facts"><tr><td>Erstellt am:</td><td>${created(o.createdAt)}</td></tr></table></div>${overviewTable('Mitarbeiter', o.rows, o.totals, 'Summe')}${surchargeTable('Mitarbeiter', o.rows, o.totals, 'Summe')}${legend(o.gastfahrtCountsAsWork)}</section>`
   return renderAndSharePdf({ html: doc(body), filenameBase: `Gesamtauswertung_${o.month}`, dialogTitle: 'Gesamtauswertung' })
 }
 
@@ -208,6 +231,6 @@ export async function exportMultiMonthPdf(r: MultiMonthReport): Promise<string> 
     { label: 'Urlaub', color: '#0D9488', values: r.rows.map((x) => x.vacationDays) },
     { label: 'Krank', color: '#E11D48', values: r.rows.map((x) => x.sickDays) },
   ])}</div>`
-  const body = `<section><div class="head"><div><h1>Mehrmonatsreport · ${esc(r.employee.name)}</h1><div class="month">${esc(r.periodLabel)}</div></div><table class="facts"><tr><td>Erstellt am:</td><td>${created(r.createdAt)}</td></tr></table></div>${overviewTable('Monat', r.rows, r.totals, 'Summe Zeitraum')}${charts}${legend(r.gastfahrtCountsAsWork)}</section>`
+  const body = `<section><div class="head"><div><h1>Mehrmonatsreport · ${esc(r.employee.name)}</h1><div class="month">${esc(r.periodLabel)}</div></div><table class="facts"><tr><td>Erstellt am:</td><td>${created(r.createdAt)}</td></tr></table></div>${overviewTable('Monat', r.rows, r.totals, 'Summe Zeitraum')}${surchargeTable('Monat', r.rows, r.totals, 'Summe Zeitraum')}${charts}${legend(r.gastfahrtCountsAsWork)}</section>`
   return renderAndSharePdf({ html: doc(body), filenameBase: `Mehrmonatsreport_${r.employee.name.replace(/\s+/g, '-')}_${r.from}_${r.to}`, dialogTitle: 'Mehrmonatsreport' })
 }

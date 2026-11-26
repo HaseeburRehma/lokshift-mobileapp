@@ -9,6 +9,7 @@ import {
   buildMonthlyReport,
   type ReportAbsence,
   type ReportEntry,
+  type ReportPayRate,
   type ReportPerDiemClaim,
   type ReportPlan,
   type ReportSpecialPayment,
@@ -21,6 +22,10 @@ export interface OverviewEmployee {
   id: string
   name: string
   weeklyTargetHours?: number | null
+  /** profiles.federal_state (public holidays). */
+  federalState?: string | null
+  /** Hourly wages — only for viewers allowed to see them. */
+  pay?: ReportPayRate[] | null
 }
 
 export interface OverviewRow {
@@ -42,6 +47,17 @@ export interface OverviewRow {
   missingShifts: number
   spesenTotal: number
   specialPaymentsTotal: number
+  /** Surcharge hours per bucket (as in the monthly statement). */
+  night25: number
+  night40: number
+  sunday: number
+  holiday: number
+  christmas: number
+  newYearsEve: number
+  /** Surcharge euros; null when no hourly wage is on file. */
+  surchargeTotal: number | null
+  /** Gastfahrt euros; null without a Gastfahrt wage. */
+  gastfahrtAmount: number | null
 }
 
 export interface OverviewTotals {
@@ -59,6 +75,17 @@ export interface OverviewTotals {
   missingShifts: number
   spesenTotal: number
   specialPaymentsTotal: number
+  /** Surcharge hours per bucket (as in the monthly statement). */
+  night25: number
+  night40: number
+  sunday: number
+  holiday: number
+  christmas: number
+  newYearsEve: number
+  /** Surcharge euros; null when no hourly wage is on file. */
+  surchargeTotal: number | null
+  /** Gastfahrt euros; null without a Gastfahrt wage. */
+  gastfahrtAmount: number | null
 }
 
 interface SharedInput {
@@ -85,6 +112,8 @@ function rowFor(employee: OverviewEmployee, month: string, label: string, input:
     perDiemClaims: input.perDiemClaims,
     plans: input.plans,
     weeklyTargetHours: employee.weeklyTargetHours,
+    federalState: employee.federalState,
+    pay: employee.pay,
     rules: input.rules,
     spesenRates: input.spesenRates,
     locale: input.locale,
@@ -109,6 +138,14 @@ function rowFor(employee: OverviewEmployee, month: string, label: string, input:
     missingShifts: t.missingShifts,
     spesenTotal: t.spesenTotal,
     specialPaymentsTotal: t.specialPaymentsTotal,
+    night25: t.night25,
+    night40: t.night40,
+    sunday: t.sunday,
+    holiday: t.holiday,
+    christmas: t.christmas,
+    newYearsEve: t.newYearsEve,
+    surchargeTotal: t.surchargeTotal,
+    gastfahrtAmount: t.gastfahrtAmount,
   }
 }
 
@@ -131,6 +168,15 @@ function totalsOf(rows: OverviewRow[]): OverviewTotals {
     missingShifts: sum((r) => r.missingShifts),
     spesenTotal: sum((r) => r.spesenTotal),
     specialPaymentsTotal: sum((r) => r.specialPaymentsTotal),
+    night25: sum((r) => r.night25),
+    night40: sum((r) => r.night40),
+    sunday: sum((r) => r.sunday),
+    holiday: sum((r) => r.holiday),
+    christmas: sum((r) => r.christmas),
+    newYearsEve: sum((r) => r.newYearsEve),
+    // Only rows with a wage carry euros; the total says so when some miss one.
+    surchargeTotal: rows.some((r) => r.surchargeTotal != null) ? sum((r) => r.surchargeTotal ?? 0) : null,
+    gastfahrtAmount: rows.some((r) => r.gastfahrtAmount != null) ? sum((r) => r.gastfahrtAmount ?? 0) : null,
   }
 }
 

@@ -23,7 +23,7 @@ export default function NewOperationalLocationScreen() {
   const { t, locale } = useTranslation()
   const L = (de: string, en: string) => (locale === 'de' ? de : en)
   const { role } = useUser()
-  const { createLocation } = useOperationalLocations()
+  const { createLocation } = useOperationalLocations({ autoLoad: false })
   const [saving, setSaving] = useState(false)
 
   if (!canCreatePlans(role)) {
@@ -72,10 +72,9 @@ export default function NewOperationalLocationScreen() {
             // Friendly UNIQUE-violation hint (matches the web's UX).
             if ((err as any)?.code === '23505') {
               toast.error(
-                L(
-                  'Eine Betriebsstelle mit diesem Namen existiert bereits.',
-                  'A location with this name already exists.',
-                ),
+                /org_code/.test(err?.message ?? '')
+                  ? L('Eine Betriebsstelle mit diesem Kürzel existiert bereits.', 'A location with this code already exists.')
+                  : L('Eine Betriebsstelle mit diesem Namen existiert bereits.', 'A location with this name already exists.'),
               )
             } else {
               toast.error(err?.message ?? t('common.error'))

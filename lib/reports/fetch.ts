@@ -47,6 +47,8 @@ export async function fetchMonthlyReports(
       specialPayments: s.specialPayments,
       perDiemClaims: s.perDiemClaims,
       weeklyTargetHours: emp?.weeklyTargetHours ?? null,
+      federalState: emp?.federalState ?? null,
+      pay: emp?.pay ?? null,
       rules: rules.surchargeRules,
       spesenRates: rules.spesenRates,
       locale: rules.locale,
@@ -64,7 +66,7 @@ export async function fetchMonthOverview(
   const s = await loadReportSources(getSupabase(), { organizationId, fromMonth: month })
   const employees = s.employees
     .filter((e) => e.isActive && (includeAllRoles || DRIVER_ROLES.includes(e.role)))
-    .map((e) => ({ id: e.id, name: e.name, weeklyTargetHours: e.weeklyTargetHours }))
+    .map((e) => ({ id: e.id, name: e.name, weeklyTargetHours: e.weeklyTargetHours, federalState: e.federalState, pay: e.pay }))
   return buildMonthOverview({
     month,
     employees,
@@ -92,7 +94,7 @@ export async function fetchMultiMonthReport(
   const emp = s.employees.find((e) => e.id === employeeId)
   if (!emp) return null
   return buildMultiMonthReport({
-    employee: { id: emp.id, name: emp.name, weeklyTargetHours: emp.weeklyTargetHours },
+    employee: { id: emp.id, name: emp.name, weeklyTargetHours: emp.weeklyTargetHours, federalState: emp.federalState, pay: emp.pay },
     from,
     to,
     entries: s.entries,
