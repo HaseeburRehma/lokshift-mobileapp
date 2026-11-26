@@ -103,7 +103,7 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
       if (r.notes) parts.push(r.notes)
       const statusCls = r.issues.length ? 'err' : r.status !== 'approved' ? 'warn' : ''
       rows.push(
-        `<tr class="${r.issues.length ? 'issue' : ''}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td>${r.start}</td><td>${r.end ? `${r.end}${r.endDayOffset > 0 ? ` (+${r.endDayOffset})` : ''}` : '–'}</td><td>${r.breakMinutes}</td><td>${h(r.workHours)}</td><td>${h(r.gastfahrtHours)}</td><td>${idx === 0 && d.daySpesen ? formatHours(d.daySpesen, 'de') : ''}</td><td class="${r.overnight ? 'yes' : ''}">${r.overnight ? 'ja' : 'nein'}</td><td>${h(r.night25)}</td><td>${h(r.night40)}</td><td>${h(r.sunday)}</td><td>${h(r.holiday)}</td><td>${h(r.christmas)}</td><td>${h(r.newYearsEve)}</td><td class="l ${statusCls}">${esc(parts.join(' · '))}</td></tr>`,
+        `<tr class="${r.issues.length ? 'issue' : ''}"><td class="l">${date}</td><td>${d.weekdayShort}</td><td>${r.start}</td><td>${r.end ? `${r.end}${r.endDayOffset > 0 ? ` (+${r.endDayOffset})` : ''}` : '–'}</td><td>${r.breakMinutes}</td><td>${h(r.workHours)}</td><td>${h(r.gastfahrtHours)}</td><td>${r.spesen ? formatHours(r.spesen, 'de') : ''}</td><td class="${r.overnight ? 'yes' : ''}">${r.overnight ? 'ja' : 'nein'}</td><td>${h(r.night25)}</td><td>${h(r.night40)}</td><td>${h(r.sunday)}</td><td>${h(r.holiday)}</td><td>${h(r.christmas)}</td><td>${h(r.newYearsEve)}</td><td class="l ${statusCls}">${esc(parts.join(' · '))}</td></tr>`,
       )
     })
   }
@@ -145,7 +145,7 @@ export function renderMonatsnachweis(report: MonthlyReport): string {
   const legend = [
     `Dezimalstunden: 7,50 Std. = ${formatHoursLong(7.5, 'de')}`,
     `${surchargeLegend(r)} Feiertage: ${stateName(r.holidayState) || r.holidayState}.`,
-    'Spesen je Schicht: unter 8 Std. 0 €, ab 8 Std. Teilsatz, ab 8 Std. mit Übernachtung Vollsatz – nie zusammengerechnet, je Kalendertag einmal. Gastfahrt zählt nicht zur Arbeitszeit und wird separat ausgewiesen. Urlaub und Krankheit nur in ganzen Tagen.',
+    'Spesen je Schicht: unter 8 Std. 0 €, ab 8 Std. Teilsatz, ab 8 Std. mit Übernachtung Vollsatz – je Schicht genau ein Wert, nie zusammengerechnet. Gastfahrt zählt nicht zur Arbeitszeit und wird separat ausgewiesen. Urlaub und Krankheit nur in ganzen Tagen.',
     t.openEntries ? `${t.openEntries} Eintrag/Einträge noch nicht freigegeben (in der Spalte Status markiert).` : 'Alle Einträge sind freigegeben.',
     ...report.warnings,
   ]
@@ -189,9 +189,9 @@ function surchargeTable(firstCol: string, rows: OverviewRow[], totals: OverviewT
   const v = (n: number) => (n ? formatHours(n, 'de') : '–')
   const eur = (n: number | null, hasHours = true) => (n == null ? (hasHours ? 'kein Lohn' : '–') : formatEuro(n, 'de'))
   const cells = (r: OverviewRow | OverviewTotals) =>
-    `<td>${v(r.night25)}</td><td>${v(r.night40)}</td><td>${v(r.sunday)}</td><td>${v(r.holiday)}</td><td>${v(r.christmas)}</td><td>${v(r.newYearsEve)}</td><td>${eur(r.surchargeTotal)}</td><td>${eur(r.gastfahrtAmount, r.gastfahrtHours > 0)}</td>`
+    `<td>${v(r.night25)}</td><td>${v(r.night40)}</td><td>${v(r.sunday)}</td><td>${v(r.holiday)}</td><td>${v(r.christmas)}</td><td>${v(r.newYearsEve)}</td><td>${eur(r.surchargeTotal)}</td><td>${eur(r.gastfahrtAmount, r.gastfahrtHours > 0)}</td><td>${formatEuro(r.spesenTotal, 'de')}</td><td>${formatEuro(r.specialPaymentsTotal, 'de')}</td>`
   return `<table class="grid" style="margin-top:10px">
-    <thead><tr><th>${firstCol}</th><th>Nacht 25 %</th><th>Nacht 40 %</th><th>Sonntag 50 %</th><th>Feiertag 50 %</th><th>25./26.12. 150 %</th><th>31.12. 125 %</th><th>Zuschläge (€)</th><th>Gastfahrt (€)</th></tr></thead>
+    <thead><tr><th>${firstCol}</th><th>Nacht 25 %</th><th>Nacht 40 %</th><th>Sonntag 50 %</th><th>Feiertag 50 %</th><th>25./26.12. 150 %</th><th>31.12. 125 %</th><th>Zuschläge (€)</th><th>Gastfahrt (€)</th><th>Spesen (€)</th><th>Sonderzahl. (€)</th></tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="l">${esc(r.label)}</td>${cells(r)}</tr>`).join('')}</tbody>
     <tfoot><tr><td class="l">${totalsLabel}</td>${cells(totals)}</tr></tfoot>
   </table>`

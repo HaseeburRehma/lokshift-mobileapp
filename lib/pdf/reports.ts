@@ -435,7 +435,7 @@ export function exportWorkingTimePdf(
       safeTime(e.start_time),
       safeTime(e.end_time),
       String(e.break_minutes ?? 0),
-      netHours.toFixed(2),
+      e.is_gastfahrt ? `${netHours.toFixed(2)} (${locale === 'de' ? 'Gastfahrt' : 'guest ride'})` : netHours.toFixed(2),
       e.customer?.name ?? '-',
       e.overnight_stay ? (locale === 'de' ? 'Ja' : 'Yes') : '-',
       Number(e.meal_allowance ?? 0).toFixed(2),
@@ -444,12 +444,14 @@ export function exportWorkingTimePdf(
     return row
   })
 
-  const totalHours = entries.reduce((s, e) => s + recomputeNetHours(e), 0)
+  // Gastfahrt is not working time (billing spec §5): summed separately.
+  const totalHours = entries.reduce((s, e) => s + (e.is_gastfahrt ? 0 : recomputeNetHours(e)), 0)
+  const gastHours = entries.reduce((s, e) => s + (e.is_gastfahrt ? recomputeNetHours(e) : 0), 0)
   const totalBreak = entries.reduce((s, e) => s + (Number(e.break_minutes) || 0), 0)
   const totalSpesen = entries.reduce((s, e) => s + (Number(e.meal_allowance) || 0), 0)
   const totalsRow: Cell[] = [locale === 'de' ? 'Summe' : 'Total']
   if (showEmployee) totalsRow.push('')
-  totalsRow.push('', '', String(totalBreak), totalHours.toFixed(2), '', '', totalSpesen.toFixed(2), '')
+  totalsRow.push('', '', String(totalBreak), gastHours > 0 ? `${totalHours.toFixed(2)} (+ ${gastHours.toFixed(2)} ${locale === 'de' ? 'Gastfahrt' : 'guest ride'})` : totalHours.toFixed(2), '', '', totalSpesen.toFixed(2), '')
 
   const breakCol = showEmployee ? 4 : 3
   const hoursCol = breakCol + 1

@@ -97,6 +97,7 @@ export function useDashboardStats() {
             .from('time_entries')
             .select('net_hours')
             .eq('organization_id', profile.organization_id)
+            .eq('is_planned', false).eq('is_gastfahrt', false) // worked time only (spec §5)
             .gte('start_time', weekStart)
             .lte('start_time', weekEnd),
           supabase
@@ -157,6 +158,7 @@ export function useDashboardStats() {
             .from('time_entries')
             .select('net_hours')
             .eq('employee_id', myId)
+            .eq('is_planned', false).eq('is_gastfahrt', false) // worked time only (spec §5)
             .gte('start_time', weekStart)
             .lte('start_time', weekEnd),
           supabase

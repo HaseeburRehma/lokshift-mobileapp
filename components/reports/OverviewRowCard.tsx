@@ -161,6 +161,11 @@ export function OverviewRowCard({ label, values, variant = 'row', onPress, busy 
         />
         <Cell label="" value="" />
       </View>
+      <View style={{ flexDirection: 'row', marginTop: 12 }}>
+        <Cell label={L('Spesen (€)', 'Per diem (€)')} value={formatEuro(values.spesenTotal, locale)} weight={isTotal ? '900' : '600'} />
+        <Cell label={L('Sonderzahlungen (€)', 'Special payments (€)')} value={formatEuro(values.specialPaymentsTotal, locale)} weight={isTotal ? '900' : '600'} />
+        <Cell label="" value="" />
+      </View>
     </View>
   )
 

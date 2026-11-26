@@ -467,7 +467,7 @@ function ShiftRow({
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginLeft: 0 }}>
           <Detail label={L('Pause', 'Break')} value={`${r.breakMinutes} Min.`} />
           {r.gastfahrtHours ? <Detail label={L('Gastfahrt', 'Gastfahrt')} value={formatHours(r.gastfahrtHours, locale)} color={C.violet700} /> : null}
-          {idx === 0 && day.daySpesen ? <Detail label={L('Spesen', 'Per diem')} value={formatEuro(day.daySpesen, locale)} /> : null}
+          {r.spesen ? <Detail label={L('Spesen', 'Per diem')} value={formatEuro(r.spesen, locale)} /> : null}
           <Detail label={L('Übernachtung', 'Overnight')} value={r.overnight ? L('ja', 'yes') : L('nein', 'no')} color={r.overnight ? C.emerald700 : undefined} />
           {r.night25 ? <Detail label={L('Nacht 25 %', 'Night 25 %')} value={formatHours(r.night25, locale)} /> : null}
           {r.night40 ? <Detail label={L('Nacht 40 %', 'Night 40 %')} value={formatHours(r.night40, locale)} /> : null}

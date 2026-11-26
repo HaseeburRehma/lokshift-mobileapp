@@ -18,7 +18,7 @@
  *     minutes × wage × rate, on the regular gross wage (no cascading).
  *   - Soll = weekly target ÷ 5 × weekdays (Mon–Fri, no public holiday)
  *     minus approved vacation/sick weekdays.
- *   - Spesen are counted at most once per calendar day.
+ *   - Spesen: exactly one value per shift (0 / 14 / 28 €, billing spec §4).
  *   - Planned (future) entries are not part of the statement.
  *   - A planned shift whose end has passed without any time entry is shown
  *     as "Geplant – keine Zeit erfasst" and counted as missing (QA P1-1).
@@ -496,7 +496,8 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
         isGastfahrt: !!p.is_gastfahrt,
       }))
 
-    const daySpesen = rows.reduce((max, r) => Math.max(max, r.spesen), 0)
+    // Spesen are per shift (spec §4); the day shows the sum of its shifts.
+    const daySpesen = r2(rows.reduce((sum, r) => sum + r.spesen, 0))
     const state: DayState = rows.some((r) => r.issues.length > 0 || r.status === 'running') || (rows.length > 0 && missing.length > 0)
       ? 'incomplete'
       : rows.length > 0
@@ -595,35 +596,29 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
   const baseAmount = withWage ? r2(rawBase) : null
   const gastfahrtAmount = gastMinutes > 0 && !missingGuestWage ? r2(rawGast) : null
 
-  // Spesen: once per day, grouped by rate.
+  // Spesen: one value per shift (spec §4), grouped by rate.
   const spesenMap = new Map<string, SpesenLine>()
   for (const d of days) {
-    if (d.daySpesen <= 0) continue
-    const kind = spesenKind(d.daySpesen, rates)
-    const k = kind === 'none' ? 'other' : kind
-    const key = k === 'other' ? `other:${d.daySpesen}` : k
-    const line = spesenMap.get(key) ?? {
-      kind: k,
-      label:
-        k === 'full'
-          ? locale === 'de' ? `Vollsatz ${rates.full} € (ab 8 Std. mit Übernachtung)` : `Full rate ${rates.full} € (8 h+ with overnight)`
-          : k === 'partial'
-            ? locale === 'de' ? `Teilsatz ${rates.partial} € (ab 8 Std.)` : `Partial rate ${rates.partial} € (8 h or more)`
-            : locale === 'de' ? `Sonstiger Satz ${d.daySpesen} €` : `Other rate ${d.daySpesen} €`,
-      rate: k === 'full' ? rates.full : k === 'partial' ? rates.partial : d.daySpesen,
-      count: 0,
-      amount: 0,
-    }
-    line.count += 1
-    line.amount = r2(line.amount + d.daySpesen)
-    spesenMap.set(key, line)
-    const multi = d.rows.filter((r) => r.spesen > 0).length
-    if (multi > 1) {
-      warnings.push(
-        locale === 'de'
-          ? `${d.date.slice(8, 10)}.${d.date.slice(5, 7)}.: mehrere Schichten mit Spesen – nur einmal gezählt.`
-          : `${d.date}: several shifts with per diem – counted once.`,
-      )
+    for (const r of d.rows) {
+      if (r.spesen <= 0) continue
+      const kind = spesenKind(r.spesen, rates)
+      const k = kind === 'none' ? 'other' : kind
+      const key = k === 'other' ? `other:${r.spesen}` : k
+      const line = spesenMap.get(key) ?? {
+        kind: k,
+        label:
+          k === 'full'
+            ? locale === 'de' ? `Vollsatz ${rates.full} € (ab 8 Std. mit Übernachtung)` : `Full rate ${rates.full} € (8 h+ with overnight)`
+            : k === 'partial'
+              ? locale === 'de' ? `Teilsatz ${rates.partial} € (ab 8 Std.)` : `Partial rate ${rates.partial} € (8 h or more)`
+              : locale === 'de' ? `Sonstiger Satz ${r.spesen} €` : `Other rate ${r.spesen} €`,
+        rate: k === 'full' ? rates.full : k === 'partial' ? rates.partial : r.spesen,
+        count: 0,
+        amount: 0,
+      }
+      line.count += 1
+      line.amount = r2(line.amount + r.spesen)
+      spesenMap.set(key, line)
     }
   }
   const order = { partial: 0, full: 1, other: 2 }

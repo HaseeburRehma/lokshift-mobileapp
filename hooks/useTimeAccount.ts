@@ -37,6 +37,9 @@ export function useTimeAccount(employeeId?: string) {
       .select('date, net_hours')
       .eq('organization_id', profile.organization_id)
       .eq('employee_id', targetId)
+      // Ist = worked time: no planned placeholders, no Gastfahrten (spec §5).
+      .eq('is_planned', false)
+      .eq('is_gastfahrt', false)
       .order('date', { ascending: false })
 
     if (error) {

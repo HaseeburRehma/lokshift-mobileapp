@@ -47,6 +47,7 @@ export function useOrganizationTimeAccounts() {
         .select('id, employee_id, net_hours')
         .eq('organization_id', profile!.organization_id)
         .eq('is_planned', false)
+        .eq('is_gastfahrt', false) // Gastfahrt is not working time (spec §5)
         .gte('date', yearStart)
         .order('id')
         .range(from, from + 999)

@@ -99,7 +99,7 @@ function monatsnachweisSheet(report: MonthlyReport): XLSX.WorkSheet {
         r.breakMinutes,
         num(r.workHours, HOURS, true),
         num(r.gastfahrtHours, HOURS, true),
-        idx === 0 && d.daySpesen ? num(d.daySpesen, EURO) : '',
+        r.spesen ? num(r.spesen, EURO) : '',
         r.overnight ? 'ja' : 'nein',
         num(r.night25, HOURS, true),
         num(r.night40, HOURS, true),
@@ -185,7 +185,7 @@ function overviewSheet(title: string, subtitle: string, firstCol: string, rows: 
     firstCol, 'Soll (Std.)', 'Arbeitszeit (Std.)', 'Gastfahrt (Std.)', 'Ist (Std.)', 'Differenz (Std.)',
     'Urlaub (Tage)', 'Krank (Tage)', 'Arbeitstage', 'Offene Einträge', 'Fehlerhafte Einträge',
     'Nacht 25 % (Std.)', 'Nacht 40 % (Std.)', 'Sonntag 50 % (Std.)', 'Feiertag 50 % (Std.)', '25./26.12. 150 % (Std.)', '31.12. 125 % (Std.)',
-    'Zuschläge (€)', 'Gastfahrt (€)',
+    'Zuschläge (€)', 'Gastfahrt (€)', 'Spesen (€)', 'Sonderzahlungen (€)',
   ])
   const put = (label: string, r: OverviewTotals) =>
     out.push([
@@ -194,6 +194,7 @@ function overviewSheet(title: string, subtitle: string, firstCol: string, rows: 
       num(r.night25, HOURS), num(r.night40, HOURS), num(r.sunday, HOURS), num(r.holiday, HOURS), num(r.christmas, HOURS), num(r.newYearsEve, HOURS),
       r.surchargeTotal == null ? 'kein Lohn' : num(r.surchargeTotal, EURO),
       r.gastfahrtAmount == null ? (r.gastfahrtHours > 0 ? 'kein Lohn' : '') : num(r.gastfahrtAmount, EURO),
+      num(r.spesenTotal, EURO), num(r.specialPaymentsTotal, EURO),
     ])
   rows.forEach((r) => put(r.label, r))
   put(totalsLabel, totals)
@@ -201,7 +202,7 @@ function overviewSheet(title: string, subtitle: string, firstCol: string, rows: 
   out.push([
     `Werte entsprechen den Monatsnachweisen. Gastfahrt separat ausgewiesen, ${gastfahrtCountsAsWork ? 'nicht doppelt gezählt; Ist = Arbeitszeit + Gastfahrt' : 'zählt nicht zu den Iststunden; Ist = Arbeitszeit'}. Zuschläge in Euro nur bei hinterlegtem Stundenlohn. Abwesenheitstage = Arbeitstage (Mo–Fr ohne Feiertag) mit genehmigtem Urlaub/Krankmeldung.`,
   ])
-  return sheet(out, [28, 12, 13, 13, 13, 13, 11, 12, 12, 14, 16, 11, 11, 12, 12, 13, 13, 14, 14], headerRow)
+  return sheet(out, [28, 12, 13, 13, 13, 13, 11, 12, 12, 14, 16, 11, 11, 12, 12, 13, 13, 14, 14, 12, 16], headerRow)
 }
 
 export async function exportMonthOverviewXlsx(o: MonthOverview, filename: string): Promise<string> {
