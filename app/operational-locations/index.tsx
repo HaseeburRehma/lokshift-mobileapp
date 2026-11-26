@@ -45,6 +45,7 @@ import { canCreatePlans } from '@/lib/rbac/permissions'
 import { useOperationalLocations } from '@/hooks/useOperationalLocations'
 import type { OperationalLocation, OperationalLocationType } from '@/lib/types'
 import { useSafeBack } from '@/lib/use-safe-back'
+import { ril100StatusLabel } from '@/lib/operational-locations/parse'
 
 const MONO_FONT = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' })
 
@@ -309,6 +310,9 @@ export default function OperationalLocationsScreen() {
                       <View className="flex-row items-start justify-between">
                         <Text className="text-[15px] font-bold text-slate-900 flex-1 pr-3">
                           {loc.name ?? '—'}
+                          {ril100StatusLabel(loc.ril100_status, locale === 'de' ? 'de' : 'en') ? (
+                            <Text style={{ fontSize: 11, color: '#D97706', fontWeight: '800' }}>{`  ${ril100StatusLabel(loc.ril100_status, locale === 'de' ? 'de' : 'en')}`}</Text>
+                          ) : null}
                         </Text>
                         <View
                           className={`rounded-md border px-2 py-0.5 ${

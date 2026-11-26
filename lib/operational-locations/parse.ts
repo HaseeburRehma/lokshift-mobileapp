@@ -16,6 +16,8 @@ export interface LocationLike {
   short_code: string | null
   type?: LocationType | string
   is_active?: boolean
+  /** null = the organisation's own entry, else e.g. "RIL100 30.10.2026". */
+  source?: string | null
 }
 
 export interface ParsedLocation {
@@ -208,7 +210,14 @@ export type RowCheck =
 /** Duplicate detection against the database and within the file. */
 export function checkRows(rows: ParsedLocation[], existing: LocationLike[]): Map<string, RowCheck> {
   const result = new Map<string, RowCheck>()
-  const byCode = new Map(existing.filter((e) => e.short_code).map((e) => [normCode(e.short_code), e]))
+  // An own entry and a RIL100 entry may share a code (RMR): the own one wins.
+  const byCode = new Map<string, LocationLike>()
+  for (const e of existing) {
+    if (!e.short_code) continue
+    const k = normCode(e.short_code)
+    const prev = byCode.get(k)
+    if (!prev || (prev.source != null && e.source == null)) byCode.set(k, e)
+  }
   const byName = new Map(existing.map((e) => [normalize(e.name), e]))
   const seenCode = new Map<string, string>()
   const seenName = new Map<string, string>()
@@ -234,4 +243,21 @@ export function checkRows(rows: ParsedLocation[], existing: LocationLike[]): Map
     if (!seenName.has(name)) seenName.set(name, r.key)
   }
   return result
+}
+
+/**
+ * Label of a RIL100 status that is not "in operation" (billing spec section 9:
+ * every operating point is searchable, closed/planned ones are marked).
+ * Empty for operating points, own entries and unknown values.
+ */
+export function ril100StatusLabel(status: string | null | undefined, locale: 'de' | 'en' = 'de'): string {
+  const s = (status ?? '').trim().toLowerCase()
+  const labels: Record<string, [string, string]> = {
+    'stillg.': ['stillgelegt', 'closed'],
+    'planung': ['in Planung', 'planned'],
+    'a.b.': ['außer Betrieb', 'out of service'],
+    'studie': ['Studie', 'study'],
+  }
+  const hit = labels[s]
+  return hit ? hit[locale === 'de' ? 0 : 1] : ''
 }

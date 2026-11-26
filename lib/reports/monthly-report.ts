@@ -38,6 +38,7 @@ import {
   weightedSurchargeHours,
   type SurchargeBucket,
   type SurchargeMinutes,
+  type BreakPeriod,
   type SurchargeRules,
 } from '@/lib/time/zuschlag'
 import { DEFAULT_SPESEN_RATES, spesenKind, type SpesenRates } from '@/lib/spesen'
@@ -57,6 +58,8 @@ export interface ReportEntry {
   start_time: string
   end_time: string | null
   break_minutes: number | null
+  /** Real break times (clock / "Pause ab"); surcharges skip these minutes. */
+  break_periods?: BreakPeriod[] | null
   net_hours: number | null
   meal_allowance?: number | null
   overnight_stay?: boolean | null
@@ -449,7 +452,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReport {
       .map((e) => {
         const net = entryNetHours(e)
         const isGast = !!e.is_gastfahrt
-        const z = calculateSurcharges(e.start_time, e.end_time, { isGastfahrt: isGast, netHours: net, rules })
+        const z = calculateSurcharges(e.start_time, e.end_time, { isGastfahrt: isGast, netHours: net, breakPeriods: e.break_periods, rules })
         return {
           entryId: e.id,
           date,

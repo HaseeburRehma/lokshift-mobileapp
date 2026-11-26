@@ -38,6 +38,7 @@ import { C, IconTile, MicroLabel, SheetHeader, ToggleCard } from './time/ui'
 import { useTranslation } from '@/lib/i18n'
 import { useUser } from '@/lib/user-context'
 import { addDays, calculateShiftTimes, isValidDate, isValidTime, localDateKey, localTimeKey } from '@/lib/time/shift-hours'
+import { breakPeriodFromForm, breakPeriodsToSave, breakStartForForm } from '@/lib/time/zuschlag'
 import { calculateSpesen, spesenTierLabel } from '@/lib/spesen'
 import { formatDateDE, formatEuro, formatHours, formatHoursLong, formatShiftRange } from '@/lib/time/format'
 import { useOrgRules } from '@/hooks/useOrgRules'
@@ -77,6 +78,8 @@ export function TimeEntrySheet({
   const [startTime, setStartTime] = useState('08:00')
   const [endTime, setEndTime] = useState('16:00')
   const [breakMinutes, setBreakMinutes] = useState('0')
+  // "Pause ab" (HH:MM, German time) — '' = position of the break unknown.
+  const [breakStart, setBreakStart] = useState('')
   const [customerId, setCustomerId] = useState('')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
@@ -104,6 +107,7 @@ export function TimeEntrySheet({
       setEndTime(initial.end_time ? localTimeKey(new Date(initial.end_time)) : '')
       setPlanId(initial.plan_id ?? null)
       setBreakMinutes(String(initial.break_minutes ?? 0))
+      setBreakStart(breakStartForForm(initial.break_periods))
       setCustomerId(initial.customer_id ?? '')
       setLocation(initial.location ?? '')
       setNotes(initial.notes ?? '')
@@ -120,6 +124,7 @@ export function TimeEntrySheet({
       setStartTime('08:00')
       setEndTime('16:00')
       setBreakMinutes('0')
+      setBreakStart('')
       setCustomerId('')
       setLocation('')
       setNotes('')
@@ -185,12 +190,25 @@ export function TimeEntrySheet({
     [shift.netHours, overnight, spesenRates],
   )
 
+  // Break times (billing spec: surcharges only for actually worked minutes,
+  // by real clock time). Recorded clock breaks stay unless the break itself
+  // is changed here.
+  const storedBreaks = initial?.break_periods ?? []
+  const breakMinutesChanged = (Number(breakMinutes) || 0) !== (initial?.break_minutes ?? 0)
+  const clockBreaks = storedBreaks.length > 1 && !breakMinutesChanged && !breakStart
+  const formBreaks = (Number(breakMinutes) || 0) > 0 && breakStart && isValidTime(breakStart) && shift.netHours > 0
+    ? breakPeriodFromForm(shift.startISO, shift.endISO, breakStart, Number(breakMinutes) || 0)
+    : []
+  const breakPeriods = breakPeriodsToSave(storedBreaks, formBreaks, (Number(breakMinutes) || 0) > 0 ? breakStart : '', breakMinutesChanged)
+
   let formError: string | null = null
   if (isManagerial && !initial && !employeeId) formError = L('Bitte einen Mitarbeiter auswählen.', 'Please select an employee.')
   else if (!isValidDate(date)) formError = L('Bitte ein gültiges Datum eingeben (JJJJ-MM-TT).', 'Please enter a valid date (YYYY-MM-DD).')
   else if (!isValidTime(startTime) || !isValidTime(endTime)) formError = L('Bitte Beginn und Ende im Format HH:MM eingeben.', 'Please enter start and end as HH:MM.')
   else if (startTime === endTime) formError = L('Ende entspricht dem Beginn.', 'End equals start.')
   else if (shift.netHours <= 0) formError = L('Die Pause ist so lang wie die Schicht.', 'The break is as long as the shift.')
+  else if (breakStart && !isValidTime(breakStart)) formError = L('Bitte „Pause ab“ als Uhrzeit HH:MM eingeben.', 'Please enter "Break from" as HH:MM.')
+  else if (formBreaks === null) formError = L('Die Pause muss innerhalb der Schicht liegen.', 'The break must lie within the shift.')
   else if (requireReason && reason.trim().length < 3) formError = L('Bitte einen Änderungsgrund angeben.', 'Please enter a reason for the change.')
 
   const findOverlaps = async (emp: string): Promise<TimeEntry[]> => {
@@ -238,6 +256,8 @@ export function TimeEntrySheet({
         start_time: shift.startISO,
         end_time: shift.endISO,
         break_minutes: Number(breakMinutes) || 0,
+        // Clock break times are system data for employees (DB rule).
+        ...(breakPeriods !== undefined && (isManagerial || !initial?.clock_start_time) ? { break_periods: breakPeriods } : {}),
         plan_id: planId,
         customer_id: customerId || null,
         location: location || null,
@@ -404,6 +424,22 @@ export function TimeEntrySheet({
               keyboardType="number-pad"
               leftIcon={fieldIcon(<Clock size={18} color={C.blue600} />)}
             />
+            {(Number(breakMinutes) || 0) > 0 && (isManagerial || !initial?.clock_start_time) ? (
+              <View>
+                <FormField
+                  label={L('Pause ab (Uhrzeit)', 'Break from (time)')}
+                  value={breakStart}
+                  onChangeText={setBreakStart}
+                  placeholder="HH:MM"
+                  keyboardType="numbers-and-punctuation"
+                />
+                <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 4, marginLeft: 4 }}>
+                  {clockBreaks
+                    ? L(`${storedBreaks.length} Pausen aus der Stempeluhr – Zuschläge minutengenau.`, `${storedBreaks.length} breaks from the clock – surcharges to the minute.`)
+                    : L('Für minutengenaue Zuschläge (Pause zählt nicht als Nachtarbeit). Leer = Lage unbekannt.', 'For exact surcharges (the break is not night work). Empty = position unknown.')}
+                </Text>
+              </View>
+            ) : null}
 
             <View>
               <View style={{ flexDirection: 'row', gap: 12 }}>

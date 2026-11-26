@@ -15,6 +15,7 @@ import { MapPin, Search, X, Check, ChevronDown } from 'lucide-react-native'
 import { useUser } from '@/lib/user-context'
 import { useTranslation } from '@/lib/i18n'
 import { cachedLocation, fetchLocationById, searchLocationsRemote, type PickerLocation } from '@/lib/operational-locations/cache'
+import { ril100StatusLabel } from '@/lib/operational-locations/parse'
 
 const TYPE_LABELS: Record<string, [string, string]> = {
   depot: ['Depot', 'Depot'],
@@ -120,7 +121,7 @@ export function OperationalLocationPicker({ value, onChange, label, excludeId, d
               <>
                 <Text style={{ fontSize: 14, fontWeight: '800', color: '#0F172A' }} numberOfLines={1}>{selected.name}</Text>
                 <Text style={{ fontSize: 11, color: '#64748B' }} numberOfLines={1}>
-                  {selected.short_code ? `${selected.short_code} · ` : ''}{typeLabel(selected.type)}{!selected.is_active ? ` · ${L('archiviert', 'archived')}` : ''}
+                  {selected.short_code ? `${selected.short_code} · ` : ''}{typeLabel(selected.type)}{ril100StatusLabel(selected.ril100_status, locale === 'de' ? 'de' : 'en') ? ` · ${ril100StatusLabel(selected.ril100_status, locale === 'de' ? 'de' : 'en')}` : ''}{!selected.is_active ? ` · ${L('archiviert', 'archived')}` : ''}
                 </Text>
               </>
             ) : (
@@ -205,7 +206,10 @@ export function OperationalLocationPicker({ value, onChange, label, excludeId, d
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={{ fontSize: 14, fontWeight: on ? '900' : '700', color: '#0F172A' }} numberOfLines={1}>{item.name}</Text>
-                        <Text style={{ fontSize: 11, color: '#94A3B8' }}>{typeLabel(item.type)}</Text>
+                        <Text style={{ fontSize: 11, color: '#94A3B8' }}>
+                          {typeLabel(item.type)}
+                          {ril100StatusLabel(item.ril100_status, locale === 'de' ? 'de' : 'en') ? <Text style={{ color: '#D97706', fontWeight: '700' }}>{` · ${ril100StatusLabel(item.ril100_status, locale === 'de' ? 'de' : 'en')}`}</Text> : null}
+                        </Text>
                       </View>
                       {on && <Check size={18} color="#0064E0" />}
                     </View>

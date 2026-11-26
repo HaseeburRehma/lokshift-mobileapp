@@ -11,9 +11,9 @@ import { getSupabase } from '@/lib/supabase/client'
 import type { OperationalLocation } from '@/lib/types'
 import { searchLocations } from './parse'
 
-export type PickerLocation = Pick<OperationalLocation, 'id' | 'organization_id' | 'name' | 'short_code' | 'type' | 'is_active'>
+export type PickerLocation = Pick<OperationalLocation, 'id' | 'organization_id' | 'name' | 'short_code' | 'type' | 'is_active'> & { ril100_status?: string | null }
 
-const COLS = 'id, organization_id, name, short_code, type, is_active'
+const COLS = 'id, organization_id, name, short_code, type, is_active, ril100_status'
 const byId = new Map<string, PickerLocation>()
 
 export function rememberLocations(rows: PickerLocation[]): void {

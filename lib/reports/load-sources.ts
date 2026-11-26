@@ -70,7 +70,7 @@ export async function loadReportSources(
     let q = supabase
       .from('time_entries')
       .select(
-        'id, employee_id, entered_by, date, start_time, end_time, break_minutes, net_hours, meal_allowance, overnight_stay, is_gastfahrt, is_planned, is_verified, submitted_at, corrected_at, notes, customer:customers(name), start_location:operational_locations!start_location_id(name, short_code), destination_location:operational_locations!destination_location_id(name, short_code)',
+        'id, employee_id, entered_by, date, start_time, end_time, break_minutes, break_periods, net_hours, meal_allowance, overnight_stay, is_gastfahrt, is_planned, is_verified, submitted_at, corrected_at, notes, customer:customers(name), start_location:operational_locations!start_location_id(name, short_code), destination_location:operational_locations!destination_location_id(name, short_code)',
       )
       .eq('organization_id', opts.organizationId)
       .gte('date', start)

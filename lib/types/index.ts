@@ -132,6 +132,9 @@ export interface OperationalLocation {
   is_active: boolean
   notes: string | null
   phone_number?: string | null
+  /** RIL100 import: status (Betrieb, stillg., Planung, a.B., Studie) and origin. */
+  ril100_status?: string | null
+  source?: string | null
   created_at: string
   updated_at: string
 }
@@ -236,6 +239,8 @@ export interface TimeEntry {
   current_break_start?: string | null
   total_break_seconds?: number
   is_planned: boolean
+  /** Real break times [{start,end}] — clock breaks are recorded by the DB. */
+  break_periods?: { start: string; end: string }[] | null
   overnight_stay: boolean
   hotel_address: string | null
   meal_allowance: number | null
